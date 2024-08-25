@@ -117,6 +117,7 @@ function updateSummaryForSelectedProduct(productId) {
 
                     console.log('Checking row with category:', category, 'and product ID:', currentProductId);
 
+                    // The logic here is essential to ensure that the main composite product isn't removed
                     if (category === response.data.category_slug && currentProductId !== productId && currentProductId !== response.data.main_product_id) {
                         // Remove the previous product from the same category
                         $currentRow.remove();
@@ -131,7 +132,7 @@ function updateSummaryForSelectedProduct(productId) {
                 $('.total-monthly-fees-subtotal').before(newRow);
 
                 // Trigger updates for subtotal, tax, and total
-                updateAllMonthlyFees();
+                updateAllMonthlyFees(); // This line is crucial to ensuring that the summary is updated.
             } else {
                 console.log("Failed to update summary:", response);
             }
@@ -141,6 +142,7 @@ function updateSummaryForSelectedProduct(productId) {
         }
     });
 }
+
 
 
 
