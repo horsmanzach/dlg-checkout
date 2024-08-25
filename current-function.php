@@ -124,8 +124,22 @@ function wc_cp_component_loop_columns( $cols, $component_id, $composite ) {
 
 /*------ CALCULATION FUNCTIONS -----------   */
 
-add_filter('woocommerce_add_cart_item_data', 'add_monthly_fee_to_cart_item', 10, 2);
+add_filter('woocommerce_add_cart_item_data', 'add_monthly_fee_to_cart_item', 20, 2);
+
 function add_monthly_fee_to_cart_item($cart_item_data, $product_id) {
+    error_log('add_monthly_fee_to_cart_item function called for product ID: ' . $product_id);
+
+    // Ensure product data is set
+    if (!isset($cart_item_data['data']) || empty($cart_item_data['data'])) {
+        $product = wc_get_product($product_id);
+        if (!$product) {
+            error_log('Could not retrieve product data for product ID: ' . $product_id);
+            return $cart_item_data;
+        }
+        $cart_item_data['data'] = $product;
+    }
+
+    // Add the monthly fee
     $monthly_fee = get_post_meta($product_id, 'monthly_fee', true);
     if ($monthly_fee) {
         $cart_item_data['monthly_fee'] = $monthly_fee;
@@ -133,9 +147,9 @@ function add_monthly_fee_to_cart_item($cart_item_data, $product_id) {
     } else {
         error_log('No monthly_fee found for product ID: ' . $product_id);
     }
+
     return $cart_item_data;
 }
-
 
 // Monthly Subtotal Calculation
 
@@ -175,8 +189,6 @@ function calculate_monthly_fees_subtotal() {
     error_log('Subtotal calculated: ' . $monthly_fee_subtotal);
     return $monthly_fee_subtotal;
 }
-
-
 
 
 // Monthly Tax Calculation 
@@ -220,6 +232,15 @@ function calculate_monthly_fees_total() {
     return $total;
 }
 
+// Ensure the cart is initialized on product pages
+
+function initialize_cart_on_product_page() {
+    if (is_product()) {
+        WC()->cart->calculate_totals();
+    }
+}
+
+add_action('template_redirect', 'initialize_cart_on_product_page');
 
 // ------- MONTHLY SUMMARY SHORTCODE FUNCTION
 
@@ -239,20 +260,29 @@ function display_monthly_fees_summary_shortcode() {
     $main_product_monthly_fee = get_post_meta($main_product_id, 'monthly_fee', true);
 
     // Get the product's category
-   // Ensure category retrieval in display_monthly_fees_summary_shortcode
-$terms = get_the_terms($main_product_id, 'product_cat');
-$main_product_category = '';
-if ($terms && !is_wp_error($terms)) {
-    $main_product_category = $terms[0]->name;
-    error_log('Main product category: ' . $main_product_category);
-} else {
-    error_log('Failed to retrieve category for main product ID: ' . $main_product_id);
-}
+    $terms = get_the_terms($main_product_id, 'product_cat');
+    $main_product_category = '';
+    if ($terms && !is_wp_error($terms)) {
+        $main_product_category = $terms[0]->name;
+    }
 
+    // Simulate adding the main composite product to the cart
+    $cart_item_data = array();
+    $cart_item_data = add_monthly_fee_to_cart_item($cart_item_data, $main_product_id);
+
+    // Manually update the WooCommerce cart session (or simulate it)
+    $cart_item_key = $cart->generate_cart_id($main_product_id);
+    $cart->cart_contents[$cart_item_key] = array_merge(array(
+        'product_id' => $main_product_id,
+        'quantity' => 1,
+    ), $cart_item_data);
+
+    WC()->cart->set_session();
+    WC()->cart->calculate_totals();
 
     // Call the new functions to get the subtotal and tax values
-    $total_monthly_fee_subtotal = $cart->get_cart_contents_count() > 0 ? calculate_monthly_fees_subtotal() : 0;
-    $total_monthly_fee_tax = $cart->get_cart_contents_count() > 0 ? calculate_monthly_fees_tax() : 0;
+    $total_monthly_fee_subtotal = calculate_monthly_fees_subtotal();
+    $total_monthly_fee_tax = calculate_monthly_fees_tax();
     $total_monthly_fee = $total_monthly_fee_subtotal + $total_monthly_fee_tax;
 
     $output = '<h4>' . __('Your Monthly Summary ', 'woocommerce') . '</h4>';
@@ -260,32 +290,31 @@ if ($terms && !is_wp_error($terms)) {
     $output .= '<table class="shop_table shop_table_responsive monthly_summary_table">';
 
     // Display the main composite product as the first item
-   	if ($main_product_monthly_fee) {
+    if ($main_product_monthly_fee) {
         $output .= '<tr class="individual-monthly-fee" data-product-id="' . esc_attr($main_product_id) . '">
             <th>' . esc_html($main_product_title) . '<br/><span class="product-categories">Category: ' . esc_html($main_product_category) . '</span></th>
             <td>' . wc_price($main_product_monthly_fee) . '</td>
         </tr>';
     } 
 
-    if ($cart->get_cart_contents_count() > 0) {
-        foreach ($cart->get_cart() as $cart_item) {
-            $product = $cart_item['data'];
-            $product_title = $product->get_name();
-            $product_categories = wc_get_product_category_list($product->get_id(), ', ', '<span class="product-categories">', '</span>');
-            $monthly_fee = isset($cart_item['monthly_fee']) ? $cart_item['monthly_fee'] : 0;
-            $quantity = $cart_item['quantity'];
-            $product_monthly_fee_total = $monthly_fee * $quantity;
+    // Display the selected components
+    foreach ($cart->get_cart() as $cart_item) {
+        $product = $cart_item['data'];
+        $product_title = $product->get_name();
+        $product_categories = wc_get_product_category_list($product->get_id(), ', ', '<span class="product-categories">', '</span>');
+        $monthly_fee = isset($cart_item['monthly_fee']) ? $cart_item['monthly_fee'] : 0;
+        $quantity = $cart_item['quantity'];
+        $product_monthly_fee_total = $monthly_fee * $quantity;
 
-            // Skip the main product if it's already added
-            if ($cart_item['product_id'] == $main_product_id) {
-                continue;
-            }
-
-            $output .= '<tr class="individual-monthly-fee">
-                <th>' . $product_title . '<br/>' . $product_categories . '</th>
-                <td>' . wc_price($product_monthly_fee_total) . '</td>
-            </tr>';
+        // Skip the main product if it's already added
+        if ($cart_item['product_id'] == $main_product_id) {
+            continue;
         }
+
+        $output .= '<tr class="individual-monthly-fee">
+            <th>' . $product_title . '<br/>' . $product_categories . '</th>
+            <td>' . wc_price($product_monthly_fee_total) . '</td>
+        </tr>';
     }
 
     // Always display subtotal, tax, and total rows
@@ -308,6 +337,7 @@ if ($terms && !is_wp_error($terms)) {
 }
 
 add_shortcode('monthly_fees_summary', 'display_monthly_fees_summary_shortcode');
+
 
 
 // Hide shipping costs in the checkout order review table
@@ -394,7 +424,9 @@ add_action('wp_ajax_calculate_monthly_fee_total', 'calculate_monthly_fee_total')
 add_action('wp_ajax_nopriv_calculate_monthly_fee_total', 'calculate_monthly_fee_total');
 
 
-// Function to handle updated monthly summary table for selected products
+// ============= Function to handle updated monthly summary table for selected products
+
+// ============= Function to handle updated monthly summary table for selected products
 
 function update_selected_product_summary() {
     check_ajax_referer('update_selected_product_summary_nonce', 'nonce');
@@ -413,8 +445,8 @@ function update_selected_product_summary() {
         return;
     }
 
-	// Set Main Product ID
-	$main_product_id = $product_id;
+    // Set Main Product ID
+    $main_product_id = $product_id;
 
     // Get the main composite product ID from the URL
     global $post;
@@ -430,7 +462,22 @@ function update_selected_product_summary() {
             throw new Exception('Monthly fee not set for product ID ' . $product_id);
         }
 
-        // Find the product's category
+        // Simulate adding the product to the cart
+        $cart_item_data = array();
+        $cart_item_data = add_monthly_fee_to_cart_item($cart_item_data, $product_id);
+
+        // Manually update the WooCommerce cart session (or simulate it)
+        $cart = WC()->cart;
+        $cart_item_key = $cart->generate_cart_id($product_id);
+        $cart->cart_contents[$cart_item_key] = array_merge(array(
+            'product_id' => $product_id,
+            'quantity' => 1,
+        ), $cart_item_data);
+        
+        WC()->cart->set_session();
+        WC()->cart->calculate_totals();
+
+        // Get the product's category
         $terms = get_the_terms($product_id, 'product_cat');
         $category_slug = '';
         $product_category = '';
@@ -461,7 +508,6 @@ function update_selected_product_summary() {
 
 add_action('wp_ajax_update_selected_product_summary', 'update_selected_product_summary');
 add_action('wp_ajax_nopriv_update_selected_product_summary', 'update_selected_product_summary');
-
 
 /*================================================
 #Load custom Contact Form Module
