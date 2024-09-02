@@ -463,8 +463,9 @@ function update_selected_product_summary() {
         }
 
         // Simulate adding the product to the cart
-        $cart_item_data = array();
+      	$cart_item_data = array();
         $cart_item_data = add_monthly_fee_to_cart_item($cart_item_data, $product_id);
+		
 
         // Manually update the WooCommerce cart session (or simulate it)
         $cart = WC()->cart;
@@ -508,6 +509,7 @@ function update_selected_product_summary() {
 
 add_action('wp_ajax_update_selected_product_summary', 'update_selected_product_summary');
 add_action('wp_ajax_nopriv_update_selected_product_summary', 'update_selected_product_summary');
+
 
 /*================================================
 #Load custom Contact Form Module
