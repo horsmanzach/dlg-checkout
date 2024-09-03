@@ -101,38 +101,31 @@ function updateSummaryForSelectedProduct(productId) {
             if (response.success) {
                 console.log("Product summary updated:", response);
 
-                // Remove 'No products' placeholder if present
-                $('.monthly_summary_table .individual-monthly-fee').each(function () {
-                    if ($(this).find('th').text() === 'No products') {
-                        $(this).remove();
-                    }
-                });
-
-                // Remove any existing product in the same category before adding the new one,
-                // but ensure the main composite product is not removed
+                // Remove any existing product in the same category before adding the new one
                 $('.monthly_summary_table .individual-monthly-fee').each(function () {
                     let $currentRow = $(this);
                     let category = $currentRow.data('category');
                     let currentProductId = $currentRow.data('product-id');
 
-                    console.log('Checking row with category:', category, 'and product ID:', currentProductId);
-
-                    // The logic here is essential to ensure that the main composite product isn't removed
-                    if (category === response.data.category_slug && currentProductId !== productId && currentProductId !== response.data.main_product_id) {
-                        // Remove the previous product from the same category
+                    if (category === response.data.category_slug && currentProductId !== productId) {
                         $currentRow.remove();
                         console.log("Previous product from the same category was removed");
                     }
                 });
 
-                // Add the new product to the summary table with the correct data attributes
+                // Add the new product to the summary table
                 let newRow = $(response.data.html);
-                newRow.attr('data-product-id', productId); // Set the product ID as a data attribute
-                newRow.attr('data-category', response.data.category_slug); // Set the category as a data attribute
+                newRow.attr('data-product-id', productId);
+                newRow.attr('data-category', response.data.category_slug);
                 $('.total-monthly-fees-subtotal').before(newRow);
 
-                // Trigger updates for subtotal, tax, and total
-                updateAllMonthlyFees(); // This line is crucial to ensuring that the summary is updated.
+                // Update the totals
+                $('.total-monthly-fees-subtotal td').text(response.subtotal);
+                $('.total-monthly-fees-tax td').text(response.tax);
+                $('.total-monthly-fees td').text(response.total);
+
+                // Ensure totals are correct
+                updateAllMonthlyFees();
             } else {
                 console.log("Failed to update summary:", response);
             }
@@ -142,7 +135,6 @@ function updateSummaryForSelectedProduct(productId) {
         }
     });
 }
-
 
 
 
