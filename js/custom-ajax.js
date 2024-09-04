@@ -1,8 +1,6 @@
 jQuery(document).ready(function ($) {
     console.log("Custom AJAX script loaded.");
 
-    // Functions to Calculate Subtotal, Tax and Total when Add to Cart Event Occurs
-
     function updateMonthlyFeeSubtotal() {
         $.ajax({
             url: ajax_object.ajax_url,
@@ -70,9 +68,8 @@ jQuery(document).ready(function ($) {
     });
     }
 
-    // Function to handle updating summary when Add to Cart Event Occurs
 
-    function updateSummaryForSelectedProduct(productId) { 
+function updateSummaryForSelectedProduct(productId) { 
     // Check if the product is already in the summary table
     var productExists = false;
     
@@ -104,31 +101,38 @@ jQuery(document).ready(function ($) {
             if (response.success) {
                 console.log("Product summary updated:", response);
 
-                // Remove any existing product in the same category before adding the new one
+                // Remove 'No products' placeholder if present
+                $('.monthly_summary_table .individual-monthly-fee').each(function () {
+                    if ($(this).find('th').text() === 'No products') {
+                        $(this).remove();
+                    }
+                });
+
+                // Remove any existing product in the same category before adding the new one,
+                // but ensure the main composite product is not removed
                 $('.monthly_summary_table .individual-monthly-fee').each(function () {
                     let $currentRow = $(this);
                     let category = $currentRow.data('category');
                     let currentProductId = $currentRow.data('product-id');
 
-                    if (category === response.data.category_slug && currentProductId !== productId) {
+                    console.log('Checking row with category:', category, 'and product ID:', currentProductId);
+
+                    // The logic here is essential to ensure that the main composite product isn't removed
+                    if (category === response.data.category_slug && currentProductId !== productId && currentProductId !== response.data.main_product_id) {
+                        // Remove the previous product from the same category
                         $currentRow.remove();
                         console.log("Previous product from the same category was removed");
                     }
                 });
 
-                // Add the new product to the summary table
+                // Add the new product to the summary table with the correct data attributes
                 let newRow = $(response.data.html);
-                newRow.attr('data-product-id', productId);
-                newRow.attr('data-category', response.data.category_slug);
+                newRow.attr('data-product-id', productId); // Set the product ID as a data attribute
+                newRow.attr('data-category', response.data.category_slug); // Set the category as a data attribute
                 $('.total-monthly-fees-subtotal').before(newRow);
 
-                // Update the totals
-                $('.total-monthly-fees-subtotal td').text(response.subtotal);
-                $('.total-monthly-fees-tax td').text(response.tax);
-                $('.total-monthly-fees td').text(response.total);
-
-                // Ensure totals are correct
-                updateAllMonthlyFees();
+                // Trigger updates for subtotal, tax, and total
+                updateAllMonthlyFees(); // This line is crucial to ensuring that the summary is updated.
             } else {
                 console.log("Failed to update summary:", response);
             }
@@ -137,67 +141,9 @@ jQuery(document).ready(function ($) {
             console.log("AJAX request failed:", status, error);
         }
     });
-
-      // Function to recalculate summary table totals when selected product events work
-
-function recalculateTotals() {
-    let selectedComponents = [];
-    
-    // Gather all elements with the 'selected' class
-    $('.component_option_thumbnail.selected').each(function() {
-    let componentId = $(this).data('val');
-    let monthlyFee = ajax_object.monthly_fees[componentId];
-
-    $(this).attr('data-monthly-fee', monthlyFee);
-
-    console.log('Component ID:', componentId); // Log the component ID
-    console.log('Component Monthly Fee:', monthlyFee); // Log the component monthly fee
-
-    selectedComponents.push({
-        id: componentId,
-        price: monthlyFee
-    });
-});
-
-
-    console.log('Selected Components:', selectedComponents); // Log the gathered components
-
-    // Send the selected components to the server via AJAX
-    $.ajax({
-        url: ajax_object.ajax_url,
-        type: 'POST',
-        data: {
-            action: 'update_component_totals',
-            components: selectedComponents,
-            nonce: ajax_object.update_component_totals_nonce // Include the nonce
-        },
-        success: function(response) {
-            console.log('Response:', response); // Log the server response
-            if(response.success) {
-                // Update the displayed totals
-                $('.total-montly-fees-subtotal td').text(response.data.subtotal);
-                $('.total-monthly-fees-tax td').text(response.data.tax_total);
-                $('.total-monthly-fees td').text(response.data.total);
-            } else {
-                console.error('Error in AJAX response:', response.data.error); // Log errors
-            }
-        }
-    });
 }
 
 
-        // Trigger recalculation when a component is selected
-    $('.component_option_thumbnail').on('click', function() {
-        let componentId = $(this).data('val');
-        let monthlyFee = ajax_object.monthly_fees[componentId];
-
-        console.log('Component ID:', componentId); // Log the component ID immediately after selection
-        console.log('Component Monthly Fee:', monthlyFee); // Log the component monthly fee immediately after selection
-
-        recalculateTotals(); // Recalculate totals after each selection
-    });
-    
-}
 
 
 // Unified update function to handle updates
@@ -235,7 +181,7 @@ function recalculateTotals() {
     });
 
 
-// Listen for the WooCommerce 'added_to_cart' and other relevant events
+ // Listen for the WooCommerce 'added_to_cart' and other relevant events
 $('body').on('added_to_cart removed_from_cart', function (event, fragments, cart_hash, $button) {
     console.log("Cart updated - product added or removed.");
 
@@ -246,18 +192,10 @@ $('body').on('added_to_cart removed_from_cart', function (event, fragments, cart
         productIds = [$button.data('product_id')]; // Fallback if only one product ID is available
     }
 
-    // If productIds is still undefined, try to extract the product_id directly from WooCommerce fragments
+    // If productIds is still undefined, log an error
     if (!productIds || productIds.length === 0) {
         console.error("No valid product IDs found in the added_to_cart event.");
-
-            // Attempt to extract from the cart hash or fragments (as WooCommerce might not store in $button)
-            let productIdFromHash = fragments?.cart?.find(item => item.product_id);
-            if (productIdFromHash) {
-                productIds = [productIdFromHash.product_id];
-        } else {
-            console.error("Still unable to determine product ID.");
-            return; // Exit if no valid product ID is found
-        }
+        return;
     }
 
     // Loop through each product being added
@@ -278,7 +216,6 @@ $('body').on('added_to_cart removed_from_cart', function (event, fragments, cart
     // Finally, update all monthly fees after processing all products
     updateAllMonthlyFees();
 });
-
 
 
 
@@ -303,5 +240,3 @@ $('body').on('added_to_cart removed_from_cart', function (event, fragments, cart
         updateAllMonthlyFees();
     });
 });
-
-
