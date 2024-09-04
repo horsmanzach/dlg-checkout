@@ -1,6 +1,8 @@
 jQuery(document).ready(function ($) {
     console.log("Custom AJAX script loaded.");
 
+    // Functions to Calculate Subtotal, Tax and Total when Add to Cart Event Occurs
+
     function updateMonthlyFeeSubtotal() {
         $.ajax({
             url: ajax_object.ajax_url,
@@ -68,8 +70,9 @@ jQuery(document).ready(function ($) {
     });
     }
 
+    // Function to handle updating summary when Add to Cart Event Occurs
 
-function updateSummaryForSelectedProduct(productId) { 
+    function updateSummaryForSelectedProduct(productId) { 
     // Check if the product is already in the summary table
     var productExists = false;
     
@@ -134,8 +137,67 @@ function updateSummaryForSelectedProduct(productId) {
             console.log("AJAX request failed:", status, error);
         }
     });
+
+      // Function to recalculate summary table totals when selected product events work
+
+function recalculateTotals() {
+    let selectedComponents = [];
+    
+    // Gather all elements with the 'selected' class
+    $('.component_option_thumbnail.selected').each(function() {
+    let componentId = $(this).data('val');
+    let monthlyFee = ajax_object.monthly_fees[componentId];
+
+    $(this).attr('data-monthly-fee', monthlyFee);
+
+    console.log('Component ID:', componentId); // Log the component ID
+    console.log('Component Monthly Fee:', monthlyFee); // Log the component monthly fee
+
+    selectedComponents.push({
+        id: componentId,
+        price: monthlyFee
+    });
+});
+
+
+    console.log('Selected Components:', selectedComponents); // Log the gathered components
+
+    // Send the selected components to the server via AJAX
+    $.ajax({
+        url: ajax_object.ajax_url,
+        type: 'POST',
+        data: {
+            action: 'update_component_totals',
+            components: selectedComponents,
+            nonce: ajax_object.update_component_totals_nonce // Include the nonce
+        },
+        success: function(response) {
+            console.log('Response:', response); // Log the server response
+            if(response.success) {
+                // Update the displayed totals
+                $('.total-montly-fees-subtotal td').text(response.data.subtotal);
+                $('.total-monthly-fees-tax td').text(response.data.tax_total);
+                $('.total-monthly-fees td').text(response.data.total);
+            } else {
+                console.error('Error in AJAX response:', response.data.error); // Log errors
+            }
+        }
+    });
 }
 
+
+        // Trigger recalculation when a component is selected
+    $('.component_option_thumbnail').on('click', function() {
+        let componentId = $(this).data('val');
+        let monthlyFee = ajax_object.monthly_fees[componentId];
+
+        console.log('Component ID:', componentId); // Log the component ID immediately after selection
+        console.log('Component Monthly Fee:', monthlyFee); // Log the component monthly fee immediately after selection
+
+        recalculateTotals(); // Recalculate totals after each selection
+    });
+    
+}
 
 
 // Unified update function to handle updates
@@ -173,7 +235,7 @@ function updateSummaryForSelectedProduct(productId) {
     });
 
 
- // Listen for the WooCommerce 'added_to_cart' and other relevant events
+// Listen for the WooCommerce 'added_to_cart' and other relevant events
 $('body').on('added_to_cart removed_from_cart', function (event, fragments, cart_hash, $button) {
     console.log("Cart updated - product added or removed.");
 
@@ -184,10 +246,18 @@ $('body').on('added_to_cart removed_from_cart', function (event, fragments, cart
         productIds = [$button.data('product_id')]; // Fallback if only one product ID is available
     }
 
-    // If productIds is still undefined, log an error
+    // If productIds is still undefined, try to extract the product_id directly from WooCommerce fragments
     if (!productIds || productIds.length === 0) {
         console.error("No valid product IDs found in the added_to_cart event.");
-        return;
+
+            // Attempt to extract from the cart hash or fragments (as WooCommerce might not store in $button)
+            let productIdFromHash = fragments?.cart?.find(item => item.product_id);
+            if (productIdFromHash) {
+                productIds = [productIdFromHash.product_id];
+        } else {
+            console.error("Still unable to determine product ID.");
+            return; // Exit if no valid product ID is found
+        }
     }
 
     // Loop through each product being added
@@ -208,6 +278,7 @@ $('body').on('added_to_cart removed_from_cart', function (event, fragments, cart
     // Finally, update all monthly fees after processing all products
     updateAllMonthlyFees();
 });
+
 
 
 
@@ -232,3 +303,5 @@ $('body').on('added_to_cart removed_from_cart', function (event, fragments, cart
         updateAllMonthlyFees();
     });
 });
+
+
