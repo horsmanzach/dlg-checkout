@@ -1,3 +1,5 @@
+/* Previous custom-ajax.js prior to switching from Composite Products to Simple Products*/
+
 jQuery(document).ready(function ($) {
     console.log("Custom AJAX script loaded.");
 
