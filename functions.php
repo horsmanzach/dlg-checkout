@@ -81,6 +81,13 @@ function your_order_translation($translated){
 
 add_filter( 'gettext', 'your_order_translation', 20 );
 
+/*=============
+###############Zach Edits ########################
+						
+
+New Version  Starting - Simple Products Only Instead of Composite Products */
+
+
 /*==========Register monthly_fee shortcode========*/
 
 function display_monthly_fee_shortcode( $atts ) {
@@ -108,19 +115,6 @@ add_filter( 'woocommerce_component_option_details_relocation_mode', 'sw_cp_disab
 function sw_cp_disable_relocation( $type ) {
 	return 'off';
 }
-
-/*======Change # of Colunms in Thumbnail Available Selections Area======
-
-add_filter( 'woocommerce_composite_component_loop_columns', 'wc_cp_component_loop_columns', 10, 3 );
-
-function wc_cp_component_loop_columns( $cols, $component_id, $composite ) {
-	return 4;
-}
-*/
-
-/*=============
-###############Zach Edits ########################
-						*/
 
 /*------ CALCULATION FUNCTIONS -----------   */
 
