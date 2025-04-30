@@ -13,12 +13,14 @@ jQuery(document).ready(function ($) {
 
     const phoneRows = {
         'phone-0': 304,
-        'phone-1': 305
+        'phone-1': 305,
+        'phone-2': 265475
     };
 
     const tvRows = {
         'tv-0': 264269,
-        'tv-1': 264270
+        'tv-1': 264270,
+        'tv-2': 265476
     };
 
     // Get current page product ID (for internet plan)
@@ -55,7 +57,7 @@ jQuery(document).ready(function ($) {
     });
 
     // Make phone rows clickable
-    $('.phone-0, .phone-1').on('click', function () {
+    $('.phone-0, .phone-1, .phone-2').on('click', function () {
         const $this = $(this);
         const rowClass = $this.attr('class').split(' ').find(c => c.startsWith('phone-'));
 
@@ -71,7 +73,7 @@ jQuery(document).ready(function ($) {
             removeFromCart(phoneRows[rowClass]);
         } else {
             // Remove selection from all phone rows
-            $('.phone-0, .phone-1').removeClass('phone-row-selected');
+            $('.phone-0, .phone-1, .phone-2').removeClass('phone-row-selected');
 
             // Add selection to this row
             $this.addClass('phone-row-selected');
@@ -82,7 +84,7 @@ jQuery(document).ready(function ($) {
     });
 
     // Make TV rows clickable
-    $('.tv-0, .tv-1').on('click', function () {
+    $('.tv-0, .tv-1, .tv-2').on('click', function () {
         const $this = $(this);
         const rowClass = $this.attr('class').split(' ').find(c => c.startsWith('tv-'));
 
@@ -98,7 +100,7 @@ jQuery(document).ready(function ($) {
             removeFromCart(tvRows[rowClass]);
         } else {
             // Remove selection from all TV rows
-            $('.tv-0, .tv-1').removeClass('tv-row-selected');
+            $('.tv-0, .tv-1, .tv-2').removeClass('tv-row-selected');
 
             // Add selection to this row
             $this.addClass('tv-row-selected');
@@ -248,6 +250,227 @@ jQuery(document).ready(function ($) {
         });
     }
 
+    // Installation date selection
+    const installationRow = $('.installation-row');
+    const installationProductId = 265084; // Parent product ID
+    let preferredDate = '';
+    let secondaryDate = '';
+
+    // Setup installation date options
+    function setupInstallationDateOptions() {
+        // Get the default select elements
+        const preferredSelect = $('.installation-row select[name="attribute_preferred-date"]');
+        const secondarySelect = $('.installation-row select[name="attribute_secondary-date"]');
+
+        if (preferredSelect.length && secondarySelect.length) {
+            // Set up preferred date options
+            const preferredOptions = preferredSelect.find('option').not('[value=""]');
+            const preferredContainer = $('<div class="date-radio-container preferred-date-container"><h4>Preferred Date</h4></div>');
+
+            preferredOptions.each(function () {
+                const value = $(this).attr('value');
+                const label = $(this).text();
+
+                const radioBtn = $(`
+           <div class="date-option">
+               <input type="radio" name="preferred-date" id="preferred-date-${value}" 
+                      value="${value}" class="date-radio preferred-date-radio" />
+               <label for="preferred-date-${value}">${label}</label>
+           </div>
+       `);
+
+                preferredContainer.append(radioBtn);
+            });
+
+            // Set up secondary date options
+            const secondaryOptions = secondarySelect.find('option').not('[value=""]');
+            const secondaryContainer = $('<div class="date-radio-container secondary-date-container"><h4>Secondary Date</h4></div>');
+
+            secondaryOptions.each(function () {
+                const value = $(this).attr('value');
+                const label = $(this).text();
+
+                const radioBtn = $(`
+           <div class="date-option">
+               <input type="radio" name="secondary-date" id="secondary-date-${value}" 
+                      value="${value}" class="date-radio secondary-date-radio" />
+               <label for="secondary-date-${value}">${label}</label>
+           </div>
+       `);
+
+                secondaryContainer.append(radioBtn);
+            });
+
+            // Replace the selects with our custom radio buttons
+            preferredSelect.parent().hide().after(preferredContainer);
+            secondarySelect.parent().hide().after(secondaryContainer);
+
+            // Add clear button (initially hidden)
+            const clearButton = $('<button type="button" class="clear-installation-dates" style="display: none;">Clear Dates</button>');
+            secondaryContainer.after(clearButton);
+
+            // Handle clear button click
+            clearButton.on('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+
+                // Clear selections
+                preferredDate = '';
+                secondaryDate = '';
+                $('.preferred-date-radio, .secondary-date-radio').prop('checked', false);
+
+                // Update UI and cart
+                installationRow.removeClass('installation-row-selected');
+                removeInstallationFromCart();
+
+                // Hide the button again
+                $(this).hide();
+            });
+
+            // Handle preferred date selection
+            $('.preferred-date-radio').on('change', function () {
+                preferredDate = $(this).val();
+                preferredSelect.val(preferredDate).trigger('change');
+                clearButton.show(); // Show clear button when selection made
+                checkInstallationSelection();
+            });
+
+            // Handle secondary date selection
+            $('.secondary-date-radio').on('change', function () {
+                secondaryDate = $(this).val();
+                secondarySelect.val(secondaryDate).trigger('change');
+                clearButton.show(); // Show clear button when selection made
+                checkInstallationSelection();
+            });
+
+            // Show clear button if selections already exist or radio buttons are checked
+            if (preferredDate || secondaryDate || $('.preferred-date-radio:checked').length || $('.secondary-date-radio:checked').length) {
+                clearButton.show();
+            }
+        }
+    }
+
+    // Check if both dates are selected and update UI/cart accordingly
+    function checkInstallationSelection() {
+        $('.installation-row').removeClass('installation-row-selected');
+        console.log("Checking selection - preferredDate:", preferredDate, "secondaryDate:", secondaryDate);
+        if (preferredDate && secondaryDate) {
+            installationRow.addClass('installation-row-selected');
+            addInstallationToCart();
+        } else {
+            installationRow.removeClass('installation-row-selected');
+            // Only remove from cart if we had both dates before but now don't
+            if (!preferredDate && !secondaryDate) {
+                removeInstallationFromCart();
+            }
+        }
+    }
+
+    // Add installation date selection to cart
+    function addInstallationToCart() {
+        if (preferredDate && secondaryDate) {
+            console.log("Sending dates:", {
+                preferred: preferredDate,
+                secondary: secondaryDate
+            });
+
+            $.ajax({
+                type: 'POST',
+                url: modem_selection_vars.ajax_url,
+                data: {
+                    action: 'add_installation_to_cart',
+                    product_id: installationProductId,
+                    'preferred-date': preferredDate,
+                    'secondary-date': secondaryDate,
+                    nonce: modem_selection_vars.nonce
+                },
+                success: function (response) {
+                    console.log("Full response:", response);
+                    if (response.success) {
+                        console.log('Installation dates added to cart');
+                        $(document.body).trigger('wc_fragment_refresh');
+                        updateFeeTables();
+                    } else {
+                        console.error('Error adding installation dates:', response.data?.message || 'Unknown error');
+                    }
+                },
+                error: function (xhr, status, error) {
+                    console.error('AJAX error details:', {
+                        status: status,
+                        error: error,
+                        response: xhr.responseText
+                    });
+                }
+            });
+        }
+    }
+
+    // Remove installation from cart
+    function removeInstallationFromCart() {
+        $.ajax({
+            type: 'POST',
+            url: modem_selection_vars.ajax_url,
+            data: {
+                action: 'remove_installation_from_cart',
+                product_id: installationProductId,
+                nonce: modem_selection_vars.nonce
+            },
+            success: function (response) {
+                if (response.success) {
+                    console.log('Installation removed from cart');
+                    $(document.body).trigger('wc_fragment_refresh');
+                    updateFeeTables();
+                }
+            }
+        });
+    }
+
+    // Check if installation date is in cart when page loads
+    function checkInstallationInCart() {
+        $.ajax({
+            type: 'POST',
+            url: modem_selection_vars.ajax_url,
+            data: {
+                action: 'get_installation_dates',
+                nonce: modem_selection_vars.nonce
+            },
+            success: function (response) {
+                if (response.success && response.data.dates) {
+                    // Get the dates with correct keys
+                    preferredDate = response.data.dates['preferred-date'] || '';
+                    secondaryDate = response.data.dates['secondary-date'] || '';
+
+                    // Reset all radio buttons
+                    $('.preferred-date-radio').prop('checked', false);
+                    $('.secondary-date-radio').prop('checked', false);
+
+                    // Check the saved selections
+                    if (preferredDate) {
+                        $(`input[name="preferred-date"][value="${preferredDate}"]`).prop('checked', true);
+                    }
+
+                    if (secondaryDate) {
+                        $(`input[name="secondary-date"][value="${secondaryDate}"]`).prop('checked', true);
+                    }
+
+                    // If any date is set, show the clear button
+                    if (preferredDate || secondaryDate) {
+                        $('.clear-installation-dates').show();
+                    }
+
+                    // Update UI state
+                    checkInstallationSelection();
+                }
+            }
+        });
+    }
+
+    // Initialize installation date interface
+    setupInstallationDateOptions();
+
+    // Run on page load
+    checkInstallationInCart();
+
     // Update when cart fragments refresh - additional backup method
     $(document.body).on("wc_fragments_refreshed", function () {
         updateFeeTables();
@@ -257,4 +480,5 @@ jQuery(document).ready(function ($) {
     // Initial update of tables when page loads
     updateFeeTables();
     updateUpfrontTotal();
+    checkInstallationInCart();
 });
