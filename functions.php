@@ -67,6 +67,1102 @@ function verify_card_ex($payment_info) {
 	error_log( "Got response back " . $mpg_response->getComplete() );
 }
 
+
+
+
+/*=================ZACH NEW EDITS AS OF MARCH 31=================*/
+
+/*==========Register monthly_fee shortcode========*/
+
+
+function display_monthly_fee_shortcode($atts) {
+    // Extract shortcode attributes, requiring product_id
+    $atts = shortcode_atts(array(
+        'product_id' => '', // No default - must be specified
+    ), $atts);
+    
+    // Check if product_id is provided
+    if (empty($atts['product_id'])) {
+        return 'Product ID required'; // Or just return empty: return '';
+    }
+    
+    // Get the 'monthly_fee' field value from the specified product
+    $monthly_fee = get_field('monthly_fee', $atts['product_id']);
+    
+    // Alternative way to get the field if the above doesn't work
+    if ($monthly_fee === null && function_exists('get_field')) {
+        $monthly_fee = get_field('monthly_fee', 'product_' . $atts['product_id']);
+    }
+    
+    // Check if the value is numeric (including 0) or a numeric string
+    if (is_numeric($monthly_fee) || is_string($monthly_fee)) {
+        // Convert to string to ensure consistent output
+        return esc_html((string)$monthly_fee);
+    } else {
+        return ''; // Return empty if no monthly fee set or not numeric
+    }
+}
+add_shortcode('display_monthly_fee', 'display_monthly_fee_shortcode');
+
+/*======Register deposit-title shortcode========*/
+
+function display_deposit_title_shortcode($atts) {
+   // Extract shortcode attributes, requiring product_id
+   $atts = shortcode_atts(array(
+       'product_id' => '', // No default - must be specified
+   ), $atts);
+   
+   // Check if product_id is provided
+   if (empty($atts['product_id'])) {
+       return 'Product ID required';
+   }
+   
+   // Get the 'deposit-title' field value from the specified product
+   $deposit_title = get_field('deposit-title', $atts['product_id']);
+   
+   // Alternative way to get the field if the above doesn't work
+   if ($deposit_title === null && function_exists('get_field')) {
+       $deposit_title = get_field('deposit-title', 'product_' . $atts['product_id']);
+   }
+   
+   // Return the title or empty string
+   return esc_html($deposit_title ?: '');
+}
+add_shortcode('display_deposit_title', 'display_deposit_title_shortcode');
+
+/*=======Register deposit-fee shortcode=======*/
+
+function display_deposit_fee_shortcode($atts) {
+    // Extract shortcode attributes, requiring product_id
+    $atts = shortcode_atts(array(
+        'product_id' => '', // No default - must be specified
+    ), $atts);
+    
+    // Check if product_id is provided
+    if (empty($atts['product_id'])) {
+        return 'Product ID required';
+    }
+    
+    // Get the 'deposit-fee' field value from the specified product
+    $deposit_fee = get_field('deposit-fee', $atts['product_id']);
+    
+    // Alternative way to get the field if the above doesn't work
+    if ($deposit_fee === null && function_exists('get_field')) {
+        $deposit_fee = get_field('deposit-fee', 'product_' . $atts['product_id']);
+    }
+    
+    // Check if the value is numeric (including 0) or a numeric string
+    if (is_numeric($deposit_fee) || is_string($deposit_fee)) {
+        // Convert to string to ensure consistent output
+        return esc_html((string)$deposit_fee);
+    } else {
+        return ''; // Return empty if no deposit fee set or not numeric
+    }
+}
+add_shortcode('display_deposit_fee', 'display_deposit_fee_shortcode');
+
+/*Create Clickable Rows Instead of Add to Cart Buttons*/
+
+/**
+ * Clickable Modem Rows - Add to Cart Functionality
+ * Add this to your theme's functions.php or a custom plugin
+ */
+
+// Enqueue the JavaScript
+function modem_selection_scripts() {
+    // Load on product pages and custom checkout pages
+    if (is_product() || is_page(array('checkout', 'internet-plans'))) { // Add your custom page slugs here
+        wp_enqueue_script('card-selection', get_stylesheet_directory_uri() . '/js/card-selection.js', array('jquery'), '1.0', true);
+        
+        // Pass AJAX URL and nonce to JavaScript
+        wp_localize_script('card-selection', 'modem_selection_vars', array(
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('modem_selection_nonce'),
+        ));
+    }
+}
+add_action('wp_enqueue_scripts', 'modem_selection_scripts');
+
+
+// Function to get cart items - useful for checking currently selected modem
+function get_cart_items_ajax() {
+    check_ajax_referer('modem_selection_nonce', 'nonce');
+    
+    $items = array();
+    foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+        $items[] = $cart_item['product_id'];
+    }
+    
+    wp_send_json_success(array(
+        'items' => $items
+    ));
+    
+    wp_die();
+}
+add_action('wp_ajax_get_cart_items', 'get_cart_items_ajax');
+add_action('wp_ajax_nopriv_get_cart_items', 'get_cart_items_ajax');
+
+
+
+
+/* Creation of UPFRONT FEE TABLE / SHORTCODE and MONTHLY FEE TABLET / SHORTCODE */
+
+
+/**
+ * Fee Summary Tables - Shortcodes for upfront and monthly fees
+ * Add this to your theme's functions.php file
+ */
+
+// Upfront Fee Summary Table Shortcode
+// Update this in your upfront_fee_summary_shortcode function
+function upfront_fee_summary_shortcode() {
+   // Get cart items
+   $cart = WC()->cart;
+   
+   if ($cart->is_empty()) {
+       return '<p>No products selected.</p>';
+   }
+   
+   $output = '<table class="fee-summary-table upfront-fee-table">';
+   $output .= '<thead><tr><th>Product</th><th>Category</th><th>Price</th></tr></thead>';
+   $output .= '<tbody>';
+   
+   $subtotal = 0;
+   $installation_found = false;
+   $installation_dates = array();
+   $installation_price = 0;
+   $deposits = array(); // Store deposit information
+   
+   // Loop through cart items
+   foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
+       $product = $cart_item['data'];
+       $product_id = $product->get_id();
+       $parent_id = $product->get_parent_id(); // Get parent ID for variations
+       $product_name = $product->get_name();
+       $product_price = $product->get_price();
+       
+       // Get product category
+       $category_name = '';
+       $terms = get_the_terms($product_id, 'product_cat');
+       if (!empty($terms) && !is_wp_error($terms)) {
+           $category_name = $terms[0]->name; // Get the first category name
+       }
+       
+       // Check if this is an installation product
+       $installation_category_id = 63; // Installation category ID
+       $installation_product_id = 265084; // Parent product ID
+       $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'ids'));
+       $is_installation = in_array($installation_category_id, $product_cats) || $parent_id == $installation_product_id;
+       
+       // Store installation dates if found
+       if ($is_installation) {
+           $installation_found = true;
+           $installation_price = $product_price;
+           
+           // Check for variation attributes
+           if (isset($cart_item['variation']) && is_array($cart_item['variation'])) {
+               $installation_dates = array(
+                   'preferred-date' => isset($cart_item['variation']['attribute_preferred-date']) ? 
+                       $cart_item['variation']['attribute_preferred-date'] : '',
+                   'secondary-date' => isset($cart_item['variation']['attribute_secondary-date']) ? 
+                       $cart_item['variation']['attribute_secondary-date'] : ''
+               );
+           }
+           
+           // Skip adding this product normally - we'll add a custom format below
+           continue;
+       }
+       
+       // Get deposit information
+       $deposit_title = '';
+       $deposit_fee = 0;
+       
+       if (function_exists('get_field')) {
+           $deposit_title = get_field('deposit-title', $product_id);
+           $deposit_fee = get_field('deposit-fee', $product_id);
+           
+           // If direct approach fails, try with product_ prefix
+           if (empty($deposit_title)) {
+               $deposit_title = get_field('deposit-title', 'product_' . $product_id);
+           }
+           
+           if (empty($deposit_fee) && $deposit_fee !== '0') {
+               $deposit_fee = get_field('deposit-fee', 'product_' . $product_id);
+           }
+           
+           // Convert deposit fee to numeric value
+           $deposit_fee = is_numeric($deposit_fee) ? floatval($deposit_fee) : 0;
+       }
+       
+       // Store deposit information if it exists
+       if (!empty($deposit_title) && $deposit_fee > 0) {
+           $deposits[] = array(
+               'title' => $deposit_title,
+               'fee' => $deposit_fee
+           );
+       }
+       
+       // Add non-installation product to table ONLY if price is not zero
+       if ($product_price > 0) {
+           $output .= '<tr>';
+           $output .= '<td>' . esc_html($product_name) . '</td>';
+           $output .= '<td>' . esc_html($category_name) . '</td>';
+           $output .= '<td>' . wc_price($product_price) . '</td>';
+           $output .= '</tr>';
+       }
+       
+       // Always add to subtotal regardless of display
+       $subtotal += $product_price;
+   }
+   
+   // Add installation as a special format if found - now just 2 rows instead of 3
+   if ($installation_found && !empty($installation_dates)) {
+       $output .= '<tr class="installation-row-header">';
+       $output .= '<td colspan="3"><strong>Installation</strong></td>';
+       $output .= '</tr>';
+       
+       // Combine dates into one row
+       $combined_dates = '';
+       if (!empty($installation_dates['preferred-date']) && !empty($installation_dates['secondary-date'])) {
+           $combined_dates = esc_html($installation_dates['preferred-date'] . ', ' . $installation_dates['secondary-date']);
+       } elseif (!empty($installation_dates['preferred-date'])) {
+           $combined_dates = esc_html($installation_dates['preferred-date']);
+       } elseif (!empty($installation_dates['secondary-date'])) {
+           $combined_dates = esc_html($installation_dates['secondary-date']);
+       }
+       
+       $output .= '<tr class="installation-details">';
+       $output .= '<td>Dates</td>';
+       $output .= '<td>' . $combined_dates . '</td>';
+       $output .= '<td>' . wc_price($installation_price) . '</td>';
+       $output .= '</tr>';
+       
+       $subtotal += $installation_price; // Add to subtotal
+   }
+   
+   // Calculate tax on subtotal (excluding deposits)
+   $tax_total = 0;
+   if (wc_tax_enabled()) {
+       $tax_rates = WC_Tax::get_rates();
+       if (!empty($tax_rates)) {
+           $taxes = WC_Tax::calc_tax($subtotal, $tax_rates);
+           $tax_total = array_sum($taxes);
+       }
+   }
+   
+   // Add subtotal and tax rows
+   $output .= '<tr class="subtotal-row"><td colspan="2">Subtotal</td><td>' . wc_price($subtotal) . '</td></tr>';
+   $output .= '<tr class="tax-row"><td colspan="2">Tax</td><td>' . wc_price($tax_total) . '</td></tr>';
+   
+   // Add deposit rows if any exist
+   $deposit_total = 0;
+   if (!empty($deposits)) {
+       foreach ($deposits as $deposit) {
+           $output .= '<tr class="deposit-row">';
+           $output .= '<td colspan="2">' . esc_html($deposit['title']) . '</td>';
+           $output .= '<td>' . wc_price($deposit['fee']) . '</td>';
+           $output .= '</tr>';
+           $deposit_total += $deposit['fee'];
+       }
+   }
+   
+   // Add final total row (subtotal + tax + deposits)
+   $grand_total = $subtotal + $tax_total + $deposit_total;
+   $output .= '<tr class="total-row"><td colspan="2">Total Upfront</td><td>' . wc_price($grand_total) . '</td></tr>';
+   
+   $output .= '</tbody></table>';
+   
+   return $output;
+}
+add_shortcode('upfront_fee_summary', 'upfront_fee_summary_shortcode');
+
+
+/*-------*/
+
+
+
+// Monthly Fee Summary Table Shortcode with Internet Plan
+
+function monthly_fee_summary_shortcode() {
+    global $post;
+    // Get cart items
+    $cart = WC()->cart;
+    
+    $output = '<table class="fee-summary-table monthly-fee-table">';
+    $output .= '<thead><tr><th>Product</th><th>Category</th><th>Monthly Fee</th></tr></thead>';
+    $output .= '<tbody>';
+    
+    $subtotal = 0;
+    $internet_plan_in_cart = false;
+    $current_product_id = 0;
+    
+    // Installation category ID to exclude from monthly fee table
+    $installation_category_id = 63;
+    $installation_product_id = 265084; // Parent product ID to exclude
+    
+    // Check if we're on a product page
+    if (is_product() && $post) {
+        $current_product_id = $post->ID;
+        
+        // Skip if this is the installation product
+        if ($current_product_id == $installation_product_id) {
+            // Do nothing - skip this product
+        } else {
+            $current_product = wc_get_product($current_product_id);
+            
+            if ($current_product && $current_product->get_type() === 'simple') {
+                // Check if this is an internet plan product
+                $product_cats = wp_get_post_terms($current_product_id, 'product_cat', array('fields' => 'ids'));
+                $is_internet_plan = in_array(19, $product_cats); // Replace with your actual category ID
+                
+                if ($is_internet_plan) {
+                    // Get current plan monthly fee
+                    $monthly_fee = 0;
+                    if (function_exists('get_field')) {
+                        $monthly_fee = get_field('monthly_fee', $current_product_id);
+                        if (empty($monthly_fee) && $monthly_fee !== '0') {
+                            $monthly_fee = get_field('monthly_fee', 'product_' . $current_product_id);
+                        }
+                        $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
+                    }
+                    
+                    // Get product category name
+                    $category_name = '';
+                    $terms = get_the_terms($current_product_id, 'product_cat');
+                    if (!empty($terms) && !is_wp_error($terms)) {
+                        $category_name = $terms[0]->name; // Get the first category name
+                    }
+                    
+                    // Add current plan to table
+                    $output .= '<tr class="internet-plan-row">';
+                    $output .= '<td>' . esc_html($current_product->get_name()) . '</td>';
+                    $output .= '<td>' . esc_html($category_name) . '</td>';
+                    $output .= '<td>' . wc_price($monthly_fee) . '</td>';
+                    $output .= '</tr>';
+                    
+                    $subtotal += $monthly_fee;
+                }
+            }
+        }
+    }
+    
+    // Check if cart is empty
+    if (!$cart->is_empty()) {
+        // Loop through cart items
+        foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
+            $product = $cart_item['data'];
+            $product_id = $product->get_id();
+            $parent_id = $product->get_parent_id(); // Get parent ID for variations
+            
+            // Skip if this is an internet plan and we're on its product page
+            if ($product_id == $current_product_id) {
+                $internet_plan_in_cart = true;
+                continue;
+            }
+            
+            // Get product categories
+            $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'ids'));
+            
+            // Skip installation products - they should only show in upfront fees
+            if (in_array($installation_category_id, $product_cats) || $product_id == $installation_product_id || $parent_id == $installation_product_id) {
+                continue;
+            }
+            
+            // Check if this is an internet plan but not the current one
+            $is_internet_plan = in_array(19, $product_cats); // Replace with actual category ID
+            
+            // Remove other internet plans from cart
+            if ($is_internet_plan && $current_product_id > 0) {
+                WC()->cart->remove_cart_item($cart_item_key);
+                continue;
+            }
+            
+            $product_name = $product->get_name();
+            
+            // Get product category name
+            $category_name = '';
+            $terms = get_the_terms($product_id, 'product_cat');
+            if (!empty($terms) && !is_wp_error($terms)) {
+                $category_name = $terms[0]->name; // Get the first category name
+            }
+            
+            // Get ACF monthly fee field
+            $monthly_fee = 0;
+            if (function_exists('get_field')) {
+                $monthly_fee = get_field('monthly_fee', $product_id);
+                
+                // If direct approach fails, try with product_ prefix
+                if (empty($monthly_fee) && $monthly_fee !== '0') {
+                    $monthly_fee = get_field('monthly_fee', 'product_' . $product_id);
+                }
+                
+                // Convert to numeric value
+                $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
+            }
+            
+            $output .= '<tr>';
+            $output .= '<td>' . esc_html($product_name) . '</td>';
+            $output .= '<td>' . esc_html($category_name) . '</td>';
+            $output .= '<td>' . wc_price($monthly_fee) . '</td>';
+            $output .= '</tr>';
+            
+            $subtotal += $monthly_fee;
+        }
+    }
+    
+    // Add current internet plan to cart if it's not there already
+    if ($current_product_id > 0 && !$internet_plan_in_cart && $current_product_id != $installation_product_id) {
+        // Check if it's an internet plan
+        $product_cats = wp_get_post_terms($current_product_id, 'product_cat', array('fields' => 'ids'));
+        $is_internet_plan = in_array(19, $product_cats); // Replace with your category ID
+        
+        if ($is_internet_plan) {
+            // Add to cart silently (no redirect)
+            WC()->cart->add_to_cart($current_product_id, 1);
+        }
+    }
+    
+    // Calculate tax
+    $tax_total = 0;
+    if (wc_tax_enabled()) {
+        $tax_rates = WC_Tax::get_rates();
+        if (!empty($tax_rates)) {
+            $taxes = WC_Tax::calc_tax($subtotal, $tax_rates);
+            $tax_total = array_sum($taxes);
+        }
+    }
+    
+    // Add subtotal, tax and total rows (spanning first two columns)
+    $output .= '<tr class="subtotal-row"><td colspan="2">Subtotal</td><td>' . wc_price($subtotal) . '</td></tr>';
+    $output .= '<tr class="tax-row"><td colspan="2">Tax</td><td>' . wc_price($tax_total) . '</td></tr>';
+    $output .= '<tr class="total-row"><td colspan="2">Total Monthly</td><td>' . wc_price($subtotal + $tax_total) . '</td></tr>';
+    
+    $output .= '</tbody></table>';
+    
+    return $output;
+}
+add_shortcode('monthly_fee_summary', 'monthly_fee_summary_shortcode');
+
+
+/*-----*/
+
+function modem_add_to_cart_ajax() {
+    // Check nonce for security
+    check_ajax_referer('modem_selection_nonce', 'nonce');
+    
+    // Get the product ID and type
+    $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
+    $is_internet_plan = isset($_POST['is_internet_plan']) && $_POST['is_internet_plan'] === 'true';
+    $product_type = isset($_POST['product_type']) ? sanitize_text_field($_POST['product_type']) : '';
+    
+    if ($product_id > 0) {
+        // If this is an internet plan, handle specifically
+        if ($is_internet_plan) {
+            // Remove any existing internet plans from cart
+            foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+                $cart_product_id = $cart_item['product_id'];
+                
+                // Check if this is an internet plan
+                $product_cats = wp_get_post_terms($cart_product_id, 'product_cat', array('fields' => 'ids'));
+                $is_cart_item_internet_plan = in_array(19, $product_cats); // Replace with your category ID
+                
+                if ($is_cart_item_internet_plan) {
+                    WC()->cart->remove_cart_item($cart_item_key);
+                }
+            }
+            
+            // Add the new internet plan
+            $added = WC()->cart->add_to_cart($product_id, 1);
+        }
+        // If this is a phone plan
+        elseif ($product_type === 'phone') {
+            // Remove any existing phone plans from cart
+            $phone_category_id = 22; // Replace with your phone category ID
+            
+            foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+                $cart_product_id = $cart_item['product_id'];
+                
+                // Check if this is a phone plan
+                $product_cats = wp_get_post_terms($cart_product_id, 'product_cat', array('fields' => 'ids'));
+                $is_phone_plan = in_array($phone_category_id, $product_cats);
+                
+                if ($is_phone_plan) {
+                    WC()->cart->remove_cart_item($cart_item_key);
+                }
+            }
+            
+            // Add the new phone plan to cart
+            $added = WC()->cart->add_to_cart($product_id, 1);
+        }
+        // If this is a TV plan
+        elseif ($product_type === 'tv') {
+            // Remove any existing TV plans from cart
+            $tv_category_id = 59; // Your TV category ID
+            
+            foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+                $cart_product_id = $cart_item['product_id'];
+                
+                // Check if this is a TV plan
+                $product_cats = wp_get_post_terms($cart_product_id, 'product_cat', array('fields' => 'ids'));
+                $is_tv_plan = in_array($tv_category_id, $product_cats);
+                
+                if ($is_tv_plan) {
+                    WC()->cart->remove_cart_item($cart_item_key);
+                }
+            }
+            
+            // Add the new TV plan to cart
+            $added = WC()->cart->add_to_cart($product_id, 1);
+        }
+        // If this is a modem or other accessory
+        elseif ($product_type === 'modem') {
+            // Remove any existing modems from cart
+            $modem_category_id = 62; // Replace with your modem category ID
+            
+            foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+                $cart_product_id = $cart_item['product_id'];
+                
+                // Check if this is a modem
+                $product_cats = wp_get_post_terms($cart_product_id, 'product_cat', array('fields' => 'ids'));
+                $is_modem = in_array($modem_category_id, $product_cats);
+                
+                if ($is_modem) {
+                    WC()->cart->remove_cart_item($cart_item_key);
+                }
+            }
+            
+            // Add the new modem to cart
+            $added = WC()->cart->add_to_cart($product_id, 1);
+        }
+        // For any other product type
+        else {
+            // Simply add to cart
+            $added = WC()->cart->add_to_cart($product_id, 1);
+        }
+        
+        wp_send_json_success(array(
+            'message' => 'Product added to cart',
+            'product_id' => $product_id
+        ));
+    } else {
+        wp_send_json_error(array(
+            'message' => 'Invalid product ID'
+        ));
+    }
+    
+    wp_die();
+}
+
+add_action('wp_ajax_modem_add_to_cart', 'modem_add_to_cart_ajax');
+add_action('wp_ajax_nopriv_modem_add_to_cart', 'modem_add_to_cart_ajax');
+
+// Helper function to remove all cart items except specified ones
+function remove_all_except_items($cart_keys_to_keep) {
+    foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+        if (!in_array($cart_item_key, $cart_keys_to_keep)) {
+            WC()->cart->remove_cart_item($cart_item_key);
+        }
+    }
+}
+
+
+
+/**
+ * Upfront Fee Total Shortcode
+ * Displays only the total upfront fee amount
+ */
+function upfront_fee_total_shortcode($atts) {
+    // Get cart items
+    $cart = WC()->cart;
+    
+    if ($cart->is_empty()) {
+        return '$0.00';
+    }
+    
+    $subtotal = 0;
+    $deposit_total = 0;
+    
+    // Loop through cart items
+    foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
+        $product = $cart_item['data'];
+        $product_id = $product->get_id();
+        $product_price = $product->get_price();
+        $subtotal += $product_price;
+        
+        // Get deposit fee
+        $deposit_fee = 0;
+        if (function_exists('get_field')) {
+            $deposit_fee = get_field('deposit-fee', $product_id);
+            
+            // If direct approach fails, try with product_ prefix
+            if (empty($deposit_fee) && $deposit_fee !== '0') {
+                $deposit_fee = get_field('deposit-fee', 'product_' . $product_id);
+            }
+            
+            // Convert to numeric value
+            $deposit_fee = is_numeric($deposit_fee) ? floatval($deposit_fee) : 0;
+            $deposit_total += $deposit_fee;
+        }
+    }
+    
+    // Calculate tax (excluding deposits)
+    $tax_total = 0;
+    if (wc_tax_enabled()) {
+        $tax_rates = WC_Tax::get_rates();
+        if (!empty($tax_rates)) {
+            $taxes = WC_Tax::calc_tax($subtotal, $tax_rates);
+            $tax_total = array_sum($taxes);
+        }
+    }
+    
+    // Calculate total (subtotal + tax + deposits)
+    $total = $subtotal + $tax_total + $deposit_total;
+    
+    // Format with wc_price for consistency
+    return wc_price($total);
+}
+add_shortcode('upfront_fee_total', 'upfront_fee_total_shortcode');
+
+function update_fee_summary_tables() {
+    check_ajax_referer('modem_selection_nonce', 'nonce');
+    
+    // Get current product ID from AJAX request
+    $current_product_id = isset($_POST['current_product_id']) ? absint($_POST['current_product_id']) : 0;
+    
+    // Store current product ID in session for use in shortcodes
+    WC()->session->set('current_product_id', $current_product_id);
+    
+    $upfront_table = upfront_fee_summary_shortcode();
+    $monthly_table = monthly_fee_summary_shortcode();
+    
+    wp_send_json_success(array(
+        'upfront_table' => $upfront_table,
+        'monthly_table' => $monthly_table
+    ));
+    
+    wp_die();
+}
+add_action('wp_ajax_update_fee_tables', 'update_fee_summary_tables');
+add_action('wp_ajax_nopriv_update_fee_tables', 'update_fee_summary_tables');
+
+/**
+ * AJAX handler to get upfront fee total
+ * Used for dynamic updates
+ */
+function get_upfront_fee_total_ajax() {
+    check_ajax_referer('modem_selection_nonce', 'nonce');
+    
+    $total = upfront_fee_total_shortcode(array());
+    
+    wp_send_json_success(array(
+        'total' => $total
+    ));
+    
+    wp_die();
+}
+add_action('wp_ajax_get_upfront_fee_total', 'get_upfront_fee_total_ajax');
+add_action('wp_ajax_nopriv_get_upfront_fee_total', 'get_upfront_fee_total_ajax');
+
+
+// AJAX handler to remove product from cart
+function modem_remove_from_cart_ajax() {
+    // Check nonce for security
+    check_ajax_referer('modem_selection_nonce', 'nonce');
+    
+    // Get the product ID
+    $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
+    
+    if ($product_id > 0) {
+        // Find the cart item key for this product
+        $cart_item_key = '';
+        
+        foreach (WC()->cart->get_cart() as $key => $cart_item) {
+            if ($cart_item['product_id'] == $product_id) {
+                $cart_item_key = $key;
+                break;
+            }
+        }
+        
+        // If item found, remove it
+        if (!empty($cart_item_key)) {
+            WC()->cart->remove_cart_item($cart_item_key);
+            wp_send_json_success(array(
+                'message' => 'Product removed from cart',
+                'product_id' => $product_id
+            ));
+        } else {
+            wp_send_json_error(array(
+                'message' => 'Product not found in cart'
+            ));
+        }
+    } else {
+        wp_send_json_error(array(
+            'message' => 'Invalid product ID'
+        ));
+    }
+    
+    wp_die();
+}
+add_action('wp_ajax_modem_remove_from_cart', 'modem_remove_from_cart_ajax');
+add_action('wp_ajax_nopriv_modem_remove_from_cart', 'modem_remove_from_cart_ajax');
+
+/**
+ * Installation Date Selection Functions
+ * Modified to use separate Preferred Date and Secondary Date attributes
+ */
+
+// Add installation date selection to cart
+function add_installation_to_cart_ajax() {
+    check_ajax_referer('modem_selection_nonce', 'nonce');
+    
+    // Dump all POST data to help debug
+    error_log('Installation AJAX POST data: ' . print_r($_POST, true));
+    
+    $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
+    $preferred_date = isset($_POST['preferred-date']) ? sanitize_text_field($_POST['preferred-date']) : '';
+    $secondary_date = isset($_POST['secondary-date']) ? sanitize_text_field($_POST['secondary-date']) : '';
+    
+    if ($product_id <= 0 || empty($preferred_date) || empty($secondary_date)) {
+        $error_msg = 'Invalid data: product_id=' . $product_id . ', preferred-date=' . $preferred_date . ', secondary-date=' . $secondary_date;
+        error_log($error_msg);
+        wp_send_json_error(array('message' => $error_msg));
+        wp_die();
+    }
+    
+    // First, remove any existing installation product from cart
+    remove_installation_from_cart($product_id);
+    
+    // Find the variation ID based on the attributes
+    $product = wc_get_product($product_id);
+    $variation_id = 0;
+    
+    if (!$product) {
+        $error_msg = 'Product not found: ' . $product_id;
+        error_log($error_msg);
+        wp_send_json_error(array('message' => $error_msg));
+        wp_die();
+    }
+    
+    if (!$product->is_type('variable')) {
+        $error_msg = 'Product is not variable: ' . $product_id;
+        error_log($error_msg);
+        wp_send_json_error(array('message' => $error_msg));
+        wp_die();
+    }
+    
+    error_log('Available variations: ' . print_r($product->get_available_variations(), true));
+    
+    foreach ($product->get_available_variations() as $variation) {
+        $variation_obj = wc_get_product($variation['variation_id']);
+        $attributes = $variation_obj->get_attributes();
+        error_log('Checking variation ' . $variation['variation_id'] . ' attributes: ' . print_r($attributes, true));
+        
+        if (isset($attributes['preferred-date']) && $attributes['preferred-date'] === $preferred_date &&
+            isset($attributes['secondary-date']) && $attributes['secondary-date'] === $secondary_date) {
+            $variation_id = $variation['variation_id'];
+            break;
+        }
+    }
+    
+    // If no exact match was found, try to create a new variation
+    if ($variation_id === 0) {
+        $data_store = WC_Data_Store::load('product-variable');
+        $variation_id = $data_store->find_matching_product_variation(
+            $product,
+            array(
+                'attribute_preferred-date' => $preferred_date,
+                'attribute_secondary-date' => $secondary_date
+            )
+        );
+        error_log('Tried to find variation using data store: ' . $variation_id);
+    }
+    
+    if ($variation_id === 0) {
+        $error_msg = 'Could not find matching variation for attributes: preferred-date=' . $preferred_date . ', secondary-date=' . $secondary_date;
+        error_log($error_msg);
+        wp_send_json_error(array('message' => $error_msg));
+        wp_die();
+    }
+    
+    // Add the chosen variation to cart with date information
+    $cart_item_data = array(
+        'installation_dates' => array(
+            'preferred-date' => $preferred_date,
+            'secondary-date' => $secondary_date
+        )
+    );
+    
+    try {
+        $cart_item_key = WC()->cart->add_to_cart(
+            $product_id,
+            1,
+            $variation_id,
+            array(
+                'attribute_preferred-date' => $preferred_date,
+                'attribute_secondary-date' => $secondary_date
+            ),
+            $cart_item_data
+        );
+        
+        if ($cart_item_key) {
+            wp_send_json_success(array(
+                'message' => 'Installation dates added to cart',
+                'cart_item_key' => $cart_item_key
+            ));
+        } else {
+            $error_msg = 'Failed to add to cart - WC()->cart->add_to_cart returned false';
+            error_log($error_msg);
+            wp_send_json_error(array('message' => $error_msg));
+        }
+    } catch (Exception $e) {
+        $error_msg = 'Exception adding to cart: ' . $e->getMessage();
+        error_log($error_msg);
+        wp_send_json_error(array('message' => $error_msg));
+    }
+    
+    wp_die();
+}
+add_action('wp_ajax_add_installation_to_cart', 'add_installation_to_cart_ajax');
+add_action('wp_ajax_nopriv_add_installation_to_cart', 'add_installation_to_cart_ajax');
+
+// Get installation dates from cart
+function get_installation_dates_ajax() {
+    check_ajax_referer('modem_selection_nonce', 'nonce');
+    
+    $installation_category_id = 63; // Installation date category ID
+    $dates = array(
+        'preferred-date' => '',
+        'secondary-date' => ''
+    );
+    
+    foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+        $product_id = $cart_item['product_id'];
+        
+        // Check if this is an installation date product
+        $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'ids'));
+        if (in_array($installation_category_id, $product_cats)) {
+            // First check for our custom installation_dates array
+            if (isset($cart_item['installation_dates'])) {
+                $dates = $cart_item['installation_dates'];
+            } 
+            // Fallback to variation attributes
+            else if (isset($cart_item['variation']) && is_array($cart_item['variation'])) {
+                $dates = array(
+                    'preferred' => isset($cart_item['variation']['attribute_preferred-date']) ? 
+                        $cart_item['variation']['attribute_preferred-date'] : '',
+                    'secondary' => isset($cart_item['variation']['attribute_secondary-date']) ? 
+                        $cart_item['variation']['attribute_secondary-date'] : ''
+                );
+            }
+            break;
+        }
+    }
+    
+    wp_send_json_success(array('dates' => $dates));
+    wp_die();
+}
+add_action('wp_ajax_get_installation_dates', 'get_installation_dates_ajax');
+add_action('wp_ajax_nopriv_get_installation_dates', 'get_installation_dates_ajax');
+
+// Remove installation from cart AJAX handler
+function remove_installation_from_cart_ajax() {
+    check_ajax_referer('modem_selection_nonce', 'nonce');
+    
+    $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
+    
+    $removed = remove_installation_from_cart($product_id);
+    
+    wp_send_json_success(array('message' => 'Installation removed from cart', 'removed' => $removed));
+    wp_die();
+}
+add_action('wp_ajax_remove_installation_from_cart', 'remove_installation_from_cart_ajax');
+add_action('wp_ajax_nopriv_remove_installation_from_cart', 'remove_installation_from_cart_ajax');
+
+// Helper function to remove installation from cart
+function remove_installation_from_cart($product_id) {
+    $installation_category_id = 63;
+    $removed = false;
+    
+    foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+        $cart_product_id = $cart_item['product_id'];
+        
+        // Check if this is an installation product
+        if ($cart_product_id == $product_id) {
+            $product_cats = wp_get_post_terms($cart_product_id, 'product_cat', array('fields' => 'ids'));
+            if (in_array($installation_category_id, $product_cats)) {
+                WC()->cart->remove_cart_item($cart_item_key);
+                $removed = true;
+            }
+        }
+    }
+    
+    return $removed;
+}
+
+// Display selected dates in cart and checkout
+function display_selected_dates_in_cart($item_data, $cart_item) {
+    // Check for our custom installation_dates array
+    if (isset($cart_item['installation_dates']) && is_array($cart_item['installation_dates'])) {
+        if (!empty($cart_item['installation_dates']['preferred'])) {
+            $item_data[] = array(
+                'key'     => 'Preferred Date',
+                'value'   => $cart_item['installation_dates']['preferred'],
+                'display' => '',
+            );
+        }
+        
+        if (!empty($cart_item['installation_dates']['secondary'])) {
+            $item_data[] = array(
+                'key'     => 'Secondary Date',
+                'value'   => $cart_item['installation_dates']['secondary'],
+                'display' => '',
+            );
+        }
+    }
+    // Fallback to variation attributes
+    else if (isset($cart_item['variation']) && is_array($cart_item['variation'])) {
+        if (isset($cart_item['variation']['attribute_preferred-date'])) {
+            $item_data[] = array(
+                'key'     => 'Preferred Date',
+                'value'   => $cart_item['variation']['attribute_preferred-date'],
+                'display' => '',
+            );
+        }
+        
+        if (isset($cart_item['variation']['attribute_secondary-date'])) {
+            $item_data[] = array(
+                'key'     => 'Secondary Date',
+                'value'   => $cart_item['variation']['attribute_secondary-date'],
+                'display' => '',
+            );
+        }
+    }
+    
+    return $item_data;
+}
+add_filter('woocommerce_get_item_data', 'display_selected_dates_in_cart', 10, 2);
+
+
+
+
+
+/*=============SHOW ACF FIELDS WITHIN INDIVIDUAL VARIATIONS OF VARIABLE PRODUCTS================*/
+
+/* ACF filter for Variations */
+/* ACF filter for Variations */
+// Initialize global variable to track the current variation ID
+$GLOBALS['wc_loop_variation_id'] = null;
+
+// Check if field group should be applied to variations
+function is_field_group_for_variation($field_group) {
+    return (preg_match('/Variation/i', $field_group['title']) == true);
+}
+
+// Display ACF fields in the variation admin form
+add_action('woocommerce_product_after_variable_attributes', function($loop_index, $variation_data, $variation_post) {
+    $GLOBALS['wc_loop_variation_id'] = $variation_post->ID;
+    
+    foreach (acf_get_field_groups() as $field_group) {
+        if (is_field_group_for_variation($field_group)) {
+            $fields = acf_get_fields($field_group);
+            acf_render_fields($variation_post->ID, $fields);
+        }
+    }
+    
+    $GLOBALS['wc_loop_variation_id'] = null;
+}, 10, 3);
+
+// Save ACF fields when variation is saved
+add_action('woocommerce_save_product_variation', function($variation_id, $loop_index) {
+    if (!isset($_POST['acf_variation'][$variation_id])) {
+        return;
+    }
+    
+    $_POST['acf'] = $_POST['acf_variation'][$variation_id];
+    
+    do_action('acf/save_post', $variation_id);
+}, 10, 2);
+
+// Modify field name to work with variations
+add_filter('acf/prepare_field', function($field) {
+    if (!$GLOBALS['wc_loop_variation_id']) {
+        return $field;
+    }
+    
+    // Fix: We need to modify the name attribute, not a non-existent property
+    if (isset($field['name'])) {
+        $field['name'] = preg_replace('/^acf\[/', 'acf_variation[' . $GLOBALS['wc_loop_variation_id'] . '][', $field['name']);
+    }
+    
+    return $field;
+}, 10, 1);
+
+// Add product_variation as a valid post type for ACF
+add_filter('acf/location/rule_values/post_type', function($choices) {
+    $choices['product_variation'] = 'Product Variation';
+    return $choices;
+});
+
+// Display the modem_monthly_fee on the frontend for each variation
+add_filter('woocommerce_available_variation', function($variation_data, $product, $variation) {
+    // Get the modem_monthly_fee value for this specific variation
+    $modem_monthly_fee = get_field('modem_monthly_fee', $variation->get_id());
+    
+    if ($modem_monthly_fee) {
+        // Add the modem monthly fee to the variation data
+        $variation_data['modem_monthly_fee'] = $modem_monthly_fee;
+        
+        // Optionally add HTML to display it (this will be available in JavaScript)
+        $variation_data['modem_monthly_fee_html'] = '<div class="variation-modem-monthly-fee">Modem Monthly Fee: ' . wc_price($modem_monthly_fee) . '</div>';
+    }
+    
+    return $variation_data;
+}, 10, 3);
+
+
+
+
+
+
+
+
+
+
+/*--===========SHOW WOOCOMMERCE ADD ONS ON CUSTOM PROUCT TEMPLATE=======*/
+
+
+
+/*===========ZACH SHORTCODE CREATION
+
+=========*/
+
+
+/*----InternetPlan Shorcode-----*/
+
+
+function internet_plans_panel_shortcode() {
+    // Start output buffering
+    ob_start();
+    ?>
+    <div class="tabs-panel is-active panel-showinternetplans" id="panel-showinternetplans" style="display: block;">
+        <p><br /></p>
+        <?php 
+        if (function_exists('RenderInternetPlans')) {
+            echo RenderInternetPlans(); 
+        } else {
+            echo 'Internet plans are currently unavailable.';
+        }
+        ?>
+    </div>
+    <?php
+    // Return the buffered content
+    return ob_get_clean();
+}
+
+// Register the shortcode
+add_shortcode('internet_plans_panel', 'internet_plans_panel_shortcode');
+
+
 /*=================Changing Text Function================*/
 
 
@@ -81,16 +1177,13 @@ function your_order_translation($translated){
 
 add_filter( 'gettext', 'your_order_translation', 20 );
 
-/*=============
-###############Zach Edits ########################
-						
+/*Show Add to Cart Beneath Product in Loop*/
 
-New Version  Starting - Simple Products Only Instead of Composite Products */
-
+add_action( 'woocommerce_after_shop_loop_item', 'woocommerce_template_loop_add_to_cart', 20 );
 
 /*==========Register monthly_fee shortcode========*/
 
-function display_monthly_fee_shortcode( $atts ) {
+/* function display_monthly_fee_shortcode( $atts ) {
     // Extract shortcode attributes (if any)
     $atts = shortcode_atts( array(
         'post_id' => get_the_ID(), // Default to current post ID
@@ -106,7 +1199,24 @@ function display_monthly_fee_shortcode( $atts ) {
         return 'No monthly fee set'; // Return a default message or leave blank
     }
 }
-add_shortcode('display_monthly_fee', 'display_monthly_fee_shortcode');
+add_shortcode('display_monthly_fee', 'display_monthly_fee_shortcode'); */
+
+// Function to display the monthly fee in the WooCommerce catalog view under the regular price
+/* function display_monthly_fee_below_price_in_catalog() {
+    global $product;
+    
+    // Get the 'monthly_fee' field value
+    $monthly_fee = get_field('monthly_fee', $product->get_id());
+
+    // Check if there's a value for the 'monthly_fee' field
+    if (!empty($monthly_fee)) {
+        // Display the monthly fee below the price
+        echo '<p class="monthly-fee">Monthly Fee: ' . esc_html($monthly_fee) . '</p>';
+    }
+} */
+
+// Hook the function into 'woocommerce_after_shop_loop_item_title' to display under the price
+add_action('woocommerce_after_shop_loop_item_title', 'display_monthly_fee_below_price_in_catalog', 15);
 
 /*========Make Selected Component With Pagination Appear At Topp=====*/
 
@@ -115,6 +1225,19 @@ add_filter( 'woocommerce_component_option_details_relocation_mode', 'sw_cp_disab
 function sw_cp_disable_relocation( $type ) {
 	return 'off';
 }
+
+/*======Change # of Colunms in Thumbnail Available Selections Area======
+
+add_filter( 'woocommerce_composite_component_loop_columns', 'wc_cp_component_loop_columns', 10, 3 );
+
+function wc_cp_component_loop_columns( $cols, $component_id, $composite ) {
+	return 4;
+}
+*/
+
+/*=============
+###############Zach Edits ########################
+						*/
 
 /*------ CALCULATION FUNCTIONS -----------   */
 
@@ -218,7 +1341,7 @@ function calculate_monthly_fees_total() {
 }
 
 
-function recalculate_totals() {
+/* function recalculate_totals() {
     $subtotal = 0;
     $tax_total = 0;
 
@@ -239,12 +1362,85 @@ function recalculate_totals() {
         'tax_total' => $tax_total,
         'total' => $total,
     ];
+} */ 
+
+
+//==========Disabling Reveal buttons until products from corresponding categories added to cart
+
+add_action('wp_ajax_check_cart_categories', 'check_cart_categories');
+add_action('wp_ajax_nopriv_check_cart_categories', 'check_cart_categories');
+
+function check_cart_categories() {
+    $categories = array();
+    
+    foreach (WC()->cart->get_cart() as $cart_item) {
+        $product_id = $cart_item['product_id'];
+        $product_cats = wp_get_post_terms($product_id, 'product_cat');
+        
+        foreach ($product_cats as $cat) {
+            $categories[] = $cat->slug;
+        }
+    }
+    
+    wp_send_json(array(
+        'category1' => in_array('internet-plan', $categories),
+        'category2' => in_array('fixed-fee', $categories),
+        'category3' => in_array('modems', $categories),
+    ));
+}
+
+
+//=============== Check if new product is from same category as existing cart item
+add_action('wp_ajax_check_product_category', 'check_product_category');
+add_action('wp_ajax_nopriv_check_product_category', 'check_product_category');
+
+function check_product_category() {
+    $new_product_id = $_POST['product_id'];
+    $new_product_cats = wp_get_post_terms($new_product_id, 'product_cat');
+    $has_same_category = false;
+    $matching_category = '';
+
+    foreach(WC()->cart->get_cart() as $cart_item) {
+        $product_cats = wp_get_post_terms($cart_item['product_id'], 'product_cat');
+        
+        foreach($new_product_cats as $new_cat) {
+            if(in_array($new_cat->term_id, wp_list_pluck($product_cats, 'term_id'))) {
+                $has_same_category = true;
+                $matching_category = $new_cat->slug;
+                break 2;
+            }
+        }
+    }
+
+    wp_send_json([
+        'has_same_category' => $has_same_category,
+        'category' => $matching_category
+    ]);
+}
+
+// Remove existing product from same category
+add_action('wp_ajax_remove_category_product', 'remove_category_product');
+add_action('wp_ajax_nopriv_remove_category_product', 'remove_category_product');
+
+function remove_category_product() {
+    $category = $_POST['category'];
+    
+    foreach(WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+        $product_cats = wp_get_post_terms($cart_item['product_id'], 'product_cat');
+        
+        if(in_array($category, wp_list_pluck($product_cats, 'slug'))) {
+            WC()->cart->remove_cart_item($cart_item_key);
+            break;
+        }
+    }
+    
+    wp_send_json_success();
 }
 
 
 // ------- MONTHLY SUMMARY SHORTCODE FUNCTION
 
-function display_monthly_fees_summary_shortcode() {
+/*function display_monthly_fees_summary_shortcode() {
     // Ensure WooCommerce cart is initialized
     if (!is_object(WC()->cart)) {
         WC()->cart = new WC_Cart();
@@ -335,6 +1531,8 @@ function display_monthly_fees_summary_shortcode() {
 }
 
 add_shortcode('monthly_fees_summary', 'display_monthly_fees_summary_shortcode');
+
+*/
 
 
 // Hide shipping costs in the checkout order review table
@@ -2297,7 +3495,7 @@ function GetTaxRate() {
 	return $tax_rate;
 }
 
-
+/*
 function get_monthly_fee_summary() {
 
 	$summary = array(
@@ -2365,10 +3563,12 @@ function get_monthly_fee_summary() {
 				$summary['taxes'][1] += floatval($line_data['total_tax']);
 			}
 */
-
+/*
 			}
 		}
-	}
+	} 
+
+
 
 	$summary['subtotal'][1] = $summary['internet-plan'][1] + $summary['modems'][1] + $summary['phone-plan'][1];
 
@@ -2383,6 +3583,7 @@ function get_monthly_fee_summary() {
 
 	return $summary;	
 }
+*/
 
 
 function get_monthly_order_summary($order) {
