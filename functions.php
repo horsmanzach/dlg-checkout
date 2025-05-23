@@ -205,16 +205,8 @@ add_action('wp_ajax_nopriv_get_cart_items', 'get_cart_items_ajax');
 
 
 
-/* Creation of UPFRONT FEE TABLE / SHORTCODE and MONTHLY FEE TABLET / SHORTCODE */
+/* ==============Creation of UPFRONT FEE TABLE =====================*/
 
-
-/**
- * Fee Summary Tables - Shortcodes for upfront and monthly fees
- * Add this to your theme's functions.php file
- */
-
-// Upfront Fee Summary Table Shortcode
-// Update this in your upfront_fee_summary_shortcode function
 function upfront_fee_summary_shortcode() {
    // Get cart items
    $cart = WC()->cart;
@@ -233,20 +225,11 @@ function upfront_fee_summary_shortcode() {
    $installation_price = 0;
    $deposits = array(); // Store deposit information
    
-   // Loop through cart items
+   // First pass: Check for installation and store its details
    foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
        $product = $cart_item['data'];
        $product_id = $product->get_id();
-       $parent_id = $product->get_parent_id(); // Get parent ID for variations
-       $product_name = $product->get_name();
-       $product_price = $product->get_price();
-       
-       // Get product category
-       $category_name = '';
-       $terms = get_the_terms($product_id, 'product_cat');
-       if (!empty($terms) && !is_wp_error($terms)) {
-           $category_name = $terms[0]->name; // Get the first category name
-       }
+       $parent_id = $product->get_parent_id();
        
        // Check if this is an installation product
        $installation_category_id = 63; // Installation category ID
@@ -254,10 +237,9 @@ function upfront_fee_summary_shortcode() {
        $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'ids'));
        $is_installation = in_array($installation_category_id, $product_cats) || $parent_id == $installation_product_id;
        
-       // Store installation dates if found
        if ($is_installation) {
            $installation_found = true;
-           $installation_price = $product_price;
+           $installation_price = $product->get_price();
            
            // Check for variation attributes
            if (isset($cart_item['variation']) && is_array($cart_item['variation'])) {
@@ -268,9 +250,85 @@ function upfront_fee_summary_shortcode() {
                        $cart_item['variation']['attribute_secondary-date'] : ''
                );
            }
-           
-           // Skip adding this product normally - we'll add a custom format below
-           continue;
+           break; // Exit loop once installation is found
+       }
+   }
+   
+   // Add installation section FIRST if found
+   if ($installation_found && !empty($installation_dates)) {
+       $output .= '<tr class="installation-row-header">';
+       $output .= '<td colspan="3"><strong>Installation</strong></td>';
+       $output .= '</tr>';
+       
+       // Combine dates into one row
+       $combined_dates = '';
+       if (!empty($installation_dates['preferred-date']) && !empty($installation_dates['secondary-date'])) {
+           $combined_dates = esc_html($installation_dates['preferred-date'] . ', ' . $installation_dates['secondary-date']);
+       } elseif (!empty($installation_dates['preferred-date'])) {
+           $combined_dates = esc_html($installation_dates['preferred-date']);
+       } elseif (!empty($installation_dates['secondary-date'])) {
+           $combined_dates = esc_html($installation_dates['secondary-date']);
+       }
+       
+       $output .= '<tr class="installation-details">';
+       $output .= '<td>Dates</td>';
+       $output .= '<td>' . $combined_dates . '</td>';
+       $output .= '<td>' . wc_price($installation_price) . '</td>';
+       $output .= '</tr>';
+       
+       $subtotal += $installation_price; // Add to subtotal
+   }
+   
+   // Check if we have any extras (non-installation products with price > 0)
+   $has_extras = false;
+   foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
+       $product = $cart_item['data'];
+       $product_id = $product->get_id();
+       $parent_id = $product->get_parent_id();
+       $product_price = $product->get_price();
+       
+       // Skip installation products
+       $installation_category_id = 63;
+       $installation_product_id = 265084;
+       $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'ids'));
+       $is_installation = in_array($installation_category_id, $product_cats) || $parent_id == $installation_product_id;
+       
+       if (!$is_installation && $product_price > 0) {
+           $has_extras = true;
+           break;
+       }
+   }
+   
+   // Add Extras subheader if we have extras
+   if ($has_extras) {
+       $output .= '<tr class="extras-row-header">';
+       $output .= '<td colspan="3"><strong>Extras</strong></td>';
+       $output .= '</tr>';
+   }
+   
+   // Second pass: Loop through cart items for non-installation products
+   foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
+       $product = $cart_item['data'];
+       $product_id = $product->get_id();
+       $parent_id = $product->get_parent_id();
+       $product_name = $product->get_name();
+       $product_price = $product->get_price();
+       
+       // Get product category
+       $category_name = '';
+       $terms = get_the_terms($product_id, 'product_cat');
+       if (!empty($terms) && !is_wp_error($terms)) {
+           $category_name = $terms[0]->name;
+       }
+       
+       // Skip installation products (already handled above)
+       $installation_category_id = 63;
+       $installation_product_id = 265084;
+       $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'ids'));
+       $is_installation = in_array($installation_category_id, $product_cats) || $parent_id == $installation_product_id;
+       
+       if ($is_installation) {
+           continue; // Skip - already displayed above
        }
        
        // Get deposit information
@@ -313,31 +371,6 @@ function upfront_fee_summary_shortcode() {
        
        // Always add to subtotal regardless of display
        $subtotal += $product_price;
-   }
-   
-   // Add installation as a special format if found - now just 2 rows instead of 3
-   if ($installation_found && !empty($installation_dates)) {
-       $output .= '<tr class="installation-row-header">';
-       $output .= '<td colspan="3"><strong>Installation</strong></td>';
-       $output .= '</tr>';
-       
-       // Combine dates into one row
-       $combined_dates = '';
-       if (!empty($installation_dates['preferred-date']) && !empty($installation_dates['secondary-date'])) {
-           $combined_dates = esc_html($installation_dates['preferred-date'] . ', ' . $installation_dates['secondary-date']);
-       } elseif (!empty($installation_dates['preferred-date'])) {
-           $combined_dates = esc_html($installation_dates['preferred-date']);
-       } elseif (!empty($installation_dates['secondary-date'])) {
-           $combined_dates = esc_html($installation_dates['secondary-date']);
-       }
-       
-       $output .= '<tr class="installation-details">';
-       $output .= '<td>Dates</td>';
-       $output .= '<td>' . $combined_dates . '</td>';
-       $output .= '<td>' . wc_price($installation_price) . '</td>';
-       $output .= '</tr>';
-       
-       $subtotal += $installation_price; // Add to subtotal
    }
    
    // Calculate tax on subtotal (excluding deposits)
