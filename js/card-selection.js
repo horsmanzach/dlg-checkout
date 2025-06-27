@@ -8,7 +8,8 @@ jQuery(document).ready(function ($) {
         'modem-0': 265104,
         'modem-1': 265105,
         'modem-2': 265107,
-        'modem-3': 265108
+        'modem-3': 265108,
+        'modem-4': 265769 
     };
 
     const phoneRows = {
@@ -29,8 +30,30 @@ jQuery(document).ready(function ($) {
     // Check if any product is already in cart and highlight that row
     checkCartAndHighlight();
 
+    // Add input field to "own modem" row
+    const $ownModemRow = $('.modem-4');
+    if ($ownModemRow.length) {
+        const inputHtml = `
+        <div class="own-modem-input-container">
+            <input type="text" 
+                   class="own-modem-input" 
+                   placeholder="Enter modem make and model (e.g., Netgear CM1000)"
+                   maxlength="100">
+            <div class="own-modem-error">Please enter modem make and model (5-100 characters)</div>
+        </div>
+    `;
+        // Try to find and append after description elements
+        const $description = $ownModemRow.find('.et_pb_wc_description').last();
+        if ($description.length) {
+            $description.after(inputHtml);
+        } else {
+            $ownModemRow.append(inputHtml);
+        }
+    }
+
+    
     // Make modem rows clickable
-    $('.modem-0, .modem-1, .modem-2, .modem-3').on('click', function () {
+    $('.modem-0, .modem-1, .modem-2, .modem-3, .modem-4').on('click', function () {
         const $this = $(this);
         const rowClass = $this.attr('class').split(' ').find(c => c.startsWith('modem-'));
 
@@ -39,20 +62,60 @@ jQuery(document).ready(function ($) {
             return;
         }
 
-        // Check if this row is already selected
-        if ($this.hasClass('modem-row-selected')) {
-            // Deselect this row and remove from cart
-            $this.removeClass('modem-row-selected');
-            removeFromCart(modemRows[rowClass]);
+        const productId = modemRows[rowClass];
+
+        // Special handling for "own modem" product (265769)
+        if (productId === 265769) {
+            const $input = $this.find('.own-modem-input');
+            const modemDetails = $input.val().trim();
+
+            // Validate input
+            if (modemDetails.length < 5 || modemDetails.length > 100) {
+                $input.addClass('error');
+                $this.find('.own-modem-error').show();
+                return;
+            }
+
+            // Clear any previous errors
+            $input.removeClass('error');
+            $this.find('.own-modem-error').hide();
+
+            // Check if already selected
+            if ($this.hasClass('modem-row-selected')) {
+                // Deselect and remove from cart
+                $this.removeClass('modem-row-selected');
+                removeFromCart(productId);
+            } else {
+                // Remove selection from all modem rows
+                $('.modem-0, .modem-1, .modem-2, .modem-3, .modem-4').removeClass('modem-row-selected');
+
+                // Add selection to this row
+                $this.addClass('modem-row-selected');
+
+                // Add to cart with modem details
+                addOwnModemToCart(productId, modemDetails);
+            }
         } else {
-            // Remove selection from all modem rows
-            $('.modem-0, .modem-1, .modem-2, .modem-3').removeClass('modem-row-selected');
+            // Handle regular modem selection
+            if ($this.hasClass('modem-row-selected')) {
+                $this.removeClass('modem-row-selected');
+                removeFromCart(productId);
+            } else {
+                $('.modem-0, .modem-1, .modem-2, .modem-3, .modem-4').removeClass('modem-row-selected');
+                $this.addClass('modem-row-selected');
+                addToCart(productId, false, 'modem');
+            }
+        }
+    });
 
-            // Add selection to this row
-            $this.addClass('modem-row-selected');
+    // Clear input validation on typing
+    $(document).on('input', '.own-modem-input', function () {
+        const $input = $(this);
+        const $row = $input.closest('[class*="modem-"]');
 
-            // Add to cart via AJAX
-            addToCart(modemRows[rowClass], false, 'modem');
+        if ($input.val().trim().length >= 5) {
+            $input.removeClass('error');
+            $row.find('.own-modem-error').hide();
         }
     });
 
@@ -109,6 +172,8 @@ jQuery(document).ready(function ($) {
             addToCart(tvRows[rowClass], false, 'tv');
         }
     });
+
+    
 
     // Function to add product to cart
     function addToCart(productId, isInternetPlan = false, productType = '') {
@@ -172,8 +237,8 @@ jQuery(document).ready(function ($) {
     }
 
     // Function to check cart and highlight selected row
-// Function to check cart and highlight selected row
-function checkCartAndHighlight(callback) {
+
+function checkCartAndHighlight() {
     $.ajax({
         type: 'POST',
         url: modem_selection_vars.ajax_url,
@@ -206,20 +271,37 @@ function checkCartAndHighlight(callback) {
                     }
                 }
             }
-            
-            // Call the callback when highlighting is complete
-            if (typeof callback === 'function') {
-                callback();
-            }
-        },
-        error: function() {
-            // Call callback even on error to prevent hanging
-            if (typeof callback === 'function') {
-                callback();
-            }
         }
     });
 }
+
+    // Function to add own modem to cart with details
+    function addOwnModemToCart(productId, modemDetails) {
+        $.ajax({
+            type: 'POST',
+            url: modem_selection_vars.ajax_url,
+            data: {
+                action: 'save_modem_details',
+                product_id: productId,
+                modem_details: modemDetails,
+                nonce: modem_selection_vars.nonce
+            },
+            success: function (response) {
+                if (response.success) {
+                    console.log('Own modem added to cart with details');
+                    $(document.body).trigger('wc_fragment_refresh');
+                    updateFeeTables();
+                } else {
+                    console.error('Error:', response.data.message);
+                }
+            },
+            error: function (xhr, status, error) {
+                console.error('AJAX Error:', error);
+            }
+        });
+    }
+
+
 
     // Function to update upfront fee total
     function updateUpfrontTotal() {
@@ -270,54 +352,92 @@ function checkCartAndHighlight(callback) {
 
     // Setup installation date options
     function setupInstallationDateOptions() {
-        // Get the default select elements
         const preferredSelect = $('.installation-row select[name="attribute_preferred-date"]');
         const secondarySelect = $('.installation-row select[name="attribute_secondary-date"]');
 
         if (preferredSelect.length && secondarySelect.length) {
-            // Set up preferred date options
-            const preferredOptions = preferredSelect.find('option').not('[value=""]');
-            const preferredContainer = $('<div class="date-radio-container preferred-date-container"><h4>Preferred Date</h4></div>');
+            // Create containers with column layout
+            const preferredContainer = $(`
+            <div class="date-radio-container preferred-date-container">
+                <h4>Preferred Date</h4>
+                <div class="date-options-columns">
+                    <div class="earliest-column">
+                    </div>
+                    <div class="weekday-column">
+                    </div>
+                    <div class="weekend-column">
+                    </div>
+                </div>
+            </div>
+        `);
 
+            const secondaryContainer = $(`
+            <div class="date-radio-container secondary-date-container">
+                <h4>Secondary Date</h4>
+                <div class="date-options-columns">
+                    <div class="earliest-column">
+                    </div>
+                    <div class="weekday-column">
+                    </div>
+                    <div class="weekend-column">
+                    </div>
+                </div>
+            </div>
+        `);
+
+            // Process preferred date options
+            const preferredOptions = preferredSelect.find('option').not('[value=""]');
             preferredOptions.each(function () {
                 const value = $(this).attr('value');
                 const label = $(this).text();
 
                 const radioBtn = $(`
-           <div class="date-option">
-               <input type="radio" name="preferred-date" id="preferred-date-${value}" 
-                      value="${value}" class="date-radio preferred-date-radio" />
-               <label for="preferred-date-${value}">${label}</label>
-           </div>
-       `);
+                <div class="date-option">
+                    <input type="radio" name="preferred-date" id="preferred-date-${value}" 
+                           value="${value}" class="date-radio preferred-date-radio" />
+                    <label for="preferred-date-${value}">${label}</label>
+                </div>
+            `);
 
-                preferredContainer.append(radioBtn);
+                // Categorize options into columns
+                if (label.toLowerCase().includes('earliest')) {
+                    preferredContainer.find('.earliest-column').append(radioBtn);
+                } else if (label.toLowerCase().includes('weekend') || label.toLowerCase().includes('saturday') || label.toLowerCase().includes('sunday')) {
+                    preferredContainer.find('.weekend-column').append(radioBtn);
+                } else {
+                    preferredContainer.find('.weekday-column').append(radioBtn);
+                }
             });
 
-            // Set up secondary date options
+            // Process secondary date options
             const secondaryOptions = secondarySelect.find('option').not('[value=""]');
-            const secondaryContainer = $('<div class="date-radio-container secondary-date-container"><h4>Secondary Date</h4></div>');
-
             secondaryOptions.each(function () {
                 const value = $(this).attr('value');
                 const label = $(this).text();
 
                 const radioBtn = $(`
-           <div class="date-option">
-               <input type="radio" name="secondary-date" id="secondary-date-${value}" 
-                      value="${value}" class="date-radio secondary-date-radio" />
-               <label for="secondary-date-${value}">${label}</label>
-           </div>
-       `);
+                <div class="date-option">
+                    <input type="radio" name="secondary-date" id="secondary-date-${value}" 
+                           value="${value}" class="date-radio secondary-date-radio" />
+                    <label for="secondary-date-${value}">${label}</label>
+                </div>
+            `);
 
-                secondaryContainer.append(radioBtn);
+                // Categorize options into columns
+                if (label.toLowerCase().includes('earliest')) {
+                    secondaryContainer.find('.earliest-column').append(radioBtn);
+                } else if (label.toLowerCase().includes('weekend') || label.toLowerCase().includes('saturday') || label.toLowerCase().includes('sunday')) {
+                    secondaryContainer.find('.weekend-column').append(radioBtn);
+                } else {
+                    secondaryContainer.find('.weekday-column').append(radioBtn);
+                }
             });
 
-            // Replace the selects with our custom radio buttons
+            // Replace selects with custom layout
             preferredSelect.parent().hide().after(preferredContainer);
             secondarySelect.parent().hide().after(secondaryContainer);
 
-            // Add clear button (initially hidden)
+            // Add clear button
             const clearButton = $('<button type="button" class="clear-installation-dates" style="display: none;">Clear Dates</button>');
             secondaryContainer.after(clearButton);
 
@@ -325,17 +445,11 @@ function checkCartAndHighlight(callback) {
             clearButton.on('click', function (e) {
                 e.preventDefault();
                 e.stopPropagation();
-
-                // Clear selections
                 preferredDate = '';
                 secondaryDate = '';
                 $('.preferred-date-radio, .secondary-date-radio').prop('checked', false);
-
-                // Update UI and cart
                 installationRow.removeClass('installation-row-selected');
                 removeInstallationFromCart();
-
-                // Hide the button again
                 $(this).hide();
             });
 
@@ -343,7 +457,7 @@ function checkCartAndHighlight(callback) {
             $('.preferred-date-radio').on('change', function () {
                 preferredDate = $(this).val();
                 preferredSelect.val(preferredDate).trigger('change');
-                clearButton.show(); // Show clear button when selection made
+                clearButton.show();
                 checkInstallationSelection();
             });
 
@@ -351,11 +465,11 @@ function checkCartAndHighlight(callback) {
             $('.secondary-date-radio').on('change', function () {
                 secondaryDate = $(this).val();
                 secondarySelect.val(secondaryDate).trigger('change');
-                clearButton.show(); // Show clear button when selection made
+                clearButton.show();
                 checkInstallationSelection();
             });
 
-            // Show clear button if selections already exist or radio buttons are checked
+            // Show clear button if selections already exist
             if (preferredDate || secondaryDate || $('.preferred-date-radio:checked').length || $('.secondary-date-radio:checked').length) {
                 clearButton.show();
             }
@@ -363,20 +477,19 @@ function checkCartAndHighlight(callback) {
     }
 
     // Check if both dates are selected and update UI/cart accordingly
-    function checkInstallationSelection() {
+function checkInstallationSelection() {
+    console.log("Checking selection - preferredDate:", preferredDate, "secondaryDate:", secondaryDate);
+    if (preferredDate && secondaryDate) {
+        $('.installation-row').addClass('installation-row-selected');
+        addInstallationToCart();
+    } else {
         $('.installation-row').removeClass('installation-row-selected');
-        console.log("Checking selection - preferredDate:", preferredDate, "secondaryDate:", secondaryDate);
-        if (preferredDate && secondaryDate) {
-            installationRow.addClass('installation-row-selected');
-            addInstallationToCart();
-        } else {
-            installationRow.removeClass('installation-row-selected');
-            // Only remove from cart if we had both dates before but now don't
-            if (!preferredDate && !secondaryDate) {
-                removeInstallationFromCart();
-            }
+        // Only remove from cart if we had both dates before but now don't
+        if (!preferredDate && !secondaryDate) {
+            removeInstallationFromCart();
         }
     }
+}
 
     // Add installation date selection to cart
     function addInstallationToCart() {
