@@ -148,8 +148,20 @@ jQuery(document).ready(function ($) {
 
             case 2: // Modem screen (reordered from case 1)
                 const modemSelected = $('.modem-row-selected').length;
+                
+                // Special check for "own modem" selection
+                let ownModemValid = true;
+                const $selectedOwnModem = $('.modem-4.modem-row-selected');
+                if ($selectedOwnModem.length) {
+                    const $input = $selectedOwnModem.find('.own-modem-input');
+                    const inputValue = $input.val().trim();
+                    ownModemValid = inputValue.length >= 5 && inputValue.length <= 100;
+                }
+                
                 console.log('Modem selected count:', modemSelected);
-                if (modemSelected) {
+                console.log('Own modem valid:', ownModemValid);
+                
+                if (modemSelected && ownModemValid) {
                     $nextBtn.removeClass('disabled');
                 } else {
                     $nextBtn.addClass('disabled');
@@ -182,7 +194,7 @@ jQuery(document).ready(function ($) {
     }
 
     // Check for card selections and update button states
-    $(document).on('click', '.modem-0, .modem-1, .modem-2, .modem-3, .installation-row, .tv-0, .tv-1, .tv-2, .phone-0, .phone-1, .phone-2', function () {
+    $(document).on('click', '.modem-0, .modem-1, .modem-2, .modem-3, .modem-4, .installation-row, .tv-0, .tv-1, .tv-2, .phone-0, .phone-1, .phone-2', function () {
         setTimeout(updateButtonStates, 300); // Small delay to ensure classes are updated
     });
 
@@ -192,10 +204,19 @@ jQuery(document).ready(function ($) {
         setTimeout(updateButtonStates, 500);
     });
 
-    // Listen for installation date changes specifically
-    $(document).on('change', '.preferred-date-radio, .secondary-date-radio', function () {
-        console.log('Installation date radio changed');
-        setTimeout(updateButtonStates, 500); // Longer delay to ensure class updates
+    // Listen for input changes on own modem field
+    $(document).on('input', '.own-modem-input', function() {
+        const $input = $(this);
+        const $row = $input.closest('[class*="modem-"]');
+        
+        // Clear validation errors if input is valid
+        if ($input.val().trim().length >= 5) {
+            $input.removeClass('error');
+            $row.find('.own-modem-error').hide();
+        }
+        
+        // Update button states when input changes
+        updateButtonStates();
     });
 
     // Alternative: Use MutationObserver for class changes
