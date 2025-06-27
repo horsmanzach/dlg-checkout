@@ -161,6 +161,143 @@ function display_deposit_fee_shortcode($atts) {
 }
 add_shortcode('display_deposit_fee', 'display_deposit_fee_shortcode');
 
+
+
+/*==========Register installation-date sale shortcode========*/
+
+function display_installation_sale_shortcode($atts) {
+    // Extract shortcode attributes, requiring product_id
+    $atts = shortcode_atts(array(
+        'product_id' => get_the_ID(), // Default to current post ID if not specified
+    ), $atts);
+    
+    // Check if product_id is provided or default is available
+    if (empty($atts['product_id'])) {
+        return ''; // Return empty if no product ID available
+    }
+    
+    // Get the 'install_discount_percentage' field value from the specified product
+    $installation_sale_value = get_field('install_discount_percentage', $atts['product_id']);
+    
+    // Alternative way to get the field if the above doesn't work
+    if ($installation_sale_value === null && function_exists('get_field')) {
+        $installation_sale_value = get_field('install_discount_percentage', 'product_' . $atts['product_id']);
+    }
+    
+    // Check if the value exists and is numeric
+    if (is_numeric($installation_sale_value) && $installation_sale_value > 0) {
+        // Convert to integer to remove any decimal places and add the % sign
+        $sale_percentage = intval($installation_sale_value);
+        return 'Now ' . $sale_percentage . '% off!';
+    } else {
+        return ''; // Return empty if no sale value set or not numeric
+    }
+}
+add_shortcode('display_installation_sale', 'display_installation_sale_shortcode');
+
+
+/*==========Installation variation price display shortcode========*/
+
+function display_installation_variation_price_shortcode($atts) {
+    // Extract shortcode attributes
+    $atts = shortcode_atts(array(
+        'variation_id' => 265450, // Default to the installation variation ID
+    ), $atts);
+    
+    // Get the variation product
+    $variation = wc_get_product($atts['variation_id']);
+    
+    // Check if variation exists and is valid
+    if (!$variation || !$variation->exists()) {
+        return ''; // Return empty if variation not found
+    }
+    
+    // Get regular and sale prices
+    $regular_price = $variation->get_regular_price();
+    $sale_price = $variation->get_sale_price();
+    
+    // Check if both prices exist and it's actually on sale
+    if ($regular_price && $sale_price && $sale_price < $regular_price) {
+        // Format with span classes for styling
+        return '<span class="installation-regular-price"><s>' . wc_price($regular_price) . '</s></span> <span class="installation-sale-price">' . wc_price($sale_price) . '</span>';
+    } elseif ($regular_price) {
+        // If no sale price, just show regular price
+        return '<span class="installation-regular-price">' . wc_price($regular_price) . '</span>';
+    }
+    
+    return ''; // Return empty if no prices found
+}
+add_shortcode('display_installation_variation_price', 'display_installation_variation_price_shortcode');
+
+
+/*======Add Modem Details to 'I have my own Modem' product=====*/
+
+// AJAX handler to save modem details to cart
+function save_modem_details_to_cart() {
+    check_ajax_referer('modem_selection_nonce', 'nonce');
+    
+    $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
+    $modem_details = isset($_POST['modem_details']) ? sanitize_text_field($_POST['modem_details']) : '';
+    
+    if ($product_id !== 265769 || strlen($modem_details) < 5 || strlen($modem_details) > 100) {
+        wp_send_json_error(array('message' => 'Invalid modem details'));
+        return;
+    }
+    
+    // Remove any existing modems from cart (same logic as regular modem selection)
+    $modem_category_id = 62; // Your modem category ID
+    
+    foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+        $cart_product_id = $cart_item['product_id'];
+        $product_cats = wp_get_post_terms($cart_product_id, 'product_cat', array('fields' => 'ids'));
+        $is_modem = in_array($modem_category_id, $product_cats);
+        
+        if ($is_modem) {
+            WC()->cart->remove_cart_item($cart_item_key);
+        }
+    }
+    
+    // Add to cart with custom data
+    $cart_item_data = array(
+        'modem_details' => $modem_details
+    );
+    
+    $added = WC()->cart->add_to_cart($product_id, 1, 0, array(), $cart_item_data);
+    
+    if ($added) {
+        wp_send_json_success(array('message' => 'Own modem added to cart'));
+    } else {
+        wp_send_json_error(array('message' => 'Failed to add to cart'));
+    }
+    
+    wp_die();
+}
+add_action('wp_ajax_save_modem_details', 'save_modem_details_to_cart');
+add_action('wp_ajax_nopriv_save_modem_details', 'save_modem_details_to_cart');
+
+// Display modem details in cart
+function display_modem_details_in_cart($item_data, $cart_item) {
+    if (isset($cart_item['modem_details'])) {
+        $item_data[] = array(
+            'key'     => 'Modem Make & Model',
+            'value'   => $cart_item['modem_details'],
+            'display' => '',
+        );
+    }
+    return $item_data;
+}
+add_filter('woocommerce_get_item_data', 'display_modem_details_in_cart', 10, 2);
+
+// Save modem details to order
+function save_modem_details_to_order($item, $cart_item_key, $values, $order) {
+    if (isset($values['modem_details'])) {
+        $item->add_meta_data('Modem Make & Model', $values['modem_details']);
+    }
+}
+add_action('woocommerce_checkout_create_order_line_item', 'save_modem_details_to_order', 10, 4);
+
+
+
 /*Create Clickable Rows Instead of Add to Cart Buttons*/
 
 /**
@@ -183,6 +320,21 @@ function modem_selection_scripts() {
 }
 add_action('wp_enqueue_scripts', 'modem_selection_scripts');
 
+function enqueue_product_selection_scripts() {
+    // Load on all product pages
+    if (is_product()) {
+        wp_enqueue_script('product-selection-nav', get_stylesheet_directory_uri() . '/js/product-selection-navigation.js', array('jquery'), '1.0', true);
+        
+        // Pass any PHP variables the script needs
+        wp_localize_script('product-selection-nav', 'product_selection_vars', array(
+            'checkout_url' => home_url('/checkout'), // Or your specific checkout URL
+            'total_screens' => 4,
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('product_selection_nonce')
+        ));
+    }
+}
+add_action('wp_enqueue_scripts', 'enqueue_product_selection_scripts');
 
 // Function to get cart items - useful for checking currently selected modem
 function get_cart_items_ajax() {
@@ -203,6 +355,28 @@ add_action('wp_ajax_get_cart_items', 'get_cart_items_ajax');
 add_action('wp_ajax_nopriv_get_cart_items', 'get_cart_items_ajax');
 
 
+
+/*========Add Deposit Fees As Payable Items=======*/
+
+add_action('woocommerce_cart_calculate_fees', 'add_deposit_fees_to_cart');
+
+function add_deposit_fees_to_cart() {
+    if (is_admin() && !defined('DOING_AJAX')) return;
+    
+    foreach (WC()->cart->get_cart() as $cart_item) {
+        $product_id = $cart_item['data']->get_id();
+        
+        // Get deposit information
+        $deposit_title = get_field('deposit-title', $product_id) ?: get_field('deposit-title', 'product_' . $product_id);
+        $deposit_fee = get_field('deposit-fee', $product_id) ?: get_field('deposit-fee', 'product_' . $product_id);
+        
+        // Add as fee if deposit exists
+        if (!empty($deposit_title) && is_numeric($deposit_fee) && $deposit_fee > 0) {
+            // Use unique ID to avoid duplicates
+            WC()->cart->add_fee($deposit_title, $deposit_fee, false);
+        }
+    }
+}
 
 
 /* ==============Creation of UPFRONT FEE TABLE =====================*/
@@ -270,10 +444,24 @@ function upfront_fee_summary_shortcode() {
            $combined_dates = esc_html($installation_dates['secondary-date']);
        }
        
+       // Get the specific installation variation (265450) for pricing
+       $installation_variation = wc_get_product(265450);
+       $price_display = wc_price($installation_price);
+       
+       if ($installation_variation && $installation_variation->exists()) {
+           $regular_price = $installation_variation->get_regular_price();
+           $sale_price = $installation_variation->get_sale_price();
+           
+           // Always show strikethrough for installation if both prices exist
+           if ($regular_price && $sale_price && $sale_price < $regular_price) {
+               $price_display = '<span class="installation-regular-price"><s>' . wc_price($regular_price) . '</s></span> <span class="installation-sale-price">' . wc_price($sale_price) . '</span>';
+           }
+       }
+       
        $output .= '<tr class="installation-details">';
        $output .= '<td>Dates</td>';
        $output .= '<td>' . $combined_dates . '</td>';
-       $output .= '<td>' . wc_price($installation_price) . '</td>';
+       $output .= '<td>' . $price_display . '</td>';
        $output .= '</tr>';
        
        $subtotal += $installation_price; // Add to subtotal
