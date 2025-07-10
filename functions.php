@@ -229,6 +229,89 @@ function display_installation_variation_price_shortcode($atts) {
 }
 add_shortcode('display_installation_variation_price', 'display_installation_variation_price_shortcode');
 
+/*==========ADDRESS LOOKUP SHORTCODES======================*/
+
+
+/*==========Fixed Address Display Shortcode that always shows========*/
+
+/*==========Fixed Address Display Shortcode that always shows========*/
+
+function address_display_shortcode($atts) {
+    // Extract shortcode attributes
+    $atts = shortcode_atts(array(
+        'show_search_button' => 'true',
+        'container_class' => 'internet-packages-location-button-group',
+        'redirect_to_plans' => 'true',
+    ), $atts);
+    
+    // Get the API response from user meta
+    $apiResponse = dg_get_user_meta("_api_response");
+    
+    // Build the address display HTML
+    $output = '<div class="' . esc_attr($atts['container_class']) . '"';
+    
+    // Add data attribute to indicate redirect behavior
+    if ($atts['redirect_to_plans'] === 'true') {
+        $output .= ' data-redirect-to-plans="true"';
+    }
+    
+    $output .= '>';
+    
+    // Address display section
+    $output .= '<div class="internet-packages-check-availability-title">';
+    $output .= '<i class="fa fa-map-marker internet-packages-location-icon" aria-hidden="true"></i>';
+    
+    // Check if we have address data, if not show default message
+    if ($apiResponse && !empty($apiResponse["address"])) {
+        $output .= '<small class="internet-packages-location">' . esc_html($apiResponse["address"]) . '</small>';
+    } else {
+        $output .= '<small class="internet-packages-location">No address selected</small>';
+    }
+    
+    $output .= '</div>';
+    
+    // Search different address button (conditional)
+    if ($atts['show_search_button'] === 'true') {
+        $output .= '<a class="btn_mute plan_check_other_availability_btn" href="#" ';
+        $output .= 'data-target="#plan-building-wizard-modal" data-toggle="modal" ';
+        $output .= 'rel="noopener noreferrer">Search Different Address</a>';
+    }
+    
+    $output .= '</div>';
+    
+    return $output;
+}
+
+// Register the shortcode (make sure this replaces any existing registration)
+add_shortcode('address_display', 'address_display_shortcode');
+
+
+function enqueue_address_lookup_script() {
+    // Only load on pages where the shortcode might be used
+    // You can modify this condition based on your needs
+    if (!is_admin()) {
+        wp_enqueue_script(
+            'address-lookup-script', 
+            get_stylesheet_directory_uri() . '/js/address-lookup.js', 
+            array('jquery'), 
+            '1.0.0', 
+            true
+        );
+        
+        // Make sure we have the ajax_object available
+        // (This might already be enqueued by your existing scripts)
+        if (!wp_script_is('custom-ajax-script', 'enqueued')) {
+            wp_localize_script('address-lookup-script', 'ajax_object', array(
+                'ajax_url' => admin_url('admin-ajax.php'),
+                'nonce' => wp_create_nonce('address_lookup_nonce')
+            ));
+        }
+    }
+}
+
+add_action('wp_enqueue_scripts', 'enqueue_address_lookup_script');
+
+
 
 /*======Add Modem Details to 'I have my own Modem' product=====*/
 
@@ -2233,33 +2316,215 @@ function ajax_find_address_signup( $ccd = false ) {
 	wp_die($response);
 }
 
+
+
+/*==========Final Fixed AJAX Function - Provides data in expected format========*/
+
+add_action( 'wp_ajax_nopriv_find_address_with_redirect', 'ajax_find_address_with_redirect_final' );
+add_action( 'wp_ajax_find_address_with_redirect', 'ajax_find_address_with_redirect_final' );
+function ajax_find_address_with_redirect_final() {
+    error_log("=== FINAL: ajax_find_address_with_redirect called ===");
+    error_log("POST data keys: " . implode(', ', array_keys($_POST)));
+    
+    $ccd = "";
+    
+    // getting the ccd parameters (referral to our website);
+    if( isset( $_POST["ccd_param"] ) ) {
+        $ccd = $_POST["ccd_param"];
+        if( strlen( $ccd ) > 0 ) {
+            dg_set_user_meta( "ccd", $ccd );
+        }
+    }
+    
+    // Check if this is a redirect request
+    $should_redirect = isset($_POST["redirect_to_plans"]) && $_POST["redirect_to_plans"] === 'true';
+    
+    error_log("Should redirect: " . ($should_redirect ? 'yes' : 'no'));
+    
+    if ($should_redirect) {
+        error_log("Processing redirect request...");
+        
+        // Get the street address
+        $street_address = isset($_POST['streetAddress']) ? $_POST['streetAddress'] : '';
+        error_log("Received street address: " . $street_address);
+        
+        if (empty($street_address)) {
+            wp_send_json_error(array(
+                'message' => 'No street address provided.'
+            ));
+            return;
+        }
+        
+        // Parse the address to extract components
+        $address_parts = parseAddressString($street_address);
+        error_log("Parsed address parts: " . print_r($address_parts, true));
+        
+        // Set up the searched_address array that find_address_availability_ex() expects
+        $searched_address = array(
+            'street_number' => $address_parts['street_number'],
+            'route' => $address_parts['route'], 
+            'street_name' => $address_parts['street_name'],
+            'street_type' => $address_parts['street_type'],
+            'street_dir' => $address_parts['street_dir'],
+            'locality' => $address_parts['locality'],
+            'administrative_area_level_1' => $address_parts['administrative_area_level_1'],
+            'postal_code' => $address_parts['postal_code'],
+            'manual_search' => 0
+        );
+        
+        // Set up the user_data array that the function also expects
+        $user_data = array(
+            'full_name' => '',
+            'email' => '',
+            'lead_status' => '',
+            'onboarding_stage' => 'address_search'
+        );
+        
+        // Add these to $_POST so find_address_availability_ex() can access them
+        $_POST['searched_address'] = $searched_address;
+        $_POST['user_data'] = $user_data;
+        $_POST['unitNumber'] = isset($_POST['unitNumber']) ? $_POST['unitNumber'] : '';
+        $_POST['buzzerCode'] = isset($_POST['buzzerCode']) ? $_POST['buzzerCode'] : '';
+        
+        error_log("Set up searched_address and user_data for find_address_availability_ex");
+        
+        // Use the EXACT same logic as the working ajax_find_address function
+        error_log("Calling ppget_internet_plans with MainWebPage=1...");
+        $response = ppget_internet_plans(1, $ccd);
+        error_log("ppget_internet_plans returned, length: " . strlen($response));
+        
+        // Send the data to the server for logging
+        AddressCheckLog( 0 );
+        
+        // Check if the response contains the "not available" message
+        $not_available = strpos($response, "Check Service Availability in Your Area");
+        
+        if ($not_available === false) {
+            // Success - plans were found
+            error_log("SUCCESS: Plans found, sending redirect response");
+            wp_send_json_success(array(
+                'redirect' => true,
+                'redirect_url' => home_url('/internet#internet-plan-section'),
+                'message' => 'Address updated successfully'
+            ));
+        } else {
+            // No plans found
+            error_log("ERROR: No plans found for this address");
+            wp_send_json_error(array(
+                'message' => 'No internet plans available for this address. Please try a different address.'
+            ));
+        }
+    } else {
+        // Original behavior for the main internet page
+        error_log("Non-redirect request, using original behavior");
+        $response = ppget_internet_plans(1, $ccd);
+        AddressCheckLog( 0 );
+        wp_die($response);
+    }
+}
+
+/**
+ * Parse address string into components
+ */
+function parseAddressString($address_string) {
+    error_log("Parsing address string: " . $address_string);
+    
+    // Default values
+    $parts = array(
+        'street_number' => '',
+        'route' => '',
+        'street_name' => '',
+        'street_type' => '',
+        'street_dir' => '',
+        'locality' => '',
+        'administrative_area_level_1' => '',
+        'postal_code' => ''
+    );
+    
+    // Try to extract postal code (Canadian format: L#L #L#)
+    if (preg_match('/([A-Z]\d[A-Z] \d[A-Z]\d)/', $address_string, $matches)) {
+        $parts['postal_code'] = $matches[1];
+        $address_string = str_replace($matches[1], '', $address_string);
+    }
+    
+    // Try to extract province (ON, BC, AB, etc.)
+    if (preg_match('/, ([A-Z]{2})/', $address_string, $matches)) {
+        $parts['administrative_area_level_1'] = $matches[1];
+        $address_string = str_replace(', ' . $matches[1], '', $address_string);
+    }
+    
+    // Split by comma to separate street from city
+    $address_parts = explode(',', $address_string);
+    
+    if (count($address_parts) >= 2) {
+        // First part is street, second is city
+        $street_part = trim($address_parts[0]);
+        $parts['locality'] = trim($address_parts[1]);
+        
+        // Parse street part
+        $street_words = explode(' ', $street_part);
+        
+        if (count($street_words) >= 3) {
+            // First word is usually the street number
+            $parts['street_number'] = $street_words[0];
+            
+            // Last word might be direction (N, S, E, W, North, South, etc.)
+            $last_word = end($street_words);
+            if (in_array(strtoupper($last_word), array('N', 'S', 'E', 'W', 'NORTH', 'SOUTH', 'EAST', 'WEST'))) {
+                $parts['street_dir'] = $last_word;
+                array_pop($street_words); // Remove direction from array
+            }
+            
+            // Second to last word might be street type (St, Ave, Rd, etc.)
+            $second_last = end($street_words);
+            if (in_array(strtoupper($second_last), array('ST', 'AVE', 'RD', 'STREET', 'AVENUE', 'ROAD', 'WAY', 'BLVD', 'BOULEVARD', 'DR', 'DRIVE', 'LANE', 'LN'))) {
+                $parts['street_type'] = $second_last;
+                array_pop($street_words); // Remove type from array
+            }
+            
+            // Remaining words (after number, before type/direction) are the street name
+            array_shift($street_words); // Remove street number
+            $parts['street_name'] = implode(' ', $street_words);
+            $parts['route'] = $parts['street_name'] . ' ' . $parts['street_type'];
+        }
+    }
+    
+    error_log("Parsed parts: " . print_r($parts, true));
+    return $parts;
+}
+
+
+
+/*==========Restore original find_address function if it was broken========*/
+
+// Make sure the original find_address function still works
 add_action( 'wp_ajax_nopriv_find_address', 'ajax_find_address' );
 add_action( 'wp_ajax_find_address', 'ajax_find_address' );
 function ajax_find_address( $ccd = false ) {
+    $ccd = "";
 
-	$ccd = "";
+    // getting the ccd parameters (referral to our website);
+    if( isset( $_POST["ccd_param"] ) ) {
+        $ccd = $_POST["ccd_param"];
+        if( strlen( $ccd ) > 0 ) {
+            dg_set_user_meta( "ccd", $ccd );
+        }
+    }
 
-	// getting the ccd parameters (referral to our website);
-	if( isset( $_POST["ccd_param"] ) ) {
-		$ccd = $_POST["ccd_param"];
-		if( strlen( $ccd ) > 0 ) {
-			dg_set_user_meta( "ccd", $ccd );
-		}
-	}
+    error_log(" In ajax_find_address -> ppget_internet_plans $ccd ");
+    $response = ppget_internet_plans(1,  $ccd);
 
-	error_log(" In ajax_find_address -> ppget_internet_plans $ccd ");
-	$response = ppget_internet_plans(1,  $ccd);
+    // commented out checking for email, to send the data anyways to the server for logging
+    //$user_data = dg_get_current_user_data();
+    //if( strlen( $user_data.email ) > 0 ) { 
+        AddressCheckLog( 0 );
+    //}
 
-	// commented out checking for email, to send the data anyways to the server for logging
-	//$user_data = dg_get_current_user_data();
-	//if( strlen( $user_data.email ) > 0 ) { 
-		AddressCheckLog( 0 );
-	//}
-
-	wp_die($response);
+    wp_die($response);
 }
 
 // ============ Zach Note: Review This function ===========
+// This functin facilitates address lookup
 
 function ppget_internet_plans($MainWebPage, $ccd) {
 
