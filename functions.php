@@ -231,9 +231,6 @@ add_shortcode('display_installation_variation_price', 'display_installation_vari
 
 /*==========ADDRESS LOOKUP SHORTCODES======================*/
 
-
-/*==========Fixed Address Display Shortcode that always shows========*/
-
 /*==========Fixed Address Display Shortcode that always shows========*/
 
 function address_display_shortcode($atts) {
@@ -285,32 +282,24 @@ function address_display_shortcode($atts) {
 // Register the shortcode (make sure this replaces any existing registration)
 add_shortcode('address_display', 'address_display_shortcode');
 
-
 function enqueue_address_lookup_script() {
-    // Only load on pages where the shortcode might be used
-    // You can modify this condition based on your needs
     if (!is_admin()) {
         wp_enqueue_script(
             'address-lookup-script', 
             get_stylesheet_directory_uri() . '/js/address-lookup.js', 
             array('jquery'), 
-            '1.0.0', 
+            '1.1.0', // Increment version to force reload
             true
         );
         
-        // Make sure we have the ajax_object available
-        // (This might already be enqueued by your existing scripts)
-        if (!wp_script_is('custom-ajax-script', 'enqueued')) {
-            wp_localize_script('address-lookup-script', 'ajax_object', array(
-                'ajax_url' => admin_url('admin-ajax.php'),
-                'nonce' => wp_create_nonce('address_lookup_nonce')
-            ));
-        }
+        // Always enqueue the ajax_object for this script
+        wp_localize_script('address-lookup-script', 'ajax_object', array(
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('address_lookup_nonce')
+        ));
     }
 }
-
 add_action('wp_enqueue_scripts', 'enqueue_address_lookup_script');
-
 
 
 /*======Add Modem Details to 'I have my own Modem' product=====*/
@@ -2317,7 +2306,6 @@ function ajax_find_address_signup( $ccd = false ) {
 }
 
 
-
 /*==========Final Fixed AJAX Function - Provides data in expected format========*/
 
 add_action( 'wp_ajax_nopriv_find_address_with_redirect', 'ajax_find_address_with_redirect_final' );
@@ -2491,6 +2479,19 @@ function parseAddressString($address_string) {
     
     error_log("Parsed parts: " . print_r($parts, true));
     return $parts;
+}
+
+
+/*==========Test function for debugging========*/
+add_action( 'wp_ajax_nopriv_test_redirect_simple', 'test_redirect_simple' );
+add_action( 'wp_ajax_test_redirect_simple', 'test_redirect_simple' );
+
+function test_redirect_simple() {
+    wp_send_json_success(array(
+        'redirect' => true,
+        'redirect_url' => home_url('/internet#internet-plan-section'),
+        'message' => 'Test redirect successful'
+    ));
 }
 
 
