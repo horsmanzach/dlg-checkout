@@ -70,6 +70,46 @@ function verify_card_ex($payment_info) {
 
 // ========== Zach's AJAX handlers for monthly billing section on checkout====
 
+// Add this AJAX handler to your functions.php
+
+add_action('wp_ajax_remove_monthly_billing_deposits', 'ajax_remove_monthly_billing_deposits');
+add_action('wp_ajax_nopriv_remove_monthly_billing_deposits', 'ajax_remove_monthly_billing_deposits');
+
+function ajax_remove_monthly_billing_deposits() {
+    check_ajax_referer('checkout_nonce', 'nonce');
+    
+    $keep_option = isset($_POST['keep_option']) ? sanitize_text_field($_POST['keep_option']) : '';
+    
+    // If we're not keeping the payafter option, remove all deposit products
+    if ($keep_option !== 'payafter') {
+        foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+            $product_id = $cart_item['product_id'];
+            
+            // Remove the specific Pay After deposit product
+            if ($product_id == 265827) {
+                WC()->cart->remove_cart_item($cart_item_key);
+                continue;
+            }
+            
+            // Also remove any product in the "deposit" category
+            $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'slugs'));
+            if (in_array('deposit', $product_cats)) {
+                WC()->cart->remove_cart_item($cart_item_key);
+            }
+        }
+    }
+    
+    // Recalculate cart totals
+    WC()->cart->calculate_totals();
+    
+    wp_send_json_success(array(
+        'message' => 'Other monthly billing options cleared',
+        'kept_option' => $keep_option
+    ));
+}
+
+// -----
+
 // Credit card validation using your existing Moneris integration
 add_action('wp_ajax_validate_credit_card', 'ajax_validate_credit_card');
 add_action('wp_ajax_nopriv_validate_credit_card', 'ajax_validate_credit_card');
@@ -107,7 +147,7 @@ function ajax_validate_credit_card() {
     }
 }
 
-// Add Pay After deposit
+// Add Pay After deposit AJAX handler
 add_action('wp_ajax_add_payafter_deposit', 'ajax_add_payafter_deposit');
 add_action('wp_ajax_nopriv_add_payafter_deposit', 'ajax_add_payafter_deposit');
 
@@ -124,11 +164,23 @@ function ajax_add_payafter_deposit() {
         }
     }
     
-    // Add the Pay After deposit product to cart (create this product with $200 price)
-    $payafter_product_id = 265827; // Replace with your actual Pay After product ID
-    WC()->cart->add_to_cart($payafter_product_id, 1);
+    // Add the Pay After deposit product to cart
+    $payafter_product_id = 265827; // Your Pay After product ID
+    $added = WC()->cart->add_to_cart($payafter_product_id, 1);
     
-    wp_send_json_success();
+    if ($added) {
+        // Trigger cart update to refresh totals
+        WC()->cart->calculate_totals();
+        
+        wp_send_json_success(array(
+            'message' => 'Pay After deposit added successfully',
+            'redirect' => false
+        ));
+    } else {
+        wp_send_json_error(array(
+            'message' => 'Failed to add Pay After deposit'
+        ));
+    }
 }
 
 // Enqueue Monthly Billing scripts and styles
@@ -152,6 +204,32 @@ function enqueue_monthly_billing_assets() {
     ));
 }
 add_action('wp_enqueue_scripts', 'enqueue_monthly_billing_assets');
+
+
+
+// Add Filter to Exclude Pay Later Product From Being Added to Monthly Summary
+
+add_filter('woocommerce_cart_item_visible', 'exclude_payafter_from_monthly_summary', 10, 3);
+
+function exclude_payafter_from_monthly_summary($visible, $cart_item, $cart_item_key) {
+    // Check if we're in the context of monthly fee calculation
+    if (did_action('monthly_fee_summary_calculation')) {
+        $product_id = $cart_item['product_id'];
+        
+        // Exclude the Pay After deposit product from monthly calculations
+        if ($product_id == 265827) {
+            return false;
+        }
+        
+        // Also exclude any product in the "deposit" category from monthly summary
+        $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'slugs'));
+        if (in_array('deposit', $product_cats)) {
+            return false;
+        }
+    }
+    
+    return $visible;
+}
 
 
 
@@ -761,8 +839,13 @@ add_shortcode('upfront_fee_summary', 'upfront_fee_summary_shortcode');
 
 // Monthly Fee Summary Table Shortcode with Internet Plan
 
+// Update your monthly fee summary function to trigger the action
 function monthly_fee_summary_shortcode() {
     global $post;
+    
+    // Trigger action to indicate we're calculating monthly fees
+    do_action('monthly_fee_summary_calculation');
+    
     // Get cart items
     $cart = WC()->cart;
     
@@ -776,7 +859,9 @@ function monthly_fee_summary_shortcode() {
     
     // Installation category ID to exclude from monthly fee table
     $installation_category_id = 63;
-    $installation_product_id = 265084; // Parent product ID to exclude
+    $installation_product_id = 265084;
+    $deposit_category_id = get_term_by('slug', 'deposit', 'product_cat');
+    $deposit_category_id = $deposit_category_id ? $deposit_category_id->term_id : null;
     
     // Check if we're on a product page
     if (is_product() && $post) {
@@ -808,7 +893,7 @@ function monthly_fee_summary_shortcode() {
                     $category_name = '';
                     $terms = get_the_terms($current_product_id, 'product_cat');
                     if (!empty($terms) && !is_wp_error($terms)) {
-                        $category_name = $terms[0]->name; // Get the first category name
+                        $category_name = $terms[0]->name;
                     }
                     
                     // Add current plan to table
@@ -830,7 +915,7 @@ function monthly_fee_summary_shortcode() {
         foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
             $product = $cart_item['data'];
             $product_id = $product->get_id();
-            $parent_id = $product->get_parent_id(); // Get parent ID for variations
+            $parent_id = $product->get_parent_id();
             
             // Skip if this is an internet plan and we're on its product page
             if ($product_id == $current_product_id) {
@@ -841,8 +926,18 @@ function monthly_fee_summary_shortcode() {
             // Get product categories
             $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'ids'));
             
-            // Skip installation products - they should only show in upfront fees
+            // Skip installation products
             if (in_array($installation_category_id, $product_cats) || $product_id == $installation_product_id || $parent_id == $installation_product_id) {
+                continue;
+            }
+            
+            // SKIP DEPOSIT PRODUCTS from monthly summary
+            if ($deposit_category_id && in_array($deposit_category_id, $product_cats)) {
+                continue;
+            }
+            
+            // Skip the specific Pay After deposit product
+            if ($product_id == 265827) {
                 continue;
             }
             
@@ -861,7 +956,7 @@ function monthly_fee_summary_shortcode() {
             $category_name = '';
             $terms = get_the_terms($product_id, 'product_cat');
             if (!empty($terms) && !is_wp_error($terms)) {
-                $category_name = $terms[0]->name; // Get the first category name
+                $category_name = $terms[0]->name;
             }
             
             // Get ACF monthly fee field
@@ -869,12 +964,10 @@ function monthly_fee_summary_shortcode() {
             if (function_exists('get_field')) {
                 $monthly_fee = get_field('monthly_fee', $product_id);
                 
-                // If direct approach fails, try with product_ prefix
                 if (empty($monthly_fee) && $monthly_fee !== '0') {
                     $monthly_fee = get_field('monthly_fee', 'product_' . $product_id);
                 }
                 
-                // Convert to numeric value
                 $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
             }
             
@@ -890,12 +983,10 @@ function monthly_fee_summary_shortcode() {
     
     // Add current internet plan to cart if it's not there already
     if ($current_product_id > 0 && !$internet_plan_in_cart && $current_product_id != $installation_product_id) {
-        // Check if it's an internet plan
         $product_cats = wp_get_post_terms($current_product_id, 'product_cat', array('fields' => 'ids'));
-        $is_internet_plan = in_array(19, $product_cats); // Replace with your category ID
+        $is_internet_plan = in_array(19, $product_cats);
         
         if ($is_internet_plan) {
-            // Add to cart silently (no redirect)
             WC()->cart->add_to_cart($current_product_id, 1);
         }
     }
@@ -910,7 +1001,7 @@ function monthly_fee_summary_shortcode() {
         }
     }
     
-    // Add subtotal, tax and total rows (spanning first two columns)
+    // Add subtotal, tax and total rows
     $output .= '<tr class="subtotal-row"><td colspan="2">Subtotal</td><td>' . wc_price($subtotal) . '</td></tr>';
     $output .= '<tr class="tax-row"><td colspan="2">Tax</td><td>' . wc_price($tax_total) . '</td></tr>';
     $output .= '<tr class="total-row"><td colspan="2">Total Monthly</td><td>' . wc_price($subtotal + $tax_total) . '</td></tr>';
@@ -1911,6 +2002,7 @@ function remove_category_product() {
 add_shortcode('monthly_fees_summary', 'display_monthly_fees_summary_shortcode');
 
 */
+
 
 
 // Hide shipping costs in the checkout order review table
