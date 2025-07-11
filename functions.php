@@ -68,6 +68,91 @@ function verify_card_ex($payment_info) {
 }
 
 
+// ========== Zach's AJAX handlers for monthly billing section on checkout====
+
+// Credit card validation using your existing Moneris integration
+add_action('wp_ajax_validate_credit_card', 'ajax_validate_credit_card');
+add_action('wp_ajax_nopriv_validate_credit_card', 'ajax_validate_credit_card');
+
+function ajax_validate_credit_card() {
+    check_ajax_referer('checkout_nonce', 'nonce');
+    
+    $card_data = $_POST['card_data'];
+    
+    // Convert MM/YY to YYMM format for Moneris
+    $expiry = $card_data['expiry']; // Should be in MM/YY format
+    if (strpos($expiry, '/') !== false) {
+        list($month, $year) = explode('/', $expiry);
+        $formatted_expiry = $year . $month; // YYMM format
+    } else {
+        $formatted_expiry = $expiry;
+    }
+    
+    // Use your existing Moneris validation logic
+    $payment_info = array(
+        'custid' => '',
+        'orderid' => 'validate-' . time(),
+        'amount' => '0.01',
+        'cardno' => $card_data['card_number'],
+        'expdate' => $formatted_expiry, // Now in YYMM format
+        'cvd' => $card_data['cvv']
+    );
+    
+    try {
+        // Call your existing verify_card_ex function
+        verify_card_ex($payment_info);
+        wp_send_json_success(array('message' => 'Card is valid'));
+    } catch (Exception $e) {
+        wp_send_json_error(array('message' => 'Invalid card details: ' . $e->getMessage()));
+    }
+}
+
+// Add Pay After deposit
+add_action('wp_ajax_add_payafter_deposit', 'ajax_add_payafter_deposit');
+add_action('wp_ajax_nopriv_add_payafter_deposit', 'ajax_add_payafter_deposit');
+
+function ajax_add_payafter_deposit() {
+    check_ajax_referer('checkout_nonce', 'nonce');
+    
+    // Remove any existing pay-after deposits first
+    foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+        $product_id = $cart_item['product_id'];
+        $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'slugs'));
+        
+        if (in_array('deposit', $product_cats)) {
+            WC()->cart->remove_cart_item($cart_item_key);
+        }
+    }
+    
+    // Add the Pay After deposit product to cart (create this product with $200 price)
+    $payafter_product_id = 265827; // Replace with your actual Pay After product ID
+    WC()->cart->add_to_cart($payafter_product_id, 1);
+    
+    wp_send_json_success();
+}
+
+// Enqueue Monthly Billing scripts and styles
+function enqueue_monthly_billing_assets() {
+    // Only load on checkout page
+    if (!is_checkout()) return;
+    
+    // Enqueue JavaScript
+    wp_enqueue_script(
+        'monthly-billing-js',
+        get_stylesheet_directory_uri() . '/js/monthly-billing.js',
+        array('jquery'),
+        '1.0.0',
+        true
+    );
+    
+    // Localize script with AJAX data
+    wp_localize_script('monthly-billing-js', 'monthlyBilling', array(
+        'ajaxUrl' => admin_url('admin-ajax.php'),
+        'nonce' => wp_create_nonce('checkout_nonce')
+    ));
+}
+add_action('wp_enqueue_scripts', 'enqueue_monthly_billing_assets');
+
 
 
 /*=================ZACH NEW EDITS AS OF MARCH 31=================*/
@@ -3818,7 +3903,14 @@ function get_ld_rates() {
 add_action( 'wp_ajax_nopriv_show_pbw', 'ajax_show_pbw' );
 add_action( 'wp_ajax_show_pbw', 'ajax_show_pbw' );
 function ajax_show_pbw() {
+     $start_time = microtime(true); // ADD THIS LINE AT THE START
+
     include_once("plan-building-wizard-steps.php");
+
+     $end_time = microtime(true); // ADD THIS LINE AT THE END
+    $execution_time = ($end_time - $start_time) * 1000; // Convert to milliseconds
+    error_log("Modal content generation took: {$execution_time}ms");
+
     wp_die();
 }
 
