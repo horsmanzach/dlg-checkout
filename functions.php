@@ -2024,6 +2024,12 @@ function AddressCheckLog($state) {
 	$d["state"] = $state;
 	
 	$user_data = dg_get_current_user_data();
+	
+	// FIX: Ensure user_data is an array before encoding
+	if (!is_array($user_data)) {
+		$user_data = array();
+	}
+	
 	$info = json_encode($user_data);
 
 	$d["user_data"] = base64_encode( $info );
@@ -2051,7 +2057,9 @@ function AddressCheckLog($state) {
 	$info = curl_getinfo($ch);
 	curl_close($ch);
 
-	error_log("Sending address check information to signup server, $info response $output ");
+	// FIX: Convert info array to string for logging
+	$info_string = is_array($info) ? print_r($info, true) : $info;
+	error_log("Sending address check information to signup server, info: $info_string response: $output ");
 
 	return $output;
 }
@@ -2308,11 +2316,11 @@ function ajax_find_address_signup( $ccd = false ) {
 
 /*==========Final Fixed AJAX Function - Provides data in expected format========*/
 
-add_action( 'wp_ajax_nopriv_find_address_with_redirect', 'ajax_find_address_with_redirect_final' );
-add_action( 'wp_ajax_find_address_with_redirect', 'ajax_find_address_with_redirect_final' );
-function ajax_find_address_with_redirect_final() {
-    error_log("=== FINAL: ajax_find_address_with_redirect called ===");
-    error_log("POST data keys: " . implode(', ', array_keys($_POST)));
+add_action( 'wp_ajax_nopriv_find_address_with_redirect', 'ajax_find_address_with_redirect_client_geocoded' );
+add_action( 'wp_ajax_find_address_with_redirect', 'ajax_find_address_with_redirect_client_geocoded' );
+function ajax_find_address_with_redirect_client_geocoded() {
+    error_log("=== CLIENT GEOCODED: ajax_find_address_with_redirect called ===");
+    error_log("POST data: " . print_r($_POST, true));
     
     $ccd = "";
     
@@ -2332,9 +2340,16 @@ function ajax_find_address_with_redirect_final() {
     if ($should_redirect) {
         error_log("Processing redirect request...");
         
-        // Get the street address
-        $street_address = isset($_POST['streetAddress']) ? $_POST['streetAddress'] : '';
+        // Get the address data
+        $street_address = isset($_POST['streetAddress']) ? sanitize_text_field($_POST['streetAddress']) : '';
+        $unit_number = isset($_POST['unitNumber']) ? sanitize_text_field($_POST['unitNumber']) : '';
+        $buzzer_code = isset($_POST['buzzerCode']) ? sanitize_text_field($_POST['buzzerCode']) : '';
+        
+        // Get the geocoded address components from the client
+        $geocoded_address = isset($_POST['geocoded_address']) ? $_POST['geocoded_address'] : null;
+        
         error_log("Received street address: " . $street_address);
+        error_log("Received geocoded address: " . print_r($geocoded_address, true));
         
         if (empty($street_address)) {
             wp_send_json_error(array(
@@ -2343,24 +2358,48 @@ function ajax_find_address_with_redirect_final() {
             return;
         }
         
-        // Parse the address to extract components
-        $address_parts = parseAddressString($street_address);
-        error_log("Parsed address parts: " . print_r($address_parts, true));
+        if (!$geocoded_address || !is_array($geocoded_address)) {
+            wp_send_json_error(array(
+                'message' => 'Address geocoding failed. Please try selecting a different address.'
+            ));
+            return;
+        }
         
-        // Set up the searched_address array that find_address_availability_ex() expects
-        $searched_address = array(
-            'street_number' => $address_parts['street_number'],
-            'route' => $address_parts['route'], 
-            'street_name' => $address_parts['street_name'],
-            'street_type' => $address_parts['street_type'],
-            'street_dir' => $address_parts['street_dir'],
-            'locality' => $address_parts['locality'],
-            'administrative_area_level_1' => $address_parts['administrative_area_level_1'],
-            'postal_code' => $address_parts['postal_code'],
+        // Ensure all required keys are present with defaults
+        $searched_address = array_merge(array(
+            'street_number' => '',
+            'route' => '',
+            'street_name' => '',
+            'street_type' => '',
+            'street_dir' => '',
+            'sublocality_level_1' => '',
+            'locality' => '',
+            'administrative_area_level_2' => '',
+            'administrative_area_level_1' => '',
+            'country' => '',
+            'postal_code' => '',
             'manual_search' => 0
-        );
+        ), $geocoded_address);
         
-        // Set up the user_data array that the function also expects
+        // Parse the route into street components if needed (same as availability_check.php does)
+        if (!empty($searched_address['route']) && empty($searched_address['street_name'])) {
+            if (function_exists('parse_street_components')) {
+                $route_components = parse_street_components($searched_address['route']);
+                if (isset($route_components['street_name'])) {
+                    $searched_address['street_name'] = $route_components['street_name'];
+                }
+                if (isset($route_components['street_type'])) {
+                    $searched_address['street_type'] = $route_components['street_type'];
+                }
+                if (isset($route_components['street_dir'])) {
+                    $searched_address['street_dir'] = $route_components['street_dir'];
+                }
+            }
+        }
+        
+        error_log("Final searched_address: " . print_r($searched_address, true));
+        
+        // Set up the user_data array
         $user_data = array(
             'full_name' => '',
             'email' => '',
@@ -2368,40 +2407,123 @@ function ajax_find_address_with_redirect_final() {
             'onboarding_stage' => 'address_search'
         );
         
-        // Add these to $_POST so find_address_availability_ex() can access them
+        // Set up POST data exactly like the main page does
+        $_POST['streetAddress'] = $street_address;
+        $_POST['unitNumber'] = $unit_number ?: '';
+        $_POST['buzzerCode'] = $buzzer_code ?: '';
+        $_POST['unitType'] = ''; // Required to prevent undefined index in availability_check.php
         $_POST['searched_address'] = $searched_address;
         $_POST['user_data'] = $user_data;
-        $_POST['unitNumber'] = isset($_POST['unitNumber']) ? $_POST['unitNumber'] : '';
-        $_POST['buzzerCode'] = isset($_POST['buzzerCode']) ? $_POST['buzzerCode'] : '';
         
-        error_log("Set up searched_address and user_data for find_address_availability_ex");
+        error_log("Set up POST data with client-geocoded address components");
         
-        // Use the EXACT same logic as the working ajax_find_address function
-        error_log("Calling ppget_internet_plans with MainWebPage=1...");
-        $response = ppget_internet_plans(1, $ccd);
-        error_log("ppget_internet_plans returned, length: " . strlen($response));
+        // Suppress PHP notices from availability_check.php temporarily
+        $original_error_reporting = error_reporting();
+        error_reporting(E_ERROR | E_PARSE);
         
-        // Send the data to the server for logging
-        AddressCheckLog( 0 );
-        
-        // Check if the response contains the "not available" message
-        $not_available = strpos($response, "Check Service Availability in Your Area");
-        
-        if ($not_available === false) {
-            // Success - plans were found
-            error_log("SUCCESS: Plans found, sending redirect response");
-            wp_send_json_success(array(
-                'redirect' => true,
-                'redirect_url' => home_url('/internet#internet-plan-section'),
-                'message' => 'Address updated successfully'
-            ));
-        } else {
-            // No plans found
-            error_log("ERROR: No plans found for this address");
+        try {
+            error_log("Calling ppget_internet_plans with client-geocoded data...");
+            $response = ppget_internet_plans(1, $ccd);
+            error_log("ppget_internet_plans returned, length: " . strlen($response));
+            
+            // Restore error reporting
+            error_reporting($original_error_reporting);
+            
+            // Check the API response stored in user meta
+            $apiResponse = dg_get_user_meta("_api_response");
+            error_log("API Response from user meta: " . print_r($apiResponse, true));
+            
+            // Send the data to the server for logging
+            AddressCheckLog( 0 );
+            
+            // Determine success/failure
+            $success_found = false;
+            
+            // Check the stored API response for service availability
+            if ($apiResponse && is_array($apiResponse)) {
+                if (isset($apiResponse['error']) && $apiResponse['error'] === false && 
+                    isset($apiResponse['success']) && $apiResponse['success'] === true) {
+                    
+                    // Check if any service provider is available
+                    $providers = array('bell', 'telus', 'shaw', 'rogers', 'cogeco');
+                    foreach ($providers as $provider) {
+                        if (isset($apiResponse[$provider]) && $apiResponse[$provider] === true) {
+                            $success_found = true;
+                            error_log("SUCCESS: Found service provider: $provider");
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            // Fallback: Check HTML response for plan elements
+            if (!$success_found) {
+                $plan_indicators = array(
+                    'plan_buy_now_btn',
+                    'Select Plan',
+                    'internet_plan_selector',
+                    'radio_box_wrapper',
+                    'InternetPlan'
+                );
+                
+                foreach ($plan_indicators as $indicator) {
+                    if (stripos($response, $indicator) !== false) {
+                        $success_found = true;
+                        error_log("SUCCESS: Found plan indicator in HTML response: $indicator");
+                        break;
+                    }
+                }
+            }
+            
+            // Check for explicit failure indicators
+            $is_not_available = false;
+            $not_available_indicators = array(
+                "Check Service Availability in Your Area",
+                "plan_check_availability_btn"
+            );
+            
+            foreach ($not_available_indicators as $indicator) {
+                if (stripos($response, $indicator) !== false) {
+                    $is_not_available = true;
+                    error_log("FAILURE: Found not available indicator: $indicator");
+                    break;
+                }
+            }
+            
+            error_log("Final analysis: success_found=" . ($success_found ? 'true' : 'false') . 
+                      ", is_not_available=" . ($is_not_available ? 'true' : 'false'));
+            
+            if ($success_found && !$is_not_available) {
+                // Success - service is available at this address
+                error_log("SUCCESS: Internet service available, sending redirect response");
+                
+                wp_send_json_success(array(
+                    'redirect' => true,
+                    'redirect_url' => home_url('/internet#internet-plan-section'),
+                    'message' => 'Address updated successfully'
+                ));
+            } else {
+                // No service available at this address
+                error_log("ERROR: No internet service available at this address");
+                
+                $error_message = 'No internet service available at this address.';
+                if ($apiResponse && isset($apiResponse['errorType']) && !empty($apiResponse['errorType'])) {
+                    $error_message .= ' (' . $apiResponse['errorType'] . ')';
+                }
+                
+                wp_send_json_error(array(
+                    'message' => $error_message . ' Please try selecting a different address from the autocomplete suggestions.'
+                ));
+            }
+            
+        } catch (Exception $e) {
+            error_reporting($original_error_reporting);
+            error_log("Exception in ppget_internet_plans: " . $e->getMessage());
             wp_send_json_error(array(
-                'message' => 'No internet plans available for this address. Please try a different address.'
+                'message' => 'An error occurred while checking address availability. Please try again.'
             ));
         }
+        
     } else {
         // Original behavior for the main internet page
         error_log("Non-redirect request, using original behavior");
@@ -2411,74 +2533,17 @@ function ajax_find_address_with_redirect_final() {
     }
 }
 
-/**
- * Parse address string into components
- */
-function parseAddressString($address_string) {
-    error_log("Parsing address string: " . $address_string);
+
+// Add this temporary debug function to see what the API returns
+add_action( 'wp_ajax_nopriv_debug_api_response', 'debug_api_response' );
+add_action( 'wp_ajax_debug_api_response', 'debug_api_response' );
+function debug_api_response() {
+    $apiResponse = dg_get_user_meta("_api_response");
     
-    // Default values
-    $parts = array(
-        'street_number' => '',
-        'route' => '',
-        'street_name' => '',
-        'street_type' => '',
-        'street_dir' => '',
-        'locality' => '',
-        'administrative_area_level_1' => '',
-        'postal_code' => ''
-    );
-    
-    // Try to extract postal code (Canadian format: L#L #L#)
-    if (preg_match('/([A-Z]\d[A-Z] \d[A-Z]\d)/', $address_string, $matches)) {
-        $parts['postal_code'] = $matches[1];
-        $address_string = str_replace($matches[1], '', $address_string);
-    }
-    
-    // Try to extract province (ON, BC, AB, etc.)
-    if (preg_match('/, ([A-Z]{2})/', $address_string, $matches)) {
-        $parts['administrative_area_level_1'] = $matches[1];
-        $address_string = str_replace(', ' . $matches[1], '', $address_string);
-    }
-    
-    // Split by comma to separate street from city
-    $address_parts = explode(',', $address_string);
-    
-    if (count($address_parts) >= 2) {
-        // First part is street, second is city
-        $street_part = trim($address_parts[0]);
-        $parts['locality'] = trim($address_parts[1]);
-        
-        // Parse street part
-        $street_words = explode(' ', $street_part);
-        
-        if (count($street_words) >= 3) {
-            // First word is usually the street number
-            $parts['street_number'] = $street_words[0];
-            
-            // Last word might be direction (N, S, E, W, North, South, etc.)
-            $last_word = end($street_words);
-            if (in_array(strtoupper($last_word), array('N', 'S', 'E', 'W', 'NORTH', 'SOUTH', 'EAST', 'WEST'))) {
-                $parts['street_dir'] = $last_word;
-                array_pop($street_words); // Remove direction from array
-            }
-            
-            // Second to last word might be street type (St, Ave, Rd, etc.)
-            $second_last = end($street_words);
-            if (in_array(strtoupper($second_last), array('ST', 'AVE', 'RD', 'STREET', 'AVENUE', 'ROAD', 'WAY', 'BLVD', 'BOULEVARD', 'DR', 'DRIVE', 'LANE', 'LN'))) {
-                $parts['street_type'] = $second_last;
-                array_pop($street_words); // Remove type from array
-            }
-            
-            // Remaining words (after number, before type/direction) are the street name
-            array_shift($street_words); // Remove street number
-            $parts['street_name'] = implode(' ', $street_words);
-            $parts['route'] = $parts['street_name'] . ' ' . $parts['street_type'];
-        }
-    }
-    
-    error_log("Parsed parts: " . print_r($parts, true));
-    return $parts;
+    wp_send_json_success(array(
+        'api_response' => $apiResponse,
+        'user_meta_keys' => array_keys(dg_get_current_user_data() ?: array())
+    ));
 }
 
 
