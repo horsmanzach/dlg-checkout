@@ -1,29 +1,200 @@
 /**
  * Monthly Billing Functionality for Checkout
- * Now that HTML is embedded in template, we just need to add functionality
+ * With field relocation to ensure proper placement
  */
 jQuery(document).ready(function ($) {
-
-    // Check if the monthly billing section exists
+    console.log('Monthly billing: Starting initialization...');
+    
     if ($('#monthly-billing-section').length === 0) {
-        console.warn('Monthly billing section not found in template');
+        console.warn('Monthly billing section not found');
         return;
     }
-
-    console.log('Monthly billing section found, initializing functionality...');
-
-    // Initialize all functionality
+    
+    // First, relocate any misplaced fields
+    relocateFieldsToCorrectSections();
+    
+    // Then initialize functionality
     initializeAccordion();
     initializeFormValidation();
     initializeCardValidation();
     initializeBankValidation();
     initializePayAfterValidation();
     initializeFormFormatting();
+    
+    function relocateFieldsToCorrectSections() {
+        console.log('Relocating fields to correct sections...');
+        
+        // Find all bank fields (they might be anywhere in the DOM)
+        const bankFields = [
+            'input[name="bank_account_type"]',
+            'input[name="bank_first_name"]', 
+            'input[name="bank_last_name"]',
+            'input[name="bank_institution"]',
+            'input[name="bank_transit"]', 
+            'input[name="bank_institution_number"]',
+            'input[name="bank_account_number"]',
+            '.bank-validation-message',
+            '.confirm-bank-btn',
+            '.account-type-wrapper',
+            '.bank-details-section'
+        ];
+        
+        // Find all credit card fields
+        const ccFields = [
+            'input[name="cc_cardholder_name"]',
+            'input[name="cc_card_number"]', 
+            'input[name="cc_expiry"]',
+            'input[name="cc_cvv"]',
+            '.cc-validation-message',
+            '.validate-card-btn'
+        ];
+        
+        // Find target containers
+        const bankContainer = $('#bank-content .bank-form-fields');
+        const ccContainer = $('#cc-content .cc-form-fields');
+        const payafterContainer = $('#payafter-content .payafter-info');
+        
+        console.log('Target containers found:', {
+            bank: bankContainer.length,
+            cc: ccContainer.length, 
+            payafter: payafterContainer.length
+        });
+        
+        // Move bank fields to bank container
+        if (bankContainer.length > 0) {
+            bankFields.forEach(selector => {
+                const elements = $(selector);
+                elements.each(function() {
+                    const $element = $(this);
+                    const currentParent = $element.closest('.payment-option-content').attr('id');
+                    
+                    if (currentParent !== 'bank-content') {
+                        console.log(`Moving ${selector} from ${currentParent} to bank-content`);
+                        
+                        // Preserve the parent structure if it's a form-row
+                        if ($element.closest('.form-row').length > 0) {
+                            $element.closest('.form-row').appendTo(bankContainer);
+                        } else {
+                            $element.appendTo(bankContainer);
+                        }
+                    }
+                });
+            });
+        }
+        
+        // Move credit card fields to CC container
+        if (ccContainer.length > 0) {
+            ccFields.forEach(selector => {
+                const elements = $(selector);
+                elements.each(function() {
+                    const $element = $(this);
+                    const currentParent = $element.closest('.payment-option-content').attr('id');
+                    
+                    if (currentParent !== 'cc-content') {
+                        console.log(`Moving ${selector} from ${currentParent} to cc-content`);
+                        
+                        // Preserve the parent structure if it's a form-row
+                        if ($element.closest('.form-row').length > 0) {
+                            $element.closest('.form-row').appendTo(ccContainer);
+                        } else {
+                            $element.appendTo(ccContainer);
+                        }
+                    }
+                });
+            });
+        }
+        
+        // Alternative approach: Create the fields if they don't exist in the right place
+        ensureFieldsExistInCorrectSections();
+        
+        console.log('Field relocation complete');
+    }
+    
+    function ensureFieldsExistInCorrectSections() {
+        const bankContainer = $('#bank-content .bank-form-fields');
+        const ccContainer = $('#cc-content .cc-form-fields');
+        
+        // If bank fields don't exist in bank container, create them
+        if (bankContainer.length > 0 && bankContainer.find('input[name="bank_first_name"]').length === 0) {
+            console.log('Creating bank fields in bank container');
+            bankContainer.html(`
+                <div class="account-type-wrapper" style="margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9;">
+                    <label style="display: block; margin-bottom: 10px; font-weight: bold;">Account Type <abbr class="required" title="required">*</abbr></label>
+                    <div style="display: flex; gap: 20px;">
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="radio" name="bank_account_type" value="chequing" id="chequing" required style="margin-right: 8px;">
+                            Chequing
+                        </label>
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="radio" name="bank_account_type" value="savings" id="savings" required style="margin-right: 8px;">
+                            Savings
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="bank-details-section">
+                    <p class="form-row form-row-first">
+                        <label for="bank_first_name">First Name <abbr class="required" title="required">*</abbr></label>
+                        <input type="text" class="input-text" name="bank_first_name" id="bank_first_name" required>
+                    </p>
+                    <p class="form-row form-row-last">
+                        <label for="bank_last_name">Last Name <abbr class="required" title="required">*</abbr></label>
+                        <input type="text" class="input-text" name="bank_last_name" id="bank_last_name" required>
+                    </p>
+                    <p class="form-row form-row-wide">
+                        <label for="bank_institution">Financial Institution Name <abbr class="required" title="required">*</abbr></label>
+                        <input type="text" class="input-text" name="bank_institution" id="bank_institution" required>
+                    </p>
+                    <p class="form-row form-row-first">
+                        <label for="bank_transit">Transit Number <abbr class="required" title="required">*</abbr></label>
+                        <input type="text" class="input-text" name="bank_transit" id="bank_transit" placeholder="5 digits" maxlength="5" pattern="[0-9]{5}" required>
+                    </p>
+                    <p class="form-row form-row-last">
+                        <label for="bank_institution_number">Institution Number <abbr class="required" title="required">*</abbr></label>
+                        <input type="text" class="input-text" name="bank_institution_number" id="bank_institution_number" placeholder="3 digits" maxlength="3" pattern="[0-9]{3}" required>
+                    </p>
+                    <p class="form-row form-row-wide">
+                        <label for="bank_account_number">Account Number <abbr class="required" title="required">*</abbr></label>
+                        <input type="text" class="input-text" name="bank_account_number" id="bank_account_number" placeholder="7+ digits" minlength="7" pattern="[0-9]{7,}" required>
+                    </p>
+                    <div style="clear: both;"></div>
+                    <div class="bank-validation-message" style="display:none; margin-top: 10px;"></div>
+                    <button type="button" class="button confirm-bank-btn" style="margin-top: 10px;">Confirm Bank Details</button>
+                </div>
+            `);
+        }
+        
+        // If CC fields don't exist in CC container, create them
+        if (ccContainer.length > 0 && ccContainer.find('input[name="cc_cardholder_name"]').length === 0) {
+            console.log('Creating CC fields in CC container');
+            ccContainer.html(`
+                <p class="form-row form-row-wide">
+                    <label for="cc_cardholder_name">Cardholder Name <abbr class="required" title="required">*</abbr></label>
+                    <input type="text" class="input-text" name="cc_cardholder_name" id="cc_cardholder_name" placeholder="Full name as it appears on card" required>
+                </p>
+                <p class="form-row form-row-wide">
+                    <label for="cc_card_number">Card Number <abbr class="required" title="required">*</abbr></label>
+                    <input type="text" class="input-text" name="cc_card_number" id="cc_card_number" placeholder="1234 5678 9012 3456" maxlength="19" required>
+                </p>
+                <p class="form-row form-row-first">
+                    <label for="cc_expiry">Expiry Date <abbr class="required" title="required">*</abbr></label>
+                    <input type="text" class="input-text" name="cc_expiry" id="cc_expiry" placeholder="MM/YY" maxlength="5" required>
+                </p>
+                <p class="form-row form-row-last">
+                    <label for="cc_cvv">CVV <abbr class="required" title="required">*</abbr></label>
+                    <input type="text" class="input-text" name="cc_cvv" id="cc_cvv" placeholder="123" maxlength="4" required>
+                </p>
+                <div style="clear: both;"></div>
+                <div class="cc-validation-message" style="display:none; margin-top: 10px;"></div>
+                <button type="button" class="button validate-card-btn" style="margin-top: 10px;">Validate & Confirm Card</button>
+            `);
+        }
+    }
 
+    // Rest of your existing functions (initializeAccordion, etc.)
     function initializeAccordion() {
-        // Accordion header click handler
+        // Your existing accordion code here...
         $(document).on('click', '.payment-option-header', function (e) {
-            // Don't trigger if clicking on radio button
             if ($(e.target).is('input[type="radio"]')) return;
 
             const option = $(this).data('option');
@@ -31,11 +202,9 @@ jQuery(document).ready(function ($) {
             const content = $('#' + option + '-content');
             const arrow = $(this).find('.accordion-arrow');
 
-            // Close all other accordions
             $('.payment-option-content').not(content).slideUp();
             $('.payment-option-header').not(this).removeClass('active').find('.accordion-arrow').text('▼');
 
-            // Toggle current accordion
             if (content.is(':visible')) {
                 content.slideUp();
                 $(this).removeClass('active');
@@ -51,17 +220,14 @@ jQuery(document).ready(function ($) {
             }
         });
 
-        // Radio button change handler
         $(document).on('change', 'input[name="monthly_payment_method"]', function () {
             const option = $(this).val();
             const header = $(this).closest('.payment-option-header');
             const content = $('#' + option + '-content');
 
-            // Close all other accordions
             $('.payment-option-content').slideUp();
             $('.payment-option-header').removeClass('active').find('.accordion-arrow').text('▼');
 
-            // Open selected accordion
             header.addClass('active').find('.accordion-arrow').text('▲');
             content.slideDown();
 
@@ -303,7 +469,7 @@ jQuery(document).ready(function ($) {
         });
     }
 
-    function resetConfirmations() {
+      function resetConfirmations() {
         $('input[name="monthly_billing_confirmed"]').val('0');
         $('.validate-card-btn, .confirm-bank-btn, .confirm-payafter-btn')
             .removeClass('confirmed')
