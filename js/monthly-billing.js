@@ -1,119 +1,42 @@
 /**
- * Monthly Billing Functionality for Checkout
- * With field relocation to ensure proper placement
+ * Monthly Billing Functionality for Checkout - WORKING VERSION
  */
 jQuery(document).ready(function ($) {
     console.log('Monthly billing: Starting initialization...');
-    
-    if ($('#monthly-billing-section').length === 0) {
-        console.warn('Monthly billing section not found');
-        return;
-    }
-    
-    // First, relocate any misplaced fields
-    relocateFieldsToCorrectSections();
-    
-    // Then initialize functionality
-    initializeAccordion();
-    initializeFormValidation();
-    initializeCardValidation();
-    initializeBankValidation();
-    initializePayAfterValidation();
-    initializeFormFormatting();
-    
-    function relocateFieldsToCorrectSections() {
-        console.log('Relocating fields to correct sections...');
-        
-        // Find all bank fields (they might be anywhere in the DOM)
-        const bankFields = [
-            'input[name="bank_account_type"]',
-            'input[name="bank_first_name"]', 
-            'input[name="bank_last_name"]',
-            'input[name="bank_institution"]',
-            'input[name="bank_transit"]', 
-            'input[name="bank_institution_number"]',
-            'input[name="bank_account_number"]',
-            '.bank-validation-message',
-            '.confirm-bank-btn',
-            '.account-type-wrapper',
-            '.bank-details-section'
-        ];
-        
-        // Find all credit card fields
-        const ccFields = [
-            'input[name="cc_cardholder_name"]',
-            'input[name="cc_card_number"]', 
-            'input[name="cc_expiry"]',
-            'input[name="cc_cvv"]',
-            '.cc-validation-message',
-            '.validate-card-btn'
-        ];
-        
-        // Find target containers
-        const bankContainer = $('#bank-content .bank-form-fields');
-        const ccContainer = $('#cc-content .cc-form-fields');
-        const payafterContainer = $('#payafter-content .payafter-info');
-        
-        console.log('Target containers found:', {
-            bank: bankContainer.length,
-            cc: ccContainer.length, 
-            payafter: payafterContainer.length
-        });
-        
-        // Move bank fields to bank container
-        if (bankContainer.length > 0) {
-            bankFields.forEach(selector => {
-                const elements = $(selector);
-                elements.each(function() {
-                    const $element = $(this);
-                    const currentParent = $element.closest('.payment-option-content').attr('id');
-                    
-                    if (currentParent !== 'bank-content') {
-                        console.log(`Moving ${selector} from ${currentParent} to bank-content`);
-                        
-                        // Preserve the parent structure if it's a form-row
-                        if ($element.closest('.form-row').length > 0) {
-                            $element.closest('.form-row').appendTo(bankContainer);
-                        } else {
-                            $element.appendTo(bankContainer);
-                        }
-                    }
-                });
-            });
+
+    // Wait for DOM to be fully ready
+    setTimeout(function () {
+        initializeMonthlyBilling();
+    }, 500);
+
+    function initializeMonthlyBilling() {
+        if ($('#monthly-billing-section').length === 0) {
+            console.warn('Monthly billing section not found');
+            return;
         }
-        
-        // Move credit card fields to CC container
-        if (ccContainer.length > 0) {
-            ccFields.forEach(selector => {
-                const elements = $(selector);
-                elements.each(function() {
-                    const $element = $(this);
-                    const currentParent = $element.closest('.payment-option-content').attr('id');
-                    
-                    if (currentParent !== 'cc-content') {
-                        console.log(`Moving ${selector} from ${currentParent} to cc-content`);
-                        
-                        // Preserve the parent structure if it's a form-row
-                        if ($element.closest('.form-row').length > 0) {
-                            $element.closest('.form-row').appendTo(ccContainer);
-                        } else {
-                            $element.appendTo(ccContainer);
-                        }
-                    }
-                });
-            });
-        }
-        
-        // Alternative approach: Create the fields if they don't exist in the right place
+
+        console.log('Monthly billing section found, initializing...');
+
+        // First ensure fields exist in the correct sections
         ensureFieldsExistInCorrectSections();
-        
-        console.log('Field relocation complete');
+
+        // Then initialize all components
+        initializeAccordion();
+        initializeFormFormatting();
+        initializeFormValidation();
+        initializeCardValidation();
+        initializeBankValidation();
+        initializePayAfterValidation();
+
+        console.log('Monthly billing initialization complete');
     }
-    
+
     function ensureFieldsExistInCorrectSections() {
+        console.log('Ensuring fields exist in correct sections...');
+
         const bankContainer = $('#bank-content .bank-form-fields');
         const ccContainer = $('#cc-content .cc-form-fields');
-        
+
         // If bank fields don't exist in bank container, create them
         if (bankContainer.length > 0 && bankContainer.find('input[name="bank_first_name"]').length === 0) {
             console.log('Creating bank fields in bank container');
@@ -163,7 +86,7 @@ jQuery(document).ready(function ($) {
                 </div>
             `);
         }
-        
+
         // If CC fields don't exist in CC container, create them
         if (ccContainer.length > 0 && ccContainer.find('input[name="cc_cardholder_name"]').length === 0) {
             console.log('Creating CC fields in CC container');
@@ -189,24 +112,33 @@ jQuery(document).ready(function ($) {
                 <button type="button" class="button validate-card-btn" style="margin-top: 10px;">Validate & Confirm Card</button>
             `);
         }
+
+        console.log('Field creation complete');
     }
 
-    // Rest of your existing functions (initializeAccordion, etc.)
     function initializeAccordion() {
-        // Your existing accordion code here...
+        console.log('Initializing accordion...');
+
+        // Handle header clicks (but not radio button clicks)
         $(document).on('click', '.payment-option-header', function (e) {
-            if ($(e.target).is('input[type="radio"]')) return;
+            if ($(e.target).is('input[type="radio"]')) {
+                return; // Let radio button handle itself
+            }
 
             const option = $(this).data('option');
             const radio = $(this).find('input[type="radio"]');
             const content = $('#' + option + '-content');
             const arrow = $(this).find('.accordion-arrow');
 
-            $('.payment-option-content').not(content).slideUp();
+            console.log('Header clicked for option:', option);
+
+            // Close all other sections
+            $('.payment-option-content').not(content).slideUp(300);
             $('.payment-option-header').not(this).removeClass('active').find('.accordion-arrow').text('▼');
 
+            // Toggle current section
             if (content.is(':visible')) {
-                content.slideUp();
+                content.slideUp(300);
                 $(this).removeClass('active');
                 arrow.text('▼');
                 radio.prop('checked', false);
@@ -215,21 +147,28 @@ jQuery(document).ready(function ($) {
                 radio.prop('checked', true);
                 $(this).addClass('active');
                 arrow.text('▲');
-                content.slideDown();
+                content.slideDown(300);
                 $('input[name="selected_monthly_method"]').val(option);
             }
+
+            resetConfirmations();
         });
 
+        // Handle direct radio button changes
         $(document).on('change', 'input[name="monthly_payment_method"]', function () {
             const option = $(this).val();
             const header = $(this).closest('.payment-option-header');
             const content = $('#' + option + '-content');
 
-            $('.payment-option-content').slideUp();
+            console.log('Radio changed to option:', option);
+
+            // Close all sections
+            $('.payment-option-content').slideUp(300);
             $('.payment-option-header').removeClass('active').find('.accordion-arrow').text('▼');
 
+            // Open selected section
             header.addClass('active').find('.accordion-arrow').text('▲');
-            content.slideDown();
+            content.slideDown(300);
 
             $('input[name="selected_monthly_method"]').val(option);
             resetConfirmations();
@@ -237,10 +176,15 @@ jQuery(document).ready(function ($) {
     }
 
     function initializeFormFormatting() {
+        console.log('Initializing form formatting...');
+
         // Credit card number formatting
         $(document).on('input', '#cc_card_number', function () {
             let value = $(this).val().replace(/\s+/g, '').replace(/[^0-9]/gi, '');
             let formattedValue = value.match(/.{1,4}/g)?.join(' ') || value;
+            if (formattedValue.length > 19) {
+                formattedValue = formattedValue.substring(0, 19);
+            }
             $(this).val(formattedValue);
         });
 
@@ -258,13 +202,15 @@ jQuery(document).ready(function ($) {
             $(this).val($(this).val().replace(/\D/g, ''));
         });
 
-        // Text only fields
+        // Text only fields (allow letters, spaces, hyphens, apostrophes)
         $(document).on('input', '#cc_cardholder_name, #bank_first_name, #bank_last_name, #bank_institution', function () {
-            $(this).val($(this).val().replace(/[^a-zA-Z\s]/g, ''));
+            $(this).val($(this).val().replace(/[^a-zA-Z\s\-']/g, ''));
         });
     }
 
     function initializeFormValidation() {
+        console.log('Initializing form validation...');
+
         // Real-time validation feedback
         $(document).on('blur', '.cc-form-fields input, .bank-form-fields input', function () {
             validateField($(this));
@@ -339,6 +285,8 @@ jQuery(document).ready(function ($) {
     }
 
     function initializeCardValidation() {
+        console.log('Initializing card validation...');
+
         $(document).on('click', '.validate-card-btn', function () {
             const button = $(this);
             const originalText = button.text();
@@ -346,9 +294,11 @@ jQuery(document).ready(function ($) {
             const cardData = {
                 cardholder_name: $('#cc_cardholder_name').val().trim(),
                 card_number: $('#cc_card_number').val().replace(/\s/g, ''),
-                expiry: $('#cc_expiry').val(),
+                expiry: $('#cc_expiry').val(), // Will be in MM/YY format
                 cvv: $('#cc_cvv').val()
             };
+
+            console.log('Validating card data:', cardData);
 
             // Validate all fields
             let allValid = true;
@@ -370,6 +320,14 @@ jQuery(document).ready(function ($) {
             button.text('Validating...').prop('disabled', true);
             $('.cc-validation-message').html('<span style="color:blue;">Validating card...</span>').show();
 
+            // Check if monthlyBilling is available
+            if (typeof monthlyBilling === 'undefined') {
+                console.error('monthlyBilling object not found');
+                $('.cc-validation-message').html('<span style="color:red;">Configuration error. Please refresh and try again.</span>').show();
+                button.text(originalText).prop('disabled', false);
+                return;
+            }
+
             // AJAX call to validate card
             $.ajax({
                 url: monthlyBilling.ajaxUrl,
@@ -380,6 +338,7 @@ jQuery(document).ready(function ($) {
                     nonce: monthlyBilling.nonce
                 },
                 success: function (response) {
+                    console.log('Card validation response:', response);
                     if (response.success) {
                         $('.cc-validation-message').html('<span style="color:green;">✓ Card validated successfully!</span>').show();
                         $('input[name="monthly_billing_confirmed"]').val('1');
@@ -389,7 +348,8 @@ jQuery(document).ready(function ($) {
                         button.text(originalText).prop('disabled', false);
                     }
                 },
-                error: function () {
+                error: function (xhr, status, error) {
+                    console.error('Card validation error:', error);
                     $('.cc-validation-message').html('<span style="color:red;">Error validating card. Please try again.</span>').show();
                     button.text(originalText).prop('disabled', false);
                 }
@@ -398,10 +358,14 @@ jQuery(document).ready(function ($) {
     }
 
     function initializeBankValidation() {
+        console.log('Initializing bank validation...');
+
         $(document).on('click', '.confirm-bank-btn', function () {
             const requiredFields = ['bank_first_name', 'bank_last_name', 'bank_institution', 'bank_transit', 'bank_institution_number', 'bank_account_number'];
             let valid = true;
             let firstInvalidField = null;
+
+            console.log('Validating bank details...');
 
             // Validate required fields
             requiredFields.forEach(function (fieldName) {
@@ -429,19 +393,33 @@ jQuery(document).ready(function ($) {
                 $('input[name="monthly_billing_confirmed"]').val('1');
                 $(this).text('Bank Details Confirmed ✓').prop('disabled', true).addClass('confirmed');
                 $('.bank-validation-message').html('<span style="color:green;">✓ Bank details confirmed!</span>').show();
+                console.log('Bank details validated successfully');
             } else {
                 $('.bank-validation-message').html('<span style="color:red;">Please fill in all required bank details correctly.</span>').show();
                 if (firstInvalidField) {
                     firstInvalidField.focus();
                 }
+                console.log('Bank validation failed');
             }
         });
     }
 
     function initializePayAfterValidation() {
+        console.log('Initializing pay after validation...');
+
         $(document).on('click', '.confirm-payafter-btn', function () {
             const button = $(this);
             button.text('Adding deposit...').prop('disabled', true);
+
+            console.log('Adding pay after deposit...');
+
+            // Check if monthlyBilling is available
+            if (typeof monthlyBilling === 'undefined') {
+                console.error('monthlyBilling object not found');
+                button.text('Confirm Pay After').prop('disabled', false);
+                alert('Configuration error. Please refresh and try again.');
+                return;
+            }
 
             // Add $200 deposit to cart
             $.ajax({
@@ -452,16 +430,18 @@ jQuery(document).ready(function ($) {
                     nonce: monthlyBilling.nonce
                 },
                 success: function (response) {
+                    console.log('Pay after deposit response:', response);
                     if (response.success) {
                         $('input[name="monthly_billing_confirmed"]').val('1');
                         button.text('Pay After Confirmed ✓').addClass('confirmed');
                         $('body').trigger('update_checkout');
                     } else {
                         button.text('Confirm Pay After').prop('disabled', false);
-                        alert('Error adding deposit. Please try again.');
+                        alert('Error adding deposit: ' + (response.data?.message || 'Unknown error'));
                     }
                 },
-                error: function () {
+                error: function (xhr, status, error) {
+                    console.error('Pay after deposit error:', error);
                     button.text('Confirm Pay After').prop('disabled', false);
                     alert('Error adding deposit. Please try again.');
                 }
@@ -469,7 +449,8 @@ jQuery(document).ready(function ($) {
         });
     }
 
-      function resetConfirmations() {
+    function resetConfirmations() {
+        console.log('Resetting confirmations...');
         $('input[name="monthly_billing_confirmed"]').val('0');
         $('.validate-card-btn, .confirm-bank-btn, .confirm-payafter-btn')
             .removeClass('confirmed')
