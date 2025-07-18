@@ -231,6 +231,641 @@ function exclude_payafter_from_monthly_summary($visible, $cart_item, $cart_item_
     return $visible;
 }
 
+/*=====Handle Deposit payments better======*/
+
+// IMPROVED FIX: Add this to your functions.php
+function get_upfront_fee_summary_with_deposits() {
+    $summary = array(
+        'ModemPurchaseOption'=>true,
+        'internet-plan'=>array('',0.0),
+        'modems'=>array('Modem Security Deposit',0.0),
+        'fixed-fee'=>array('Installation Fee',0.0),
+        'deposit'=>array('Pay-after Deposit',0.0),
+        'phone-plan'=>array('Phone Plan',0.0),
+        'tv-plan'=>array('TV Plan',0.0),
+        'subtotal'=>array('Subtotal',0.0),
+        'taxes'=>array('Taxes',0.0),
+        'grand_total'=>array('UPFRONT TOTAL',0.0)
+    );
+
+    $tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 13;
+    $show_included_taxes = wc_tax_enabled() && WC()->cart->display_prices_including_tax();
+    $total_deposits = 0;
+    
+    foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+        $_product = apply_filters('woocommerce_cart_item_product', $cart_item['data'], $cart_item, $cart_item_key);
+        
+        if (!$_product || !$_product->exists() || $cart_item['quantity'] <= 0) {
+            continue;
+        }
+        
+        $product_id = $_product->get_id();
+        $product_price = $_product->get_price();
+        
+        // Get category safely
+        $product_cat_ids = $_product->get_category_ids();
+        $product_category = 'uncategorized';
+        
+        if (!empty($product_cat_ids) && isset($product_cat_ids[0])) {
+            $product_cat = get_term($product_cat_ids[0], 'product_cat');
+            if ($product_cat && !is_wp_error($product_cat) && isset($product_cat->slug)) {
+                $product_category = $product_cat->slug;
+            }
+        }
+        
+        error_log("Processing: " . $_product->get_name() . " | Category: " . $product_category . " | Price: $" . $product_price);
+        
+        // Handle the main product categories
+        if (array_key_exists($product_category, $summary)) {
+            $summary[$product_category][0] = $_product->get_title();
+            $summary[$product_category][1] = round(floatval($product_price), 2);
+            
+            // Add tax for taxable items (not deposits)
+            if ($product_category !== 'deposit') {
+                $summary['taxes'][1] += round(floatval(($summary[$product_category][1] * $tax_rate) / 100), 2);
+            }
+        }
+        
+        // CHECK FOR ACF DEPOSIT FIELDS on this product
+        $deposit_title = get_field('deposit-title', $product_id);
+        $deposit_amount = get_field('deposit-fee', $product_id);
+        
+        // Alternative ACF field names (in case they're different)
+        if (empty($deposit_title)) {
+            $deposit_title = get_field('deposit_title', $product_id);
+        }
+        if (empty($deposit_amount)) {
+            $deposit_amount = get_field('deposit_amount', $product_id);
+        }
+        
+        if (!empty($deposit_title) && is_numeric($deposit_amount) && $deposit_amount > 0) {
+            error_log("Found ACF deposit: " . $deposit_title . " = $" . $deposit_amount);
+            $total_deposits += floatval($deposit_amount);
+        }
+    }
+    
+    // Add total deposits to the deposit category
+    if ($total_deposits > 0) {
+        $summary['deposit'][0] = 'Deposits';
+        $summary['deposit'][1] = $total_deposits;
+        error_log("Total deposits: $" . $total_deposits);
+    }
+    
+    // Calculate totals
+    $summary['subtotal'][1] = $summary['internet-plan'][1] + $summary['modems'][1] + $summary['fixed-fee'][1] + $summary['phone-plan'][1] + $summary['tv-plan'][1];
+    
+    if (wc_tax_enabled() && !$show_included_taxes) {
+        $summary['taxes'][0] = esc_html(WC()->countries->tax_or_vat());
+        $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['taxes'][1] + $summary['deposit'][1];
+    } else {
+        $summary['taxes'][0] = "Tax";
+        $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['deposit'][1];
+    }
+    
+    error_log("=== FINAL SUMMARY ===");
+    error_log("Subtotal: $" . $summary['subtotal'][1]);
+    error_log("Tax: $" . $summary['taxes'][1]);
+    error_log("Deposits: $" . $summary['deposit'][1]);
+    error_log("Grand Total: $" . $summary['grand_total'][1]);
+    
+    return $summary;
+}
+
+/*=======================NEW MONERIS PAYMENT GATEWAY INTEGRATION VIA SHORTCODE=======================*/
+
+
+
+/**
+ * Moneris Payment Gateway Functions for functions.php
+ */
+
+// Moneris Test Mode Control - Change this to switch between test and production
+function is_moneris_test_mode() {
+    // Change this to true for testing, false for production
+    return true; // Set to true for test mode, false for live transactions
+}
+
+// Moneris Account Configuration
+function get_moneris_config() {
+    if (is_moneris_test_mode()) {
+        // TEST ENVIRONMENT CREDENTIALS
+        return array(
+            'store_id' => 'store5',     // Replace with your test store ID tomorrow
+            'api_token' => 'yesguy',   // Replace with your test API token tomorrow
+            'test_mode' => true
+        );
+    } else {
+        // PRODUCTION ENVIRONMENT CREDENTIALS (from your existing processpayment.php)
+        return array(
+            'store_id' => 'store5',                 // Your current production store ID
+            'api_token' => 'yesguy',               // Your current production API token
+            'test_mode' => false
+        );
+    }
+}
+
+// Enqueue payment gateway scripts
+function enqueue_moneris_payment_assets() {
+    if (is_checkout() || has_shortcode(get_post()->post_content, 'moneris_payment_form')) {
+        wp_enqueue_script(
+            'moneris-payment-js',
+            get_stylesheet_directory_uri() . '/js/moneris-payment.js',
+            array('jquery'),
+            '1.0.0',
+            true
+        );
+        
+        wp_localize_script('moneris-payment-js', 'monerisPayment', array(
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('moneris_payment_nonce')
+        ));
+    }
+}
+add_action('wp_enqueue_scripts', 'enqueue_moneris_payment_assets');
+
+/**
+ * Moneris Payment Form Shortcode
+ */
+function moneris_payment_form_shortcode($atts) {
+    $atts = shortcode_atts(array(
+        'button_text' => 'Process Payment',
+        'show_amount' => 'true',
+        'redirect_url' => '',
+        'success_message' => 'Payment processed successfully!'
+    ), $atts);
+    
+    // Get cart total for amount display
+    $total_amount = 0;
+    if (function_exists('get_upfront_fee_summary')) {
+        $summary = get_upfront_fee_summary();
+        $total_amount = $summary['grand_total'][1];
+        $total_display = wc_price($total_amount);
+    } else if (function_exists('WC') && WC()->cart) {
+        $total_amount = WC()->cart->get_total('edit');
+        $total_display = wc_price($total_amount);
+    }
+    
+    ob_start();
+    ?>
+    <div class="moneris-payment-container">
+        <?php if ($atts['show_amount'] === 'true' && $total_amount > 0): ?>
+            <div class="moneris-payment-amount">
+                <h3>Payment Amount: <?php echo $total_display; ?></h3>
+            </div>
+        <?php endif; ?>
+        
+        <form id="moneris-payment-form" class="moneris-payment-form">
+            <div class="moneris-message-container"></div>
+            
+            <div class="moneris-form-row">
+                <label for="moneris_cardholder_name">Cardholder Name <span style="color:red;">*</span></label>
+                <input type="text" id="moneris_cardholder_name" name="cardholder_name" 
+                       placeholder="John Doe" required maxlength="50">
+            </div>
+            
+            <div class="moneris-form-row">
+                <label for="moneris_card_number">Card Number <span style="color:red;">*</span></label>
+                <input type="text" id="moneris_card_number" name="card_number" 
+                       placeholder="1234 5678 9012 3456" required maxlength="19">
+            </div>
+            
+            <div class="moneris-form-row half">
+                <label for="moneris_expiry_date">Expiry Date <span style="color:red;">*</span></label>
+                <input type="text" id="moneris_expiry_date" name="expiry_date" 
+                       placeholder="MM/YY" required maxlength="5">
+            </div>
+            
+            <div class="moneris-form-row half">
+                <label for="moneris_cvv">CVV <span style="color:red;">*</span></label>
+                <input type="text" id="moneris_cvv" name="cvv" 
+                       placeholder="123" required maxlength="4">
+            </div>
+            
+            <div class="moneris-form-row">
+                <label for="moneris_postal_code">Postal Code <span style="color:red;">*</span></label>
+                <input type="text" id="moneris_postal_code" name="postal_code" 
+                       placeholder="A1A 1A1" required maxlength="7">
+            </div>
+            
+            <div class="moneris-loading">
+                <p>Processing payment, please wait...</p>
+            </div>
+            
+            <button type="submit" class="moneris-submit-btn"><?php echo esc_html($atts['button_text']); ?></button>
+            
+            <input type="hidden" name="action" value="process_moneris_payment">
+            <input type="hidden" name="nonce" value="<?php echo wp_create_nonce('moneris_payment_nonce'); ?>">
+            <input type="hidden" name="redirect_url" value="<?php echo esc_url($atts['redirect_url']); ?>">
+            <input type="hidden" name="success_message" value="<?php echo esc_attr($atts['success_message']); ?>">
+        </form>
+    </div>
+    <?php
+    return ob_get_clean();
+}
+add_shortcode('moneris_payment_form', 'moneris_payment_form_shortcode');
+
+/**
+ * AJAX handler for processing Moneris payments
+ */
+add_action('wp_ajax_process_moneris_payment', 'ajax_process_moneris_payment');
+add_action('wp_ajax_nopriv_process_moneris_payment', 'ajax_process_moneris_payment');
+
+function ajax_process_moneris_payment() {
+    // Verify nonce
+    check_ajax_referer('moneris_payment_nonce', 'nonce');
+    
+    // Get and sanitize form data
+    $cardholder_name = sanitize_text_field($_POST['cardholder_name']);
+    $card_number = sanitize_text_field($_POST['card_number']);
+    $expiry_date = sanitize_text_field($_POST['expiry_date']);
+    $cvv = sanitize_text_field($_POST['cvv']);
+    $postal_code = sanitize_text_field($_POST['postal_code']);
+    $success_message = sanitize_text_field($_POST['success_message']);
+    $redirect_url = esc_url_raw($_POST['redirect_url']);
+    
+    // Validate required fields
+    if (empty($cardholder_name) || empty($card_number) || empty($expiry_date) || empty($cvv) || empty($postal_code)) {
+        wp_send_json_error(array(
+            'message' => 'Please fill in all required fields.'
+        ));
+        return;
+    }
+    
+    // Format card number (remove spaces)
+    $clean_card_number = preg_replace('/\s+/', '', $card_number);
+    
+    // Format expiry date (convert MM/YY to YYMM for Moneris)
+    if (strpos($expiry_date, '/') !== false) {
+        list($month, $year) = explode('/', $expiry_date);
+        $formatted_expiry = $year . $month;
+    } else {
+        wp_send_json_error(array(
+            'message' => 'Invalid expiry date format. Please use MM/YY.'
+        ));
+        return;
+    }
+    
+    // Format postal code (remove spaces and convert to uppercase)
+    $clean_postal_code = strtoupper(preg_replace('/\s+/', '', $postal_code));
+    
+    // Get payment amount from upfront fee summary
+    $amount = 0;
+    
+    // Debug: Check what we're getting
+    error_log('=== MONERIS PAYMENT DEBUG ===');
+    error_log('Cart exists: ' . (function_exists('WC') && WC()->cart ? 'YES' : 'NO'));
+    error_log('Cart empty: ' . (WC()->cart && WC()->cart->is_empty() ? 'YES' : 'NO'));
+    error_log('Cart item count: ' . (WC()->cart ? WC()->cart->get_cart_contents_count() : '0'));
+    
+    // Try the improved version that includes ACF deposits
+    if (function_exists('get_upfront_fee_summary_with_deposits')) {
+        $summary = get_upfront_fee_summary_with_deposits();
+        error_log('Using IMPROVED upfront summary with deposits');
+        if (isset($summary['grand_total'][1])) {
+            $amount = $summary['grand_total'][1];
+            error_log('Amount from IMPROVED summary: ' . $amount);
+        }
+    } elseif (function_exists('get_upfront_fee_summary_fixed')) {
+        $summary = get_upfront_fee_summary_fixed();
+        error_log('Using FIXED upfront summary');
+        if (isset($summary['grand_total'][1])) {
+            $amount = $summary['grand_total'][1];
+            error_log('Amount from FIXED summary: ' . $amount);
+        }
+    } elseif (function_exists('get_upfront_fee_summary')) {
+        $summary = get_upfront_fee_summary();
+        error_log('Using original upfront summary');
+        if (isset($summary['grand_total'][1])) {
+            $amount = $summary['grand_total'][1];
+            error_log('Amount from original summary: ' . $amount);
+        }
+    } else {
+        error_log('No upfront summary function available');
+        if (function_exists('WC') && WC()->cart) {
+            $amount = WC()->cart->get_total('edit');
+            error_log('Amount from WC cart: ' . $amount);
+        }
+    }
+    
+    error_log('Final amount: ' . $amount);
+    error_log('=== END DEBUG ===');
+    
+    if ($amount <= 0) {
+        wp_send_json_error(array(
+            'message' => 'Invalid payment amount: ' . $amount . '. Please ensure you have items in your cart with proper categories assigned.'
+        ));
+        return;
+    }
+    
+    // Get Moneris configuration (test or production)
+    $moneris_config = get_moneris_config();
+    
+    // Generate unique order ID
+    $order_id = ($moneris_config['test_mode'] ? 'test-' : 'web-') . time() . '-' . wp_rand(1000, 9999);
+    
+    // Get customer ID from session or generate one
+    $customer_id = '';
+    if (WC()->session) {
+        $customer_id = WC()->session->get('customer_id');
+    }
+    if (empty($customer_id)) {
+        $customer_id = 'guest-' . wp_rand(10000, 99999);
+        if (WC()->session) {
+            WC()->session->set('customer_id', $customer_id);
+        }
+    }
+    
+    // Prepare payment data with dynamic credentials
+    $payment_data = array(
+        'type' => 'purchase',
+        'custid' => $customer_id,
+        'orderid' => $order_id,
+        'amount' => $amount,
+        'cardno' => $clean_card_number,
+        'expdate' => $formatted_expiry,
+        'cvd' => $cvv,
+        'postal_code' => $clean_postal_code,
+        'store_id' => $moneris_config['store_id'],
+        'api_token' => $moneris_config['api_token'],
+        'test_mode' => $moneris_config['test_mode']
+    );
+    
+    try {
+        // Skip card verification in test mode due to routing issues
+        if (!$moneris_config['test_mode']) {
+            // Only verify card in production mode
+            $verify_data = $payment_data;
+            $verify_data['amount'] = '0.01'; // Verification amount
+            $verify_data['orderid'] = 'verify-' . time();
+            
+            if (function_exists('VerifyCard')) {
+                $verify_response = VerifyCard($verify_data);
+                
+                if (!$verify_response || $verify_response->getResponseCode() >= 50) {
+                    $error_msg = $verify_response ? $verify_response->getMessage() : 'Unknown error';
+                    wp_send_json_error(array(
+                        'message' => 'Card verification failed: ' . $error_msg
+                    ));
+                    return;
+                }
+            }
+        } else {
+            error_log('Test mode: Skipping card verification due to routing issues');
+        }
+        
+        // Process the actual payment
+        if (function_exists('ProcessPayment')) {
+            $payment_response = ProcessPayment($payment_data);
+            
+            if ($payment_response && $payment_response->getResponseCode() < 50 && 
+                strcasecmp($payment_response->getComplete(), 'true') == 0) {
+                
+                // Payment successful - Store payment details in session
+                if (WC()->session) {
+                    WC()->session->set('payment_status', 'completed');
+                    WC()->session->set('payment_transaction_id', $payment_response->getTxnNumber());
+                    WC()->session->set('payment_receipt_id', $payment_response->getReceiptId());
+                    WC()->session->set('payment_amount', $payment_response->getTransAmount());
+                    WC()->session->set('payment_date', $payment_response->getTransDate());
+                    WC()->session->set('order_complete_timestamp', time());
+                    WC()->session->set('cardholder_name', $cardholder_name);
+                    WC()->session->set('payment_test_mode', $moneris_config['test_mode']);
+                }
+                
+                // Prepare order data for Diallog database
+                $order_data = prepare_diallog_order_data($payment_response, $cardholder_name, $moneris_config);
+                
+                // Send order to Diallog database (skip in test mode to avoid test data in production DB)
+                $diallog_response = 'skipped';
+                if (!$moneris_config['test_mode']) {
+                    $diallog_response = send_order_to_diallog($order_data);
+                } else {
+                    error_log('Test mode: Skipping Diallog database submission');
+                }
+                
+                // Trigger WooCommerce email notifications
+                trigger_woocommerce_emails($order_data);
+                
+                // Clear cart after successful payment and database submission
+                if (function_exists('WC') && WC()->cart) {
+                    WC()->cart->empty_cart();
+                }
+                
+                $success_msg = $success_message;
+                if ($moneris_config['test_mode']) {
+                    $success_msg .= ' (Test Transaction)';
+                }
+                
+                wp_send_json_success(array(
+                    'message' => $success_msg,
+                    'transaction_id' => $payment_response->getTxnNumber(),
+                    'receipt_id' => $payment_response->getReceiptId(),
+                    'redirect_url' => $redirect_url,
+                    'diallog_status' => $diallog_response,
+                    'test_mode' => $moneris_config['test_mode']
+                ));
+                
+            } else {
+                $error_msg = 'Payment failed: ' . ($payment_response ? $payment_response->getMessage() : 'Unknown error');
+                if ($moneris_config['test_mode']) {
+                    $error_msg .= ' (Test Mode)';
+                }
+                wp_send_json_error(array(
+                    'message' => $error_msg
+                ));
+            }
+        } else {
+            wp_send_json_error(array(
+                'message' => 'Payment processing function not available.'
+            ));
+        }
+        
+    } catch (Exception $e) {
+        error_log('Moneris payment error: ' . $e->getMessage());
+        wp_send_json_error(array(
+            'message' => 'Payment processing error. Please try again.'
+        ));
+    }
+    
+    wp_die();
+}
+
+/**
+ * Prepare order data for Diallog database
+ */
+function prepare_diallog_order_data($payment_response, $cardholder_name, $moneris_config) {
+    // Get cart items and customer data
+    $cart_items = array();
+    $monthly_summary = array();
+    $upfront_summary = array();
+    
+    if (function_exists('WC') && WC()->cart && !WC()->cart->is_empty()) {
+        foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+            $product = $cart_item['data'];
+            $cart_items[] = array(
+                'product_id' => $cart_item['product_id'],
+                'product_name' => $product->get_name(),
+                'quantity' => $cart_item['quantity'],
+                'price' => $product->get_price(),
+                'variation_data' => isset($cart_item['variation']) ? $cart_item['variation'] : array()
+            );
+        }
+    }
+    
+    // Get fee summaries
+    if (function_exists('get_upfront_fee_summary')) {
+        $upfront_summary = get_upfront_fee_summary();
+    }
+    
+    if (function_exists('get_monthly_fee_summary')) {
+        $monthly_summary = get_monthly_fee_summary();
+    }
+    
+    // Get customer information from session/cart
+    $customer_data = array(
+        'cardholder_name' => $cardholder_name,
+        'billing_email' => WC()->session->get('customer')['email'] ?? '',
+        'billing_phone' => WC()->session->get('customer')['phone'] ?? '',
+    );
+    
+    // Build complete order data structure
+    $order_data = array(
+        'payment_info' => array(
+            'transaction_id' => $payment_response->getTxnNumber(),
+            'receipt_id' => $payment_response->getReceiptId(),
+            'amount' => $payment_response->getTransAmount(),
+            'date' => $payment_response->getTransDate(),
+            'time' => $payment_response->getTransTime(),
+            'card_type' => $payment_response->getCardType(),
+            'auth_code' => $payment_response->getAuthCode(),
+            'test_mode' => $moneris_config['test_mode']
+        ),
+        'customer_data' => $customer_data,
+        'cart_items' => $cart_items,
+        'upfront_summary' => $upfront_summary,
+        'monthly_summary' => $monthly_summary,
+        'order_timestamp' => time(),
+        'order_source' => 'website_checkout'
+    );
+    
+    return $order_data;
+}
+
+/**
+ * Send order data to Diallog database
+ * Based on the pattern from your existing SendInfoToSignupServer function
+ */
+function send_order_to_diallog($order_data) {
+    $payload_data = array(
+        'status' => 0,
+        'magic' => 'Sl2soDSpLAsHqetS', // Using same magic key from your existing code
+        'api' => '1.00',
+        'method' => 'complete_order',
+        'state' => 100, // Order complete state
+        'order_data' => base64_encode(json_encode($order_data)),
+        'ip' => $_SERVER['REMOTE_ADDR'] ?? ''
+    );
+    
+    $payload = json_encode($payload_data);
+    
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, "https://207.167.88.7/signup.php"); // Using URL from your existing code
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLINFO_HEADER_OUT, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+        'Content-Type: application/json',
+        'Content-Length: ' . strlen($payload)
+    ));
+    
+    $response = curl_exec($ch);
+    $info = curl_getinfo($ch);
+    curl_close($ch);
+    
+    error_log("Order sent to Diallog database. Response: " . $response);
+    
+    return $response;
+}
+
+/**
+ * Trigger WooCommerce email notifications using existing WooCommerce email system
+ */
+function trigger_woocommerce_emails($order_data) {
+    // Store order data in session for WooCommerce email templates to access
+    if (WC()->session) {
+        WC()->session->set('moneris_order_data', $order_data);
+    }
+    
+    // Trigger WooCommerce email hooks that you can customize in your email templates
+    do_action('moneris_payment_completed', $order_data);
+    
+    // You can now customize your existing WooCommerce email templates to use:
+    // $order_data = WC()->session->get('moneris_order_data');
+    // to access all the payment and order information
+}
+
+/**
+ * Helper function to validate credit card number using Luhn algorithm
+ */
+function validate_credit_card_number($number) {
+    $number = preg_replace('/\D/', '', $number);
+    $length = strlen($number);
+    
+    if ($length < 13 || $length > 19) {
+        return false;
+    }
+    
+    $sum = 0;
+    $alternate = false;
+    
+    for ($i = $length - 1; $i >= 0; $i--) {
+        $digit = intval($number[$i]);
+        
+        if ($alternate) {
+            $digit *= 2;
+            if ($digit > 9) {
+                $digit = ($digit % 10) + 1;
+            }
+        }
+        
+        $sum += $digit;
+        $alternate = !$alternate;
+    }
+    
+    return ($sum % 10 == 0);
+}
+
+/**
+ * Helper function to get card type from number
+ */
+function get_card_type($number) {
+    $number = preg_replace('/\D/', '', $number);
+    
+    if (preg_match('/^4/', $number)) {
+        return 'Visa';
+    } elseif (preg_match('/^5[1-5]/', $number)) {
+        return 'MasterCard';
+    } elseif (preg_match('/^3[47]/', $number)) {
+        return 'American Express';
+    } elseif (preg_match('/^6(?:011|5)/', $number)) {
+        return 'Discover';
+    }
+    
+    return 'Unknown';
+}
+
+// Ensure the mpgClasses.php file is loaded for Moneris functionality
+if (!class_exists('mpgTransaction')) {
+    include_once(get_stylesheet_directory() . '/mpgClasses.php');
+}
+
+// Make sure ProcessPayment.php functions are available
+if (!function_exists('ProcessPayment')) {
+    include_once(get_stylesheet_directory() . '/includes/ProcessPayment.php');
+}
 
 
 /*=================ZACH NEW EDITS AS OF MARCH 31=================*/
