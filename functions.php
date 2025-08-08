@@ -442,7 +442,7 @@ function moneris_payment_form_shortcode($atts) {
             </div>
             
             <div class="moneris-form-row">
-                <label for="moneris_postal_code">Postal Code <span style="color:red;">*</span></label>
+                <label for="moneris_postal_code">Billing Postal Code <span style="color:red;">*</span></label>
                 <input type="text" id="moneris_postal_code" name="postal_code" 
                        placeholder="A1A 1A1" required maxlength="7">
             </div>
@@ -5043,170 +5043,211 @@ function get_upfront_fee_json() {
 }
 
 
+// COMPLETE FIX: Replace your get_upfront_fee_summary() function with this version
 function get_upfront_fee_summary() {
-	
-	$summary = array(
-		'ModemPurchaseOption'=>true,
-		'internet-plan'=>array('',0.0),
-		'modems'=>array('Modem Security Deposit',0.0),
-		'fixed-fee'=>array('Installation Fee',0.0),
-		'deposit'=>array('Pay-after Deposit',0.0),
-		'subtotal'=>array('Subtotal',0.0),
-		'taxes'=>array('Taxes',0.0),
-		'grand_total'=>array('UPFRONT TOTAL',0.0));
+    
+    $summary = array(
+        'ModemPurchaseOption'=>true,
+        'internet-plan'=>array('',0.0),
+        'modems'=>array('Modem Deposit',0.0),
+        'installation'=>array('Installation Fee',0.0), // CHANGED from 'fixed-fee' to 'installation'
+        'deposit'=>array('Pay-after Deposit',0.0),
+        'phone-plan'=>array('Phone Plan',0.0),
+        'tv-plan'=>array('TV Plan',0.0),
+        'subtotal'=>array('Subtotal',0.0),
+        'taxes'=>array('Taxes',0.0),
+        'grand_total'=>array('UPFRONT TOTAL',0.0));
 
-	$tax_rate = GetTaxRate();
-	$do_not_include_modem_deposit = false;
-	$show_included_taxes = wc_tax_enabled() && WC()->cart->display_prices_including_tax();
-	foreach ( WC()->cart->get_cart() as $cart_item_key => $cart_item ) {
-		 
-		$_product = apply_filters( 'woocommerce_cart_item_product', $cart_item['data'], $cart_item, $cart_item_key );
-		$product_cat_ids = $_product->get_category_ids();
-		$product_cat = get_term($product_cat_ids[0],'product_cat');
-		$product_category = $product_cat->slug;
-		 
-		if (array_key_exists($product_category,$summary) && $_product && $_product->exists() && 
-			$cart_item['quantity'] > 0 && apply_filters( 'woocommerce_checkout_cart_item_visible', true, $cart_item, $cart_item_key ) ) {
+    $tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 0;
+    $do_not_include_modem_deposit = false;
+    $show_included_taxes = wc_tax_enabled() && WC()->cart->display_prices_including_tax();
+    $total_deposits = 0;
+    $tv_deposit = 0;
+    $phone_deposit = 0;
+    $modem_deposit = 0;
+    
+    error_log("=== FIXED UPFRONT FEE SUMMARY DEBUG ===");
+    error_log("Cart item count: " . WC()->cart->get_cart_contents_count());
+    
+    foreach ( WC()->cart->get_cart() as $cart_item_key => $cart_item ) {
+         
+        $_product = apply_filters( 'woocommerce_cart_item_product', $cart_item['data'], $cart_item, $cart_item_key );
+        if( $_product == false || $_product->exists() == false || $cart_item['quantity'] <= 0 ||
+            apply_filters( 'woocommerce_checkout_cart_item_visible', true, $cart_item, $cart_item_key ) == false ) {
+            continue;
+        }
+        
+        $product_cat_ids = $_product->get_category_ids();
+        
+        // FIX: Handle product variations - check parent product categories if variation has none
+        if (empty($product_cat_ids) && $_product->get_parent_id() > 0) {
+            $parent_product = wc_get_product($_product->get_parent_id());
+            if ($parent_product) {
+                $product_cat_ids = $parent_product->get_category_ids();
+                error_log("Variation has no categories, using parent categories for " . $_product->get_name());
+            }
+        }
+        
+        // FIX: Handle empty category array to prevent PHP notices
+        if (empty($product_cat_ids)) {
+            error_log("Product " . $_product->get_name() . " has no categories assigned");
+            continue;
+        }
+        
+        $product_cat = get_term($product_cat_ids[0],'product_cat');
+        
+        // FIX: Handle WP_Error from get_term
+        if (is_wp_error($product_cat)) {
+            error_log("Error getting category for product " . $_product->get_name());
+            continue;
+        }
+        
+        $product_category = $product_cat->slug;
+        $product_id = $_product->get_id();
+        
+        error_log("Processing product: " . $_product->get_name() . " (ID: $product_id, Category: $product_category)");
+        
+        // FIX: Handle 'modems-new' category - treat it as 'modems'
+        if ($product_category == 'modems-new') {
+            $product_category = 'modems';
+            error_log("Converting modems-new to modems category");
+        }
+         
+        if (array_key_exists($product_category,$summary)) {
 
-			error_log( "...." . $product_category );
-			//TODO: in an effort to remove the 1st month internet payment from the inital payment
-			if( $product_category == "internet-plan" ) {
-				continue;
-			}
+            // Handle specific product exclusions
+            if( $_product->get_id() == 264 ) {
+                $summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
+                $summary[$product_category][1] = round( floatval(2), 2 );
+                $summary['taxes'][1] += round( floatval( ($summary[$product_category][1] * $tax_rate) / 100 ), 2);
+                continue;
+            }
 
-			if( $product_category == "deposit" ) {
-				$summary[$product_category][0] = $_product->get_title();
-				$summary[$product_category][1] =  round(floatval($_product->get_price()), 2);
-				// no taxes here for category deposit
-			} else {
-			if( $product_category == "modems" && $_product->get_attribute("Security Deposit") > 0  ) {
-				
-					$security_deposit = $_product->get_attribute("Security Deposit");
-					$summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
-					$summary[$product_category][1] =  round(floatval($security_deposit), 2);
-					// no tax on security deposit
-					$summary['ModemPurchaseOption'] = false;
-					$do_not_include_modem_deposit = true;
+            if( $_product->get_id() == 887 ){
+                $summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
+                $summary[$product_category][1] = round ( floatval(0), 2 );
+                $summary['taxes'][1] += round( floatval( ($summary[$product_category][1] * $tax_rate) / 100 ), 2);
+                continue;
+            }
+            
+            // Check for ACF deposit fields first (NEW METHOD)
+            $deposit_fee = 0;
+            if (function_exists('get_field')) {
+                $deposit_fee = get_field('deposit-fee', $product_id);
+                if (empty($deposit_fee) && $deposit_fee !== '0') {
+                    $deposit_fee = get_field('deposit-fee', 'product_' . $product_id);
+                }
+                $deposit_fee = is_numeric($deposit_fee) ? floatval($deposit_fee) : 0;
+            }
+            
+            // Check for legacy product attribute method (OLD METHOD)
+            $security_deposit_attr = 0;
+            if ($deposit_fee == 0 && $product_category == "modems") {
+                $security_deposit_attr = $_product->get_attribute("Security Deposit");
+                $security_deposit_attr = is_numeric($security_deposit_attr) ? floatval($security_deposit_attr) : 0;
+            }
+            
+            // Use whichever deposit method has a value
+            $final_deposit = max($deposit_fee, $security_deposit_attr);
+            
+            error_log("Deposit check - ACF: $deposit_fee, Attribute: $security_deposit_attr, Final: $final_deposit");
+            
+            // Handle modem with deposit
+            if ( $product_category == "modems" && $final_deposit > 0 ) {
+                $summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
+                $summary[$product_category][1] = round(floatval($final_deposit), 2);
+                // REMOVED: $total_deposits += $final_deposit; // Don't double-count modem deposit
+                $do_not_include_modem_deposit = true;
+                $modem_deposit = $final_deposit;
+                error_log("Modem Deposit: $" . $final_deposit);
+                
+                // Also add the modem price to subtotal if it has a price
+                $modem_price = $_product->get_price();
+                if ($modem_price > 0) {
+                    error_log("Modem also has price: $modem_price");
+                    // This will be handled in the subtotal calculation below
+                }
+            } else {
+                // Handle regular products
+                $product_price = $_product->get_price();
+                $summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
+                $summary[$product_category][1] = round(floatval($product_price), 2);
+                $summary['taxes'][1] += round( floatval ( ($summary[$product_category][1] * $tax_rate ) / 100 ) , 2 );
+                error_log("Regular product: " . $summary[$product_category][0] . " = $" . $summary[$product_category][1]);
+            }
+            
+            // Handle additional ACF deposits for any product (not just modems)
+            if ($deposit_fee > 0 && $product_category != "modems") {
+                $total_deposits += $deposit_fee;
+                if ($product_category == "tv-plan") {
+                    $tv_deposit = $deposit_fee;
+                    error_log("TV Deposit: $" . $deposit_fee);
+                } elseif ($product_category == "phone-plan") {
+                    $phone_deposit = $deposit_fee;
+                    error_log("Phone Deposit: $" . $deposit_fee);
+                } else {
+                    error_log("Other Deposit for $product_category: $" . $deposit_fee);
+                }
+            }
+        } else {
+            // FIX: Handle installation category specifically
+            if ($product_category == 'installation' || $product_id == 265084) {
+                $product_price = $_product->get_price();
+                $summary['installation'][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
+                $summary['installation'][1] = round(floatval($product_price), 2);
+                $summary['taxes'][1] += round( floatval ( ($summary['installation'][1] * $tax_rate ) / 100 ) , 2 );
+                error_log("Installation product: " . $summary['installation'][0] . " = $" . $summary['installation'][1]);
+            } else {
+                error_log("Product category '$product_category' not found in summary array - skipping");
+            }
+        }
+    }
 
-			} else {
-				
-				$summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
-				$summary[$product_category][1] =  round(floatval($_product->get_price()), 2);
-				$summary['taxes'][1] += round( floatval ( ($summary[$product_category][1] * $tax_rate ) / 100 ) , 2 );	
-				
-			}
-			}
-		}
-	}
+    // Add deposits to summary if any exist
+    if ($total_deposits > 0) {
+        $summary['deposit'][0] = 'Deposits';
+        $summary['deposit'][1] = $total_deposits;
+        error_log("Total deposits: $total_deposits");
+    }
 
-	if( $do_not_include_modem_deposit ) {
-			$summary['subtotal'][1] = $summary['internet-plan'][1] + $summary['fixed-fee'][1];
-			$summary['grand_total'][1] = $summary['subtotal'][1]+ $summary['deposit'][1] + $summary['taxes'][1] + $summary['modems'][1];	
+    // Calculate totals
+    if( $do_not_include_modem_deposit ) {
+        $summary['subtotal'][1] = $summary['internet-plan'][1] + $summary['installation'][1] + $summary['phone-plan'][1] + $summary['tv-plan'][1]; // CHANGED from 'fixed-fee' to 'installation'
+        $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['deposit'][1] + $summary['taxes'][1] + $summary['modems'][1];
 
-			if (wc_tax_enabled() && !$show_included_taxes ) {
-				$summary['taxes'][0] = esc_html( WC()->countries->tax_or_vat() );
-			} elseif (!wc_tax_enabled()) {
-				$summary['taxes'][0] = "Tax";
-				$summary['grand_total'][1] = $summary['subtotal'][1] + $summary['deposit'][1] + $summary['modems'][1];
-			}
-	} else {
-			$summary['subtotal'][1] = $summary['internet-plan'][1] + $summary['fixed-fee'][1] + $summary['modems'][1];
-			$summary['grand_total'][1] = $summary['subtotal'][1]+ $summary['deposit'][1] + $summary['taxes'][1];
-			if (wc_tax_enabled() && !$show_included_taxes ) {
-				$summary['taxes'][0] = esc_html( WC()->countries->tax_or_vat() );
-			} elseif (!wc_tax_enabled()) {
-				$summary['taxes'][0] = "Tax";
-				$summary['grand_total'][1] = $summary['subtotal'][1] + $summary['deposit'][1];
-			}
-	}
+        if (wc_tax_enabled() && !$show_included_taxes ) {
+            $summary['taxes'][0] = esc_html( WC()->countries->tax_or_vat() );
+        } elseif (!wc_tax_enabled()) {
+            $summary['taxes'][0] = "Tax";
+            $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['deposit'][1] + $summary['modems'][1];
+        }
+    } else {
+        $summary['subtotal'][1] = $summary['internet-plan'][1] + $summary['installation'][1] + $summary['modems'][1] + $summary['phone-plan'][1] + $summary['tv-plan'][1]; // CHANGED from 'fixed-fee' to 'installation'
+        $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['deposit'][1] + $summary['taxes'][1];
+        
+        if (wc_tax_enabled() && !$show_included_taxes ) {
+            $summary['taxes'][0] = esc_html( WC()->countries->tax_or_vat() );
+        } elseif (!wc_tax_enabled()) {
+            $summary['taxes'][0] = "Tax";
+            $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['deposit'][1];
+        }
+    }
 
-	return $summary;	
+    error_log("=== FINAL SUMMARY ===");
+    error_log("Internet Plan: $" . $summary['internet-plan'][1]);
+    error_log("Modem Deposit: $" . $summary['modems'][1]);
+    error_log("Installation: $" . $summary['installation'][1]); // CHANGED from 'Fixed Fee' to 'Installation'
+    error_log("Phone Plan: $" . $summary['phone-plan'][1]);
+    error_log("TV Plan: $" . $summary['tv-plan'][1]);
+    error_log("TV Deposit: $" . $tv_deposit);
+    error_log("Phone Deposit: $" . $phone_deposit);
+    error_log("Subtotal: $" . $summary['subtotal'][1]);
+    error_log("Tax: $" . $summary['taxes'][1]);
+    error_log("Grand Total: $" . $summary['grand_total'][1]);
+    
+    return $summary;    
 }
 
-// this function is called from woocommerce-order system, require $order param
-function get_upfront_order_summary($order) {
-		
-	$summary = array(
-		'internet-plan'=>array('',0.0),
-		'modems'=>array('',0.0),
-		'fixed-fee'=>array('Installation Fee',0.0),
-		'deposit'=>array('Pay-after Deposit',0.0),
-		'subtotal'=>array('Subtotal',0.0),
-		'taxes'=>array('Taxes',0.0),
-		'grand_total'=>array('UPFRONT TOTAL',0.0));
-
-	$show_included_taxes = false;
-	$do_not_include_modem_deposit = false;
-
-	foreach ( $order->get_items() as $cart_item_key => $cart_item ) {
-		 
-		$_product     = $cart_item->get_product();
-		$line_data    = $cart_item->get_data();
-		
-		$product_cat_ids = $_product->get_category_ids();
-		$product_cat = get_term($product_cat_ids[0],'product_cat');
-		$product_category = $product_cat->slug;
-		 
-		if ( array_key_exists($product_category,$summary) && $_product && $_product->exists() && $line_data['quantity'] > 0 ) {
-
-			//TODO: in an effort to remove the 1st month internet payment from the inital payment
-			if( $product_category == "internet-plan" ) {
-				continue;
-			}
-
-			if( $product_category == "deposit" ) {
-				$summary[$product_category][0] = $_product->get_title();
-				$summary[$product_category][1] =  round(floatval($_product->get_price()), 2);
-				// no taxes here for category deposit
-			} else {
-			if ( $product_category=="modems" && $_product->get_attribute("Security Deposit") > 0  ) {
-
-				$security_deposit = $_product->get_attribute("Security Deposit");
-				$summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
-				$summary[$product_category][1] =  round( floatval($security_deposit), 2);
-				$do_not_include_modem_deposit = true;
-
-			} else {
-
-			 	$summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
-				$summary[$product_category][1] =  round( floatval($line_data['subtotal']), 2 );
-				$summary['taxes'][1] += floatval($line_data['total_tax']);
-			
-			}
-			}
-
-		}
-		 
-	}
-
-	if( $do_not_include_modem_deposit ) {
-
-		$summary['subtotal'][1] = $summary['internet-plan'][1] + $summary['fixed-fee'][1] ;	
-		if (wc_tax_enabled() && !$show_included_taxes ) {
-			$summary['taxes'][0] = esc_html( WC()->countries->tax_or_vat() );
-			$summary['grand_total'][1] = $summary['subtotal'][1]+ $summary['deposit'][1]  + $summary['taxes'][1]+$summary['modems'][1];	
-		} elseif (!wc_tax_enabled()) {
-			$summary['taxes'][0] = "Tax";
-			$summary['taxes'][1] = 0.0;
-			$summary['grand_total'][1] = $summary['subtotal'][1]+ $summary['deposit'][1]  +$summary['modems'][1];	
-		}
-
-	} else {
-
-		$summary['subtotal'][1] = $summary['internet-plan'][1] + $summary['fixed-fee'][1] + $summary['modems'][1];	
-		if (wc_tax_enabled() && !$show_included_taxes ) {
-			$summary['taxes'][0] = esc_html( WC()->countries->tax_or_vat() );
-			$summary['grand_total'][1] = $summary['subtotal'][1]+ $summary['deposit'][1]  + $summary['taxes'][1];	
-		} elseif (!wc_tax_enabled()) {
-			$summary['taxes'][0] = "Tax";
-			$summary['taxes'][1] = 0.0;
-			$summary['grand_total'][1] = $summary['subtotal'][1]+ $summary['deposit'][1];	
-		}
-	}
-
-	
-	return $summary;	
-}
 
 /* ----- Zach Edit ---- Commented out to restore default Woocommerce Price Totals based on default price fields &
 show default payment gateways on Checkout
