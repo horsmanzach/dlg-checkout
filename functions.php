@@ -110,7 +110,8 @@ function ajax_remove_monthly_billing_deposits() {
 
 // -----
 
-// Credit card validation using your existing Moneris integration
+// MINIMAL UPDATE: Replace your existing ajax_validate_credit_card function with this
+
 add_action('wp_ajax_validate_credit_card', 'ajax_validate_credit_card');
 add_action('wp_ajax_nopriv_validate_credit_card', 'ajax_validate_credit_card');
 
@@ -119,8 +120,21 @@ function ajax_validate_credit_card() {
     
     $card_data = $_POST['card_data'];
     
+    // Basic postal code validation
+    if (empty($card_data['postal_code'])) {
+        wp_send_json_error(array('message' => 'Billing postal code is required'));
+        return;
+    }
+    
+    // Clean and validate Canadian postal code format
+    $postal_code = strtoupper(preg_replace('/[^A-Z0-9]/', '', $card_data['postal_code']));
+    if (!preg_match('/^[A-Z]\d[A-Z]\d[A-Z]\d$/', $postal_code)) {
+        wp_send_json_error(array('message' => 'Please enter a valid Canadian postal code (A1A 1A1)'));
+        return;
+    }
+    
     // Convert MM/YY to YYMM format for Moneris
-    $expiry = $card_data['expiry']; // Should be in MM/YY format
+    $expiry = $card_data['expiry'];
     if (strpos($expiry, '/') !== false) {
         list($month, $year) = explode('/', $expiry);
         $formatted_expiry = $year . $month; // YYMM format
@@ -128,24 +142,26 @@ function ajax_validate_credit_card() {
         $formatted_expiry = $expiry;
     }
     
-    // Use your existing Moneris validation logic
+    // Use your existing Moneris validation logic - ONLY CHANGE: Added postal_code
     $payment_info = array(
         'custid' => '',
         'orderid' => 'validate-' . time(),
         'amount' => '0.01',
         'cardno' => $card_data['card_number'],
-        'expdate' => $formatted_expiry, // Now in YYMM format
-        'cvd' => $card_data['cvv']
+        'expdate' => $formatted_expiry,
+        'cvd' => $card_data['cvv'],
+        'postal_code' => $postal_code  // THIS IS THE KEY ADDITION
     );
     
     try {
-        // Call your existing verify_card_ex function
+        // Call your existing verify_card_ex function (no changes needed there)
         verify_card_ex($payment_info);
         wp_send_json_success(array('message' => 'Card is valid'));
     } catch (Exception $e) {
         wp_send_json_error(array('message' => 'Invalid card details: ' . $e->getMessage()));
     }
 }
+
 
 // Add Pay After deposit AJAX handler
 add_action('wp_ajax_add_payafter_deposit', 'ajax_add_payafter_deposit');
@@ -331,6 +347,122 @@ function get_upfront_fee_summary_with_deposits() {
     return $summary;
 }
 
+
+/*========Auto Fill Checkout Fields with previously collected order data======*/
+
+// Auto-fill checkout fields with previously collected address data
+add_filter('woocommerce_checkout_get_value', 'auto_fill_checkout_from_address_lookup', 10, 2);
+function auto_fill_checkout_from_address_lookup($value, $key) {
+    
+    // Get the stored address data from your initial lookup
+    $apiResponse = dg_get_user_meta("_api_response");
+    $searched_address = dg_get_user_meta("searched_address");
+    
+    // If no stored address data, return the original value
+    if (empty($searched_address) && empty($apiResponse)) {
+        return $value;
+    }
+    
+    // Map the checkout fields to your stored address data
+    switch($key) {
+        case 'billing_address_1':
+            // Build full street address from components
+            $street_num = isset($searched_address['streetNumber']) ? $searched_address['streetNumber'] : '';
+            $street_name = isset($searched_address['streetName']) ? $searched_address['streetName'] : '';
+            $street_dir = isset($searched_address['streetDirection']) ? $searched_address['streetDirection'] : '';
+            $street_type = isset($searched_address['streetType']) ? $searched_address['streetType'] : '';
+            $unit_num = isset($searched_address['unitNumber']) ? $searched_address['unitNumber'] : '';
+            
+            $address = trim($street_num . ' ' . $street_name . ' ' . $street_dir . ' ' . $street_type);
+            if (!empty($unit_num)) {
+                $address = 'Unit ' . $unit_num . ' ' . $address;
+            }
+            return !empty($address) ? $address : $value;
+            
+        case 'billing_city':
+            return isset($searched_address['municipalityCity']) ? $searched_address['municipalityCity'] : $value;
+            
+        case 'billing_postcode':
+            return isset($searched_address['postalCode']) ? $searched_address['postalCode'] : $value;
+            
+        case 'billing_state':
+            return isset($searched_address['provinceOrState']) ? $searched_address['provinceOrState'] : $value;
+            
+        // Also fill shipping fields if they exist
+        case 'shipping_address_1':
+            $street_num = isset($searched_address['streetNumber']) ? $searched_address['streetNumber'] : '';
+            $street_name = isset($searched_address['streetName']) ? $searched_address['streetName'] : '';
+            $street_dir = isset($searched_address['streetDirection']) ? $searched_address['streetDirection'] : '';
+            $street_type = isset($searched_address['streetType']) ? $searched_address['streetType'] : '';
+            $unit_num = isset($searched_address['unitNumber']) ? $searched_address['unitNumber'] : '';
+            
+            $address = trim($street_num . ' ' . $street_name . ' ' . $street_dir . ' ' . $street_type);
+            if (!empty($unit_num)) {
+                $address = 'Unit ' . $unit_num . ' ' . $address;
+            }
+            return !empty($address) ? $address : $value;
+            
+        case 'shipping_city':
+            return isset($searched_address['municipalityCity']) ? $searched_address['municipalityCity'] : $value;
+            
+        case 'shipping_postcode':
+            return isset($searched_address['postalCode']) ? $searched_address['postalCode'] : $value;
+            
+        case 'shipping_state':
+            return isset($searched_address['provinceOrState']) ? $searched_address['provinceOrState'] : $value;
+    }
+    
+    return $value;
+}
+
+// Hide the address fields since they're now auto-populated
+add_filter('woocommerce_checkout_fields', 'hide_auto_filled_address_fields', 99);
+function hide_auto_filled_address_fields($fields) {
+    
+    // Check if we have address data to auto-fill
+    $searched_address = dg_get_user_meta("searched_address");
+    
+    if (!empty($searched_address)) {
+        // Hide billing address fields
+        if (isset($fields['billing']['billing_address_1'])) {
+            $fields['billing']['billing_address_1']['class'][] = 'auto-filled-field';
+            $fields['billing']['billing_address_1']['custom_attributes']['style'] = 'display:none;';
+        }
+        if (isset($fields['billing']['billing_city'])) {
+            $fields['billing']['billing_city']['class'][] = 'auto-filled-field';
+            $fields['billing']['billing_city']['custom_attributes']['style'] = 'display:none;';
+        }
+        if (isset($fields['billing']['billing_postcode'])) {
+            $fields['billing']['billing_postcode']['class'][] = 'auto-filled-field';
+            $fields['billing']['billing_postcode']['custom_attributes']['style'] = 'display:none;';
+        }
+        if (isset($fields['billing']['billing_state'])) {
+            $fields['billing']['billing_state']['class'][] = 'auto-filled-field';
+            $fields['billing']['billing_state']['custom_attributes']['style'] = 'display:none;';
+        }
+        
+        // Also hide shipping fields if they exist
+        if (isset($fields['shipping']['shipping_address_1'])) {
+            $fields['shipping']['shipping_address_1']['class'][] = 'auto-filled-field';
+            $fields['shipping']['shipping_address_1']['custom_attributes']['style'] = 'display:none;';
+        }
+        if (isset($fields['shipping']['shipping_city'])) {
+            $fields['shipping']['shipping_city']['class'][] = 'auto-filled-field';
+            $fields['shipping']['shipping_city']['custom_attributes']['style'] = 'display:none;';
+        }
+        if (isset($fields['shipping']['shipping_postcode'])) {
+            $fields['shipping']['shipping_postcode']['class'][] = 'auto-filled-field';
+            $fields['shipping']['shipping_postcode']['custom_attributes']['style'] = 'display:none;';
+        }
+        if (isset($fields['shipping']['shipping_state'])) {
+            $fields['shipping']['shipping_state']['class'][] = 'auto-filled-field';
+            $fields['shipping']['shipping_state']['custom_attributes']['style'] = 'display:none;';
+        }
+    }
+    
+    return $fields;
+}
+
 /*=======================NEW MONERIS PAYMENT GATEWAY INTEGRATION VIA SHORTCODE=======================*/
 
 
@@ -442,7 +574,7 @@ function moneris_payment_form_shortcode($atts) {
             </div>
             
             <div class="moneris-form-row">
-                <label for="moneris_postal_code">Billing Postal Code <span style="color:red;">*</span></label>
+                <label for="moneris_postal_code">BillingPostal Code <span style="color:red;">*</span></label>
                 <input type="text" id="moneris_postal_code" name="postal_code" 
                        placeholder="A1A 1A1" required maxlength="7">
             </div>
