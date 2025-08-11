@@ -70,7 +70,6 @@ function verify_card_ex($payment_info) {
 
 // ========== Zach's AJAX handlers for monthly billing section on checkout====
 
-// Add this AJAX handler to your functions.php
 
 add_action('wp_ajax_remove_monthly_billing_deposits', 'ajax_remove_monthly_billing_deposits');
 add_action('wp_ajax_nopriv_remove_monthly_billing_deposits', 'ajax_remove_monthly_billing_deposits');
@@ -105,6 +104,123 @@ function ajax_remove_monthly_billing_deposits() {
     wp_send_json_success(array(
         'message' => 'Other monthly billing options cleared',
         'kept_option' => $keep_option
+    ));
+}
+
+// AJAX Handler to refresh upfront summary code directly after adding Pay Later Depsosut
+
+add_action('wp_ajax_refresh_upfront_summary_shortcode', 'ajax_refresh_upfront_summary_shortcode');
+add_action('wp_ajax_nopriv_refresh_upfront_summary_shortcode', 'ajax_refresh_upfront_summary_shortcode');
+
+function ajax_refresh_upfront_summary_shortcode() {
+    check_ajax_referer('checkout_nonce', 'nonce');
+    
+    // Get fresh upfront table HTML
+    $upfront_table = upfront_fee_summary_shortcode();
+    
+    wp_send_json_success(array(
+        'upfront_table' => $upfront_table,
+        'message' => 'Upfront summary refreshed successfully'
+    ));
+}
+
+// AJAX handler to update Moneris payment amount
+
+add_action('wp_ajax_update_moneris_payment_amount', 'ajax_update_moneris_payment_amount');
+add_action('wp_ajax_nopriv_update_moneris_payment_amount', 'ajax_update_moneris_payment_amount');
+
+function ajax_update_moneris_payment_amount() {
+    check_ajax_referer('checkout_nonce', 'nonce');
+    
+    // Get updated total amount (same logic as moneris_payment_form_shortcode)
+    $total_amount = 0;
+    if (function_exists('get_upfront_fee_summary')) {
+        $summary = get_upfront_fee_summary();
+        $total_amount = $summary['grand_total'][1];
+        $total_display = wc_price($total_amount);
+    } else if (function_exists('WC') && WC()->cart) {
+        $total_amount = WC()->cart->get_total('edit');
+        $total_display = wc_price($total_amount);
+    }
+    
+    wp_send_json_success(array(
+        'total_amount' => $total_amount,
+        'total_display' => $total_display,
+        'payment_amount_html' => '<h3>Payment Amount: ' . $total_display . '</h3>'
+    ));
+}
+
+// AJAX handler to check which monthly billing method was previously selected
+
+add_action('wp_ajax_get_selected_monthly_billing_method', 'ajax_get_selected_monthly_billing_method');
+add_action('wp_ajax_nopriv_get_selected_monthly_billing_method', 'ajax_get_selected_monthly_billing_method');
+
+function ajax_get_selected_monthly_billing_method() {
+    check_ajax_referer('checkout_nonce', 'nonce');
+    
+    $selected_method = '';
+    
+    // Check cart contents to determine selected method
+    if (WC()->cart && !WC()->cart->is_empty()) {
+        foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+            $product_id = $cart_item['product_id'];
+            
+            // Check if Pay Later deposit product is in cart (product ID 265827)
+            if ($product_id == 265827) {
+                $selected_method = 'payafter';
+                break;
+            }
+            
+            // Also check for any product in the "deposit" category
+            $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'slugs'));
+            if (in_array('deposit', $product_cats)) {
+                $selected_method = 'payafter';
+                break;
+            }
+        }
+    }
+    
+    // If no deposit found, check user meta for other methods
+    if (empty($selected_method)) {
+        $monthly_payment_option = dg_get_user_meta('monthly_bill_payment_option');
+        if (!empty($monthly_payment_option)) {
+            if (strtolower($monthly_payment_option) == 'cc') {
+                $selected_method = 'cc';
+            } elseif (strtolower($monthly_payment_option) == 'bank') {
+                $selected_method = 'bank';
+            }
+        }
+    }
+    
+    wp_send_json_success(array(
+        'selected_method' => $selected_method,
+        'message' => 'Monthly billing method check completed'
+    ));
+}
+
+// AJAX handler to save monthly billing selection to user meta
+add_action('wp_ajax_save_monthly_billing_selection', 'ajax_save_monthly_billing_selection');
+add_action('wp_ajax_nopriv_save_monthly_billing_selection', 'ajax_save_monthly_billing_selection');
+
+function ajax_save_monthly_billing_selection() {
+    check_ajax_referer('checkout_nonce', 'nonce');
+    
+    $method = sanitize_text_field($_POST['method']);
+    $billing_data = $_POST['billing_data'];
+    
+    // Save each piece of billing data to user meta (same as the old UpdateUserData function)
+    if (is_array($billing_data)) {
+        foreach ($billing_data as $key => $value) {
+            dg_set_user_meta(sanitize_text_field($key), sanitize_text_field($value));
+        }
+    }
+    
+    // Also set the order step to indicate monthly billing is configured
+    dg_set_user_meta('order_step', 6);
+    
+    wp_send_json_success(array(
+        'method' => $method,
+        'message' => 'Monthly billing selection saved successfully'
     ));
 }
 
@@ -574,7 +690,7 @@ function moneris_payment_form_shortcode($atts) {
             </div>
             
             <div class="moneris-form-row">
-                <label for="moneris_postal_code">BillingPostal Code <span style="color:red;">*</span></label>
+                <label for="moneris_postal_code">Billing Postal Code <span style="color:red;">*</span></label>
                 <input type="text" id="moneris_postal_code" name="postal_code" 
                        placeholder="A1A 1A1" required maxlength="7">
             </div>
