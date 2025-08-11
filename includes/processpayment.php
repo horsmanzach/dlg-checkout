@@ -1,13 +1,15 @@
 <?php
 
 ##
-## Example php -q TestPurchase.php store1
+## Updated Moneris Payment Processing with Dynamic Configuration
 ##
 
 function VerifyCard($data) {
 
-	$store_id='monca07419';
-	$api_token='G5F7TE7rzrM21OVzkCQD';
+	// Use dynamic credentials from data array, fallback to production defaults
+	$store_id = isset($data['store_id']) ? $data['store_id'] : 'monca07419';
+	$api_token = isset($data['api_token']) ? $data['api_token'] : 'G5F7TE7rzrM21OVzkCQD';
+	$test_mode = isset($data['test_mode']) ? $data['test_mode'] : false;
 	
 	$type= 'card_verification';
 	$cust_id= trim( $data['custid'] ); //'cust id';
@@ -15,9 +17,9 @@ function VerifyCard($data) {
 	$amount=number_format( $data['amount'], 2); //'1.00';
 	$pan=trim( $data['cardno'] ); //'4242424242424242';
 	$expiry_date=trim( $data['expdate'] ); //'2011';
-	$address = trim( $data["address"]);
-	$city = trim( $data["city"] );
-	$province = trim( $data["province"] );
+	$address = isset($data["address"]) ? trim( $data["address"]) : '';
+	$city = isset($data["city"]) ? trim( $data["city"] ) : '';
+	$province = isset($data["province"]) ? trim( $data["province"] ) : '';
 	$postal_code = trim( $data["postal_code"] );
 	$postal_code = str_replace(' ', '', $postal_code);
 	$cvd_value = trim ( $data["cvd"] );
@@ -25,7 +27,8 @@ function VerifyCard($data) {
 	$dynamic_descriptor='Purchase plan online Diallog.com';
 	$status_check = 'false';
 
-	error_log( "Parameters for process payment: $type, $cust_id, $order_id, $amount, $pan, $expiry_date, $crypt, $address, $city, $province, $postal_code ");
+	error_log( "VerifyCard - Mode: " . ($test_mode ? 'TEST' : 'PRODUCTION') . ", Store: $store_id");
+	error_log( "Parameters for card verification: $type, $cust_id, $order_id, $amount, $pan, $expiry_date, $crypt, $postal_code ");
 
 	$txnArray=array('type'=>$type,
 		'order_id'=>$order_id,
@@ -60,7 +63,7 @@ function VerifyCard($data) {
 
 	$mpgRequest = new mpgRequest($mpgTxn);
 	$mpgRequest->setProcCountryCode("CA"); //"US" for sending transaction to US environment
-	$mpgRequest->setTestMode(false); //false or comment out this line for production transactions
+	$mpgRequest->setTestMode($test_mode); // Use dynamic test mode
 
 	/***************************** HTTPS Post Object *****************************/
 	$mpgHttpPost  =new mpgHttpsPostStatus($store_id,$api_token,$status_check,$mpgRequest);
@@ -69,35 +72,38 @@ function VerifyCard($data) {
 
 	$mpgResponse=$mpgHttpPost->getMpgResponse();
 
-	error_log("\nCardType = " . $mpgResponse->getCardType());
-	error_log("\nTransAmount = " . $mpgResponse->getTransAmount());
-	error_log("\nTxnNumber = " . $mpgResponse->getTxnNumber());
-	error_log("\nReceiptId = " . $mpgResponse->getReceiptId());
-	error_log("\nTransType = " . $mpgResponse->getTransType());
-	error_log("\nReferenceNum = " . $mpgResponse->getReferenceNum());
-	error_log("\nResponseCode = " . $mpgResponse->getResponseCode());
-	error_log("\nISO = " . $mpgResponse->getISO());
-	error_log("\nMessage = " . $mpgResponse->getMessage());
-	error_log("\nIsVisaDebit = " . $mpgResponse->getIsVisaDebit());
-	error_log("\nAuthCode = " . $mpgResponse->getAuthCode());
-	error_log("\nComplete = " . $mpgResponse->getComplete());
-	error_log("\nTransDate = " . $mpgResponse->getTransDate());
-	error_log("\nTransTime = " . $mpgResponse->getTransTime());
-	error_log("\nTicket = " . $mpgResponse->getTicket());
-	error_log("\nTimedOut = " . $mpgResponse->getTimedOut());
-	error_log("\nStatusCode = " . $mpgResponse->getStatusCode());
-	error_log("\nStatusMessage = " . $mpgResponse->getStatusMessage());
-	error_log("\nHostId = " . $mpgResponse->getHostId());
-	error_log("\nIssuerId = " . $mpgResponse->getIssuerId());
-	error_log("\nAVS = " .  $mpgResponse->getAvsResultCode());
+	error_log("\nVerifyCard Response:");
+	error_log("CardType = " . $mpgResponse->getCardType());
+	error_log("TransAmount = " . $mpgResponse->getTransAmount());
+	error_log("TxnNumber = " . $mpgResponse->getTxnNumber());
+	error_log("ReceiptId = " . $mpgResponse->getReceiptId());
+	error_log("TransType = " . $mpgResponse->getTransType());
+	error_log("ReferenceNum = " . $mpgResponse->getReferenceNum());
+	error_log("ResponseCode = " . $mpgResponse->getResponseCode());
+	error_log("ISO = " . $mpgResponse->getISO());
+	error_log("Message = " . $mpgResponse->getMessage());
+	error_log("IsVisaDebit = " . $mpgResponse->getIsVisaDebit());
+	error_log("AuthCode = " . $mpgResponse->getAuthCode());
+	error_log("Complete = " . $mpgResponse->getComplete());
+	error_log("TransDate = " . $mpgResponse->getTransDate());
+	error_log("TransTime = " . $mpgResponse->getTransTime());
+	error_log("Ticket = " . $mpgResponse->getTicket());
+	error_log("TimedOut = " . $mpgResponse->getTimedOut());
+	error_log("StatusCode = " . $mpgResponse->getStatusCode());
+	error_log("StatusMessage = " . $mpgResponse->getStatusMessage());
+	error_log("HostId = " . $mpgResponse->getHostId());
+	error_log("IssuerId = " . $mpgResponse->getIssuerId());
+	error_log("AVS = " .  $mpgResponse->getAvsResultCode());
 
 	return $mpgResponse;
 }
 
 function ProcessPayment($data) {
 
-	$store_id='monca07419';
-	$api_token='G5F7TE7rzrM21OVzkCQD';
+	// Use dynamic credentials from data array, fallback to production defaults
+	$store_id = isset($data['store_id']) ? $data['store_id'] : 'monca07419';
+	$api_token = isset($data['api_token']) ? $data['api_token'] : 'G5F7TE7rzrM21OVzkCQD';
+	$test_mode = isset($data['test_mode']) ? $data['test_mode'] : false;
 	
 	$type= trim( $data['type'] );//'purchase';
 	$cust_id= trim( $data['custid'] ); //'cust id';
@@ -111,7 +117,8 @@ function ProcessPayment($data) {
 	$dynamic_descriptor='Purchase plan online Diallog.com';
 	$status_check = 'false';
 
-	error_log( "Parameters for process payment: $type, $cust_id, $order_id, $amount, $pan, $expiry_date, $crypt, $address, $city, $province, $postal_code ");
+	error_log( "ProcessPayment - Mode: " . ($test_mode ? 'TEST' : 'PRODUCTION') . ", Store: $store_id");
+	error_log( "Parameters for process payment: $type, $cust_id, $order_id, $amount, $pan, $expiry_date, $crypt, $postal_code ");
 
 	$txnArray=array('type'=>$type,
 		'order_id'=>$order_id,
@@ -146,7 +153,7 @@ function ProcessPayment($data) {
 
 	$mpgRequest = new mpgRequest($mpgTxn);
 	$mpgRequest->setProcCountryCode("CA"); //"US" for sending transaction to US environment
-	$mpgRequest->setTestMode(false); //false or comment out this line for production transactions
+	$mpgRequest->setTestMode($test_mode); // Use dynamic test mode
 
 	/***************************** HTTPS Post Object *****************************/
 	$mpgHttpPost  =new mpgHttpsPostStatus($store_id,$api_token,$status_check,$mpgRequest);
@@ -155,26 +162,27 @@ function ProcessPayment($data) {
 
 	$mpgResponse=$mpgHttpPost->getMpgResponse();
 
-	error_log("\nCardType = " . $mpgResponse->getCardType());
-	error_log("\nTransAmount = " . $mpgResponse->getTransAmount());
-	error_log("\nTxnNumber = " . $mpgResponse->getTxnNumber());
-	error_log("\nReceiptId = " . $mpgResponse->getReceiptId());
-	error_log("\nTransType = " . $mpgResponse->getTransType());
-	error_log("\nReferenceNum = " . $mpgResponse->getReferenceNum());
-	error_log("\nResponseCode = " . $mpgResponse->getResponseCode());
-	error_log("\nISO = " . $mpgResponse->getISO());
-	error_log("\nMessage = " . $mpgResponse->getMessage());
-	error_log("\nIsVisaDebit = " . $mpgResponse->getIsVisaDebit());
-	error_log("\nAuthCode = " . $mpgResponse->getAuthCode());
-	error_log("\nComplete = " . $mpgResponse->getComplete());
-	error_log("\nTransDate = " . $mpgResponse->getTransDate());
-	error_log("\nTransTime = " . $mpgResponse->getTransTime());
-	error_log("\nTicket = " . $mpgResponse->getTicket());
-	error_log("\nTimedOut = " . $mpgResponse->getTimedOut());
-	error_log("\nStatusCode = " . $mpgResponse->getStatusCode());
-	error_log("\nStatusMessage = " . $mpgResponse->getStatusMessage());
-	error_log("\nHostId = " . $mpgResponse->getHostId());
-	error_log("\nIssuerId = " . $mpgResponse->getIssuerId());
+	error_log("\nProcessPayment Response:");
+	error_log("CardType = " . $mpgResponse->getCardType());
+	error_log("TransAmount = " . $mpgResponse->getTransAmount());
+	error_log("TxnNumber = " . $mpgResponse->getTxnNumber());
+	error_log("ReceiptId = " . $mpgResponse->getReceiptId());
+	error_log("TransType = " . $mpgResponse->getTransType());
+	error_log("ReferenceNum = " . $mpgResponse->getReferenceNum());
+	error_log("ResponseCode = " . $mpgResponse->getResponseCode());
+	error_log("ISO = " . $mpgResponse->getISO());
+	error_log("Message = " . $mpgResponse->getMessage());
+	error_log("IsVisaDebit = " . $mpgResponse->getIsVisaDebit());
+	error_log("AuthCode = " . $mpgResponse->getAuthCode());
+	error_log("Complete = " . $mpgResponse->getComplete());
+	error_log("TransDate = " . $mpgResponse->getTransDate());
+	error_log("TransTime = " . $mpgResponse->getTransTime());
+	error_log("Ticket = " . $mpgResponse->getTicket());
+	error_log("TimedOut = " . $mpgResponse->getTimedOut());
+	error_log("StatusCode = " . $mpgResponse->getStatusCode());
+	error_log("StatusMessage = " . $mpgResponse->getStatusMessage());
+	error_log("HostId = " . $mpgResponse->getHostId());
+	error_log("IssuerId = " . $mpgResponse->getIssuerId());
 
 	return $mpgResponse;
 }
