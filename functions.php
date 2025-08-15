@@ -1496,8 +1496,9 @@ function add_deposit_fees_to_cart() {
     }
 }
 
-
-/* ==============Creation of UPFRONT FEE TABLE =====================*/
+/*======Upfront Fee Summary Table - 
+Last Edited Fri, August 15-
+Removed 'Installation' & 'Extras' row headers =========*/
 
 function upfront_fee_summary_shortcode() {
    // Get cart items
@@ -1546,11 +1547,9 @@ function upfront_fee_summary_shortcode() {
        }
    }
    
-   // Add installation section FIRST if found
+   // Add installation section FIRST if found (NO HEADER ROW)
    if ($installation_found && !empty($installation_dates)) {
-       $output .= '<tr class="installation-row-header">';
-       $output .= '<td colspan="3"><strong>Installation</strong></td>';
-       $output .= '</tr>';
+       // REMOVED: Installation header row that was here
        
        // Combine dates into one row
        $combined_dates = '';
@@ -1605,12 +1604,7 @@ function upfront_fee_summary_shortcode() {
        }
    }
    
-   // Add Extras subheader if we have extras
-   if ($has_extras) {
-       $output .= '<tr class="extras-row-header">';
-       $output .= '<td colspan="3"><strong>Extras</strong></td>';
-       $output .= '</tr>';
-   }
+   // REMOVED: Extras header row that was here
    
    // Second pass: Loop through cart items for non-installation products
    foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
