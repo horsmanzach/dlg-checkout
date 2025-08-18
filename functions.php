@@ -315,7 +315,7 @@ function ajax_add_payafter_deposit() {
     }
 }
 
-// Enqueue Monthly Billing scripts and styles
+// ====Enqueue Monthly Billing scripts and styles
 function enqueue_monthly_billing_assets() {
     // Only load on checkout page
     if (!is_checkout()) return;
@@ -337,6 +337,23 @@ function enqueue_monthly_billing_assets() {
 }
 add_action('wp_enqueue_scripts', 'enqueue_monthly_billing_assets');
 
+
+
+// ===== Enqueue checkout-cc-copy.js file to copy credit card credentails
+
+// Enqueue the checkout CC copy functionality
+function enqueue_checkout_cc_copy_script() {
+    if (is_checkout() || is_page() /* add specific page conditions */) {
+        wp_enqueue_script(
+            'checkout-cc-copy',
+            get_stylesheet_directory_uri() . '/js/checkout-cc-copy.js',
+            array('jquery'),
+            '1.0.0',
+            true
+        );
+    }
+}
+add_action('wp_enqueue_scripts', 'enqueue_checkout_cc_copy_script');
 
 
 // Add Filter to Exclude Pay Later Product From Being Added to Monthly Summary
@@ -693,6 +710,7 @@ function moneris_payment_form_shortcode($atts) {
                 <label for="moneris_postal_code">Billing Postal Code <span style="color:red;">*</span></label>
                 <input type="text" id="moneris_postal_code" name="postal_code" 
                        placeholder="A1A 1A1" required maxlength="7">
+                       <small class="field-help-text">Enter the postal code from your credit card billing statement</small>
             </div>
             
             <div class="moneris-loading">
@@ -1888,6 +1906,114 @@ function monthly_fee_summary_shortcode() {
     return $output;
 }
 add_shortcode('monthly_fee_summary', 'monthly_fee_summary_shortcode');
+
+
+/*========Add Total Monthly Cost Shortcode=======*/
+
+/**
+ * Monthly Fee Total Shortcode
+ * Displays only the total monthly fee amount (same as monthly_fee_summary_shortcode total)
+ */
+function monthly_fee_total_shortcode($atts) {
+    global $post;
+    
+    // Get cart items
+    $cart = WC()->cart;
+    
+    // If cart is empty, check if we're on a product page
+    if ($cart->is_empty() && (!is_product() || !$post)) {
+        return '$0.00';
+    }
+    
+    $subtotal = 0;
+    $current_product_id = 0;
+    
+    // Installation category ID to exclude from monthly fee calculation
+    $installation_category_id = 63;
+    $installation_product_id = 265084;
+    $deposit_category_id = get_term_by('slug', 'deposit', 'product_cat');
+    $deposit_category_id = $deposit_category_id ? $deposit_category_id->term_id : null;
+    
+    // Check if we're on a product page
+    if (is_product() && $post) {
+        $current_product_id = $post->ID;
+        
+        // Skip if this is the installation product
+        if ($current_product_id != $installation_product_id) {
+            $current_product = wc_get_product($current_product_id);
+            
+            if ($current_product && $current_product->get_type() === 'simple') {
+                // Check if this is an internet plan product
+                $product_cats = wp_get_post_terms($current_product_id, 'product_cat', array('fields' => 'ids'));
+                $is_internet_plan = in_array(19, $product_cats); // Internet plan category ID
+                
+                if ($is_internet_plan) {
+                    // Get current plan monthly fee
+                    $monthly_fee = 0;
+                    if (function_exists('get_field')) {
+                        $monthly_fee = get_field('monthly_fee', $current_product_id);
+                        if (empty($monthly_fee) && $monthly_fee !== '0') {
+                            $monthly_fee = get_field('monthly_fee', 'product_' . $current_product_id);
+                        }
+                        $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
+                    }
+                    $subtotal += $monthly_fee;
+                }
+            }
+        }
+    }
+    
+    // Loop through cart items (excluding deposits and installation)
+    foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
+        $product = $cart_item['data'];
+        $product_id = $product->get_id();
+        
+        // Skip installation products
+        $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'ids'));
+        if (in_array($installation_category_id, $product_cats)) {
+            continue;
+        }
+        
+        // Skip deposit products
+        if ($deposit_category_id && in_array($deposit_category_id, $product_cats)) {
+            continue;
+        }
+        
+        // Skip the Pay After deposit product specifically
+        if ($product_id == 265827) {
+            continue;
+        }
+        
+        // Get monthly fee for this product
+        $monthly_fee = 0;
+        if (function_exists('get_field')) {
+            $monthly_fee = get_field('monthly_fee', $product_id);
+            if (empty($monthly_fee) && $monthly_fee !== '0') {
+                $monthly_fee = get_field('monthly_fee', 'product_' . $product_id);
+            }
+            $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
+        }
+        
+        $subtotal += $monthly_fee * $cart_item['quantity'];
+    }
+    
+    // Calculate tax on monthly fees
+    $tax_total = 0;
+    if (wc_tax_enabled()) {
+        $tax_rates = WC_Tax::get_rates();
+        if (!empty($tax_rates)) {
+            $taxes = WC_Tax::calc_tax($subtotal, $tax_rates);
+            $tax_total = array_sum($taxes);
+        }
+    }
+    
+    // Calculate total (subtotal + tax)
+    $total = $subtotal + $tax_total;
+    
+    // Format with wc_price for consistency
+    return wc_price($total);
+}
+add_shortcode('monthly_fee_total', 'monthly_fee_total_shortcode');
 
 
 /*-----*/
