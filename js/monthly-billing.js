@@ -246,8 +246,14 @@ jQuery(document).ready(function ($) {
                 success: function (response) {
                     console.log('Full response:', response);
                     button.prop('disabled', false);
+
                     if (response.success) {
-                        $('.cc-validation-message').html('<div style="color: #27ae60; padding: 10px; background: #e8f5e8; border: 1px solid #27ae60; border-radius: 4px;"><strong>✓ Card validated through Moneris!</strong><br>Your credit card information has been validated for monthly billing.</div>').show();
+                        // SUCCESS: Show success message
+                        $('.cc-validation-message').html('<div style="color: #27ae60; padding: 10px; background: #e8f5e8; border: 1px solid #27ae60; border-radius: 4px;"><strong>✓ Card validated through Moneris!</strong><br><br>   Your credit card information has been validated for monthly billing.</div>').show();
+
+                        // SUCCESS: Apply green borders to ALL fields
+                        $('#cc_cardholder_name, #cc_card_number, #cc_expiry, #cc_cvv, #cc_postal_code').removeClass('error').addClass('valid');
+
                         button.text('Card Confirmed ✓').addClass('confirmed');
 
                         // Save the selection
@@ -271,16 +277,79 @@ jQuery(document).ready(function ($) {
                         // Clear other options FIRST, then mark as confirmed
                         clearOtherMonthlyBillingOptions('cc');
                         markMethodAsConfirmed('cc');
+
                     } else {
+                        // ERROR HANDLING: First check if response.data exists and has message
+                        let errorMessage = 'Unknown error';
+
+                        // Fix for "response data is undefined" - check response structure properly
                         console.log('Response data:', response.data);
-                        $('.cc-validation-message').html('<div style="color: #e74c3c; padding: 10px; background: #fdf2f2; border: 1px solid #e74c3c; border-radius: 4px;"><strong>❌ Card validation failed</strong><br>' + (response.data ? response.data.message : 'Unknown error') + '</div>').show();
+                        console.log('Response message:', response.message);
+                        console.log('Full response object:', JSON.stringify(response));
+
+                        if (response.data && response.data.message) {
+                            // WordPress AJAX success=false, message in response.data.message
+                            errorMessage = response.data.message;
+                        } else if (response.message) {
+                            // Direct message in response.message
+                            errorMessage = response.message;
+                        } else if (typeof response === 'string') {
+                            // Sometimes the response might be a string
+                            try {
+                                const parsedResponse = JSON.parse(response);
+                                if (parsedResponse.msg) {
+                                    errorMessage = parsedResponse.msg;
+                                } else if (parsedResponse.message) {
+                                    errorMessage = parsedResponse.message;
+                                }
+                            } catch (e) {
+                                errorMessage = response;
+                            }
+                        }
+
+                        // Display the specific error message to user
+                        $('.cc-validation-message').html('<div style="color: #e74c3c; padding: 10px; background: #fdf2f2; border: 1px solid #e74c3c; border-radius: 4px;"><strong>❌ Card validation failed</strong><br><br> &nbsp; &nbsp; ' + errorMessage + '</div>').show();
+
+                        // FIELD-SPECIFIC ERROR STYLING: Apply red borders based on error message content
+                        // First, remove all previous error/valid classes
+                        $('#cc_cardholder_name, #cc_card_number, #cc_expiry, #cc_cvv, #cc_postal_code').removeClass('error valid');
+
+                        // Apply red borders to specific fields based on error message
+                        const lowerErrorMessage = errorMessage.toLowerCase();
+
+                        if (lowerErrorMessage.includes('card number') || lowerErrorMessage.includes('invalid credit card')) {
+                            $('#cc_card_number').addClass('error');
+                        }
+
+                        if (lowerErrorMessage.includes('expiry') || lowerErrorMessage.includes('expired')) {
+                            $('#cc_expiry').addClass('error');
+                        }
+
+                        if (lowerErrorMessage.includes('cvv') || lowerErrorMessage.includes('security code') || lowerErrorMessage.includes('cvd')) {
+                            $('#cc_cvv').addClass('error');
+                        }
+
+                        if (lowerErrorMessage.includes('postal') || lowerErrorMessage.includes('zip') || lowerErrorMessage.includes('billing')) {
+                            $('#cc_postal_code').addClass('error');
+                        }
+
+                        if (lowerErrorMessage.includes('name') || lowerErrorMessage.includes('cardholder')) {
+                            $('#cc_cardholder_name').addClass('error');
+                        }
+
+                        // If we can't determine the specific field, highlight the most likely culprit based on common errors
+                        if (!$('#cc_card_number, #cc_expiry, #cc_cvv, #cc_postal_code, #cc_cardholder_name').hasClass('error')) {
+                            // Default to card number field for generic errors
+                            $('#cc_card_number').addClass('error');
+                        }
+
                         button.text('Validate Card').removeClass('confirmed');
                     }
                 },
                 error: function (xhr, status, error) {
                     console.log('AJAX error:', xhr.responseText);
                     button.prop('disabled', false);
-                    $('.cc-validation-message').html('<div style="color: #e74c3c; padding: 10px; background: #fdf2f2; border: 1px solid #e74c3c; border-radius: 4px;"><strong>❌ Validation error</strong><br>Please try again.</div>').show();
+                    $('.cc-validation-message').html('<div style="color: #e74c3c; padding: 10px; background: #fdf2f2; border: 1px solid #e74c3c; border-radius: 4px;"><strong>❌ Validation error</strong><br><br>Please try again.</div>').show();
                     button.text('Validate Card').removeClass('confirmed');
                 }
             });
