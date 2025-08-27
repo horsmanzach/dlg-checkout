@@ -51,7 +51,7 @@ jQuery(document).ready(function ($) {
                 $('.payment-option-header').removeClass('active');
                 $('.payment-option-content').slideUp(600);
                 $('.accordion-arrow').text('▼');
-                
+
                 // Uncheck other radio buttons
                 $('input[name="monthly_payment_method"]').not(this).prop('checked', false);
 
@@ -225,35 +225,65 @@ jQuery(document).ready(function ($) {
                 return;
             }
 
-            // Show success message and update button
-            $('.cc-validation-message').html('<div style="color: #27ae60; padding: 10px; background: #e8f5e8; border: 1px solid #27ae60; border-radius: 4px;"><strong>✓ Card details confirmed!</strong><br>Your credit card information has been validated for monthly billing.</div>').show();
+            // Disable button and show loading
+            button.prop('disabled', true).text('Validating...');
 
-            // Update button state
-            button.text('Card Confirmed ✓').addClass('confirmed');
+            // Call actual Moneris API validation
+            $.ajax({
+                url: monthlyBilling.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'validate_credit_card',
+                    card_data: {
+                        cardholder_name: cardData.cardholder_name,
+                        card_number: cardData.card_number,
+                        expiry: cardData.expiry,
+                        cvv: cardData.cvv,
+                        postal_code: cardData.postal_code
+                    },
+                    nonce: monthlyBilling.checkoutNonce
+                },
+                success: function (response) {
+                    console.log('Full response:', response);
+                    button.prop('disabled', false);
+                    if (response.success) {
+                        $('.cc-validation-message').html('<div style="color: #27ae60; padding: 10px; background: #e8f5e8; border: 1px solid #27ae60; border-radius: 4px;"><strong>✓ Card validated through Moneris!</strong><br>Your credit card information has been validated for monthly billing.</div>').show();
+                        button.text('Card Confirmed ✓').addClass('confirmed');
 
-            // Save the selection
-            saveMonthlyBillingSelection('cc', {
-                monthly_bill_payment_option: 'cc',
-                cc_monthly_billing_card_number: cardData.card_number,
-                cc_monthly_billing_card_expiry: cardData.expiry,
-                cc_monthly_billing_card_cvv: cardData.cvv,
-                cc_monthly_billing_full_name: cardData.cardholder_name,
-                cc_monthly_billing_postcode: cardData.postal_code,
-                // Clear bank fields
-                bank_monthly_billing_first_name: "",
-                bank_monthly_billing_last_name: "",
-                bank_monthly_billing_account_type: "",
-                bank_monthly_billing_financial_institution: "",
-                bank_monthly_billing_transit_number: "",
-                bank_monthly_billing_institution_number: "",
-                bank_monthly_billing_account_number: ""
+                        // Save the selection
+                        saveMonthlyBillingSelection('cc', {
+                            monthly_bill_payment_option: 'cc',
+                            cc_monthly_billing_card_number: cardData.card_number,
+                            cc_monthly_billing_card_expiry: cardData.expiry,
+                            cc_monthly_billing_card_cvv: cardData.cvv,
+                            cc_monthly_billing_full_name: cardData.cardholder_name,
+                            cc_monthly_billing_postcode: cardData.postal_code,
+                            // Clear bank fields
+                            bank_monthly_billing_first_name: "",
+                            bank_monthly_billing_last_name: "",
+                            bank_monthly_billing_account_type: "",
+                            bank_monthly_billing_financial_institution: "",
+                            bank_monthly_billing_transit_number: "",
+                            bank_monthly_billing_institution_number: "",
+                            bank_monthly_billing_account_number: ""
+                        });
+
+                        // Clear other options FIRST, then mark as confirmed
+                        clearOtherMonthlyBillingOptions('cc');
+                        markMethodAsConfirmed('cc');
+                    } else {
+                        console.log('Response data:', response.data);
+                        $('.cc-validation-message').html('<div style="color: #e74c3c; padding: 10px; background: #fdf2f2; border: 1px solid #e74c3c; border-radius: 4px;"><strong>❌ Card validation failed</strong><br>' + (response.data ? response.data.message : 'Unknown error') + '</div>').show();
+                        button.text('Validate Card').removeClass('confirmed');
+                    }
+                },
+                error: function (xhr, status, error) {
+                    console.log('AJAX error:', xhr.responseText);
+                    button.prop('disabled', false);
+                    $('.cc-validation-message').html('<div style="color: #e74c3c; padding: 10px; background: #fdf2f2; border: 1px solid #e74c3c; border-radius: 4px;"><strong>❌ Validation error</strong><br>Please try again.</div>').show();
+                    button.text('Validate Card').removeClass('confirmed');
+                }
             });
-
-            // Clear other options FIRST, then mark as confirmed
-            clearOtherMonthlyBillingOptions('cc');
-            
-            // Mark as confirmed after clearing
-            markMethodAsConfirmed('cc');
         });
     }
 
@@ -352,7 +382,7 @@ jQuery(document).ready(function ($) {
 
             // Clear other options FIRST, then mark as confirmed
             clearOtherMonthlyBillingOptions('bank');
-            
+
             // Mark as confirmed after clearing
             markMethodAsConfirmed('bank');
         });
@@ -378,7 +408,7 @@ jQuery(document).ready(function ($) {
                 type: 'POST',
                 data: {
                     action: 'add_payafter_deposit',  // CORRECTED: Match the actual PHP action name
-                    nonce: monthlyBilling.nonce
+                    nonce: monthlyBilling.checkoutNonce
                 },
                 success: function (response) {
                     console.log('Pay After response:', response);
@@ -445,7 +475,7 @@ jQuery(document).ready(function ($) {
                 url: monthlyBilling.ajaxUrl,
                 data: {
                     action: "refresh_upfront_summary_shortcode",
-                    nonce: monthlyBilling.nonce
+                    nonce: monthlyBilling.checkoutNonce
                 },
                 success: function (response) {
                     console.log('Upfront table refresh response:', response);
@@ -485,7 +515,7 @@ jQuery(document).ready(function ($) {
                 url: monthlyBilling.ajaxUrl,
                 data: {
                     action: "update_moneris_payment_amount",
-                    nonce: monthlyBilling.nonce
+                    nonce: monthlyBilling.checkoutNonce
                 },
                 success: function (response) {
                     console.log('Moneris payment amount response:', response);
@@ -542,7 +572,7 @@ jQuery(document).ready(function ($) {
                 data: {
                     action: 'remove_monthly_billing_deposits',
                     keep_option: keepOption,
-                    nonce: monthlyBilling.nonce
+                    nonce: monthlyBilling.checkoutNonce
                 },
                 success: function (response) {
                     console.log('Pay After deposits cleared for:', keepOption, response);
@@ -572,7 +602,7 @@ jQuery(document).ready(function ($) {
         console.log('Marking method as confirmed:', method);
 
         // DO NOT call clearOtherMonthlyBillingOptions here - it should be called before this function
-        
+
         // Mark the selected method as confirmed
         const header = $(`.payment-option-header[data-option="${method}"]`);
         header.addClass('confirmed-method');
@@ -599,7 +629,7 @@ jQuery(document).ready(function ($) {
                     action: "save_monthly_billing_selection",
                     method: method,
                     billing_data: data,
-                    nonce: monthlyBilling.nonce
+                    nonce: monthlyBilling.checkoutNonce
                 },
                 success: function (response) {
                     console.log('Monthly billing selection saved:', response);
@@ -629,7 +659,7 @@ jQuery(document).ready(function ($) {
             url: monthlyBilling.ajaxUrl,
             data: {
                 action: "get_selected_monthly_billing_method",
-                nonce: monthlyBilling.nonce
+                nonce: monthlyBilling.checkoutNonce
             },
             success: function (response) {
                 console.log('Monthly billing method check response:', response);
@@ -688,7 +718,7 @@ jQuery(document).ready(function ($) {
 
     function showRefreshNotification() {
         const notification = $('<div class="pay-after-notification" style="background: #e8f5e8; border: 1px solid #4caf50; color: #2e7d32; padding: 10px; margin: 10px 0; border-radius: 4px;">' +
-            '✓ Pay After deposit added successfully! <a href="#" onclick="window.location.reload(); return false;" style="color: #1976d2; text-decoration: underline;">Refresh page</a> to see updated totals.' +
+            '✓ Pay After deposit added successfully!' +
             '</div>');
 
         if ($('.monthly-billing-section').length > 0) {
