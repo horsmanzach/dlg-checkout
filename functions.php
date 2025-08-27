@@ -242,7 +242,7 @@ function ajax_validate_credit_card() {
         return;
     }
     
-    // Clean and validate Canadian postal code format
+    // Clean and validate Canadian postal code format  
     $postal_code = strtoupper(preg_replace('/[^A-Z0-9]/', '', $card_data['postal_code']));
     if (!preg_match('/^[A-Z]\d[A-Z]\d[A-Z]\d$/', $postal_code)) {
         wp_send_json_error(array('message' => 'Please enter a valid Canadian postal code (A1A 1A1)'));
@@ -253,12 +253,11 @@ function ajax_validate_credit_card() {
     $expiry = $card_data['expiry'];
     if (strpos($expiry, '/') !== false) {
         list($month, $year) = explode('/', $expiry);
-        $formatted_expiry = $year . $month; // YYMM format
+        $formatted_expiry = $year . $month;
     } else {
         $formatted_expiry = $expiry;
     }
     
-    // Use your existing Moneris validation logic - ONLY CHANGE: Added postal_code
     $payment_info = array(
         'custid' => '',
         'orderid' => 'validate-' . time(),
@@ -266,15 +265,25 @@ function ajax_validate_credit_card() {
         'cardno' => $card_data['card_number'],
         'expdate' => $formatted_expiry,
         'cvd' => $card_data['cvv'],
-        'postal_code' => $postal_code  // THIS IS THE KEY ADDITION
+        'postal_code' => $postal_code
     );
     
-    try {
-        // Call your existing verify_card_ex function (no changes needed there)
-        verify_card_ex($payment_info);
+    // Capture the die() output from verify_card_ex
+    ob_start();
+    verify_card_ex($payment_info);
+    $output = ob_get_clean();
+    
+    // If we get here without dying, validation passed
+    if (empty($output)) {
         wp_send_json_success(array('message' => 'Card is valid'));
-    } catch (Exception $e) {
-        wp_send_json_error(array('message' => 'Invalid card details: ' . $e->getMessage()));
+    } else {
+        // Parse the JSON error response
+        $error_data = json_decode($output, true);
+        if ($error_data && isset($error_data['msg'])) {
+            wp_send_json_error(array('message' => $error_data['msg']));
+        } else {
+            wp_send_json_error(array('message' => 'Card validation failed'));
+        }
     }
 }
 
@@ -332,7 +341,8 @@ function enqueue_monthly_billing_assets() {
     // Localize script with AJAX data
     wp_localize_script('monthly-billing-js', 'monthlyBilling', array(
         'ajaxUrl' => admin_url('admin-ajax.php'),
-        'nonce' => wp_create_nonce('checkout_nonce')
+        'nonce' => wp_create_nonce('checkout_nonce'),
+         'checkoutNonce' => wp_create_nonce('checkout_nonce')  // Add this line
     ));
 }
 add_action('wp_enqueue_scripts', 'enqueue_monthly_billing_assets');
@@ -629,14 +639,19 @@ function get_moneris_config() {
     }
 }
 
-// Enqueue payment gateway scripts
+/**
+ * UPDATED: =====Enqueue payment gateway scripts (updated to handle separate button)
+ */
 function enqueue_moneris_payment_assets() {
-    if (is_checkout() || has_shortcode(get_post()->post_content, 'moneris_payment_form')) {
+    if (is_checkout() || 
+        has_shortcode(get_post()->post_content, 'moneris_payment_form') ||
+        has_shortcode(get_post()->post_content, 'moneris_complete_payment_button')) {
+        
         wp_enqueue_script(
             'moneris-payment-js',
             get_stylesheet_directory_uri() . '/js/moneris-payment.js',
             array('jquery'),
-            '1.0.0',
+            '1.0.1', // Updated version
             true
         );
         
@@ -646,16 +661,15 @@ function enqueue_moneris_payment_assets() {
         ));
     }
 }
-add_action('wp_enqueue_scripts', 'enqueue_moneris_payment_assets');
+
+
 
 /**
- * Moneris Payment Form Shortcode
+ *================================== UPDATED: Moneris Payment Form Shortcode (WITHOUT submit button)
  */
 function moneris_payment_form_shortcode($atts) {
     $atts = shortcode_atts(array(
-        'button_text' => 'Process Payment',
         'show_amount' => 'true',
-        'redirect_url' => '',
         'success_message' => 'Payment processed successfully!'
     ), $atts);
     
@@ -713,15 +727,14 @@ function moneris_payment_form_shortcode($atts) {
                        <small class="field-help-text">Enter the postal code from your credit card billing statement</small>
             </div>
             
-            <div class="moneris-loading">
+            <div class="moneris-loading" style="display: none;">
                 <p>Processing payment, please wait...</p>
             </div>
             
-            <button type="submit" class="moneris-submit-btn"><?php echo esc_html($atts['button_text']); ?></button>
+            <!-- REMOVED: Submit button is now in separate shortcode -->
             
             <input type="hidden" name="action" value="process_moneris_payment">
             <input type="hidden" name="nonce" value="<?php echo wp_create_nonce('moneris_payment_nonce'); ?>">
-            <input type="hidden" name="redirect_url" value="<?php echo esc_url($atts['redirect_url']); ?>">
             <input type="hidden" name="success_message" value="<?php echo esc_attr($atts['success_message']); ?>">
         </form>
     </div>
@@ -729,6 +742,32 @@ function moneris_payment_form_shortcode($atts) {
     return ob_get_clean();
 }
 add_shortcode('moneris_payment_form', 'moneris_payment_form_shortcode');
+
+/**
+ * ===================== NEW: Moneris Complete Payment Button Shortcode
+ */
+ 
+function moneris_complete_payment_button_shortcode($atts) {
+    $atts = shortcode_atts(array(
+        'button_text' => 'Complete Payment',
+        'redirect_url' => '',
+        'button_class' => 'moneris-submit-btn' // Use original styling class
+    ), $atts);
+    
+    ob_start();
+    ?>
+    <div class="moneris-complete-payment-container">
+        <button type="button" id="moneris-complete-payment-btn" 
+                class="<?php echo esc_attr($atts['button_class']); ?>" 
+                data-redirect-url="<?php echo esc_url($atts['redirect_url']); ?>">
+            <?php echo esc_html($atts['button_text']); ?>
+        </button>
+        <div class="moneris-payment-validation-message"></div>
+    </div>
+    <?php
+    return ob_get_clean();
+}
+add_shortcode('moneris_complete_payment_button', 'moneris_complete_payment_button_shortcode');
 
 /**
  * AJAX handler for processing Moneris payments
@@ -1594,7 +1633,7 @@ function upfront_fee_summary_shortcode() {
        }
        
        $output .= '<tr class="installation-details">';
-       $output .= '<td>Dates</td>';
+       $output .= '<td>Install Dates</td>';
        $output .= '<td>' . $combined_dates . '</td>';
        $output .= '<td>' . $price_display . '</td>';
        $output .= '</tr>';
