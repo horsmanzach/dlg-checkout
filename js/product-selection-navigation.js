@@ -1,12 +1,71 @@
 jQuery(document).ready(function ($) {
-    // Track current screen
+    // Track current screen and whether user came from checkout
     let currentScreen = 1;
     const totalScreens = 4;
-    const finalSlideRedirectUrl = 'https://diallog.magnaprototype.com/checkout'; // Change this to your desired URL
+    const finalSlideRedirectUrl = 'https://diallog.magnaprototype.com/checkout';
+    let cameFromCheckout = false;
 
     // Initialize container height based on first screen
     adjustContainerHeight();
     updateButtonStates();
+    updateCheckoutButtonVisibility();
+
+    // Handle hash-based navigation on page load
+    function initializeFromHash() {
+        const hash = window.location.hash;
+        if (hash) {
+            // Extract screen number from hash (e.g., #screen2 -> 2)
+            const match = hash.match(/^#screen(\d+)$/);
+            if (match) {
+                const targetScreen = parseInt(match[1]);
+                if (targetScreen >= 1 && targetScreen <= totalScreens && targetScreen !== 1) {
+                    console.log('Navigating to screen from hash:', targetScreen);
+                    // User came from checkout if they have a hash URL
+                    cameFromCheckout = true;
+                    jumpToScreen(targetScreen);
+                    // Immediately update button visibility after setting the flag
+                    setTimeout(() => updateCheckoutButtonVisibility(), 50);
+                    return;
+                }
+            }
+        }
+    }
+
+    // Function to jump directly to a specific screen without animation (for hash navigation)
+    function jumpToScreen(screenNumber) {
+        console.log('Jumping to screen:', screenNumber);
+
+        // Calculate how many steps to move from screen 1 to target screen
+        const stepsToMove = screenNumber - 1;
+
+        // Move all screens to their target positions instantly
+        for (let i = 1; i <= totalScreens; i++) {
+            const screen = $(`#screen${i}`);
+            const offset = (i - screenNumber) * 100; // Calculate offset percentage
+
+            // Use GSAP to set position instantly (duration: 0)
+            gsap.set(screen, {
+                x: `${offset}%`,
+                opacity: i === screenNumber ? 1 : 0
+            });
+        }
+
+        currentScreen = screenNumber;
+        updateButtonStates();
+
+        // Adjust container height after positioning
+        setTimeout(() => {
+            adjustContainerHeight();
+            scrollToTop();
+        }, 50);
+    }
+
+    // Check for hash navigation after the page loads
+    setTimeout(function () {
+        initializeFromHash();
+        // Ensure checkout button visibility is set immediately after hash initialization
+        updateCheckoutButtonVisibility();
+    }, 100);
 
     // Check for selected cards when page loads
     setTimeout(function () {
@@ -17,7 +76,13 @@ jQuery(document).ready(function ($) {
         setTimeout(updateButtonStates, 300);
     }, 500);
 
-    // Forward navigation
+    // Handle browser back/forward buttons
+    $(window).on('popstate', function (e) {
+        console.log('Browser navigation detected');
+        setTimeout(initializeFromHash, 100);
+    });
+
+    // Forward navigation (keeping original logic)
     $('.next-btn').click(function () {
         if ($(this).hasClass('disabled')) {
             return; // Don't proceed if button is disabled
@@ -64,10 +129,14 @@ jQuery(document).ready(function ($) {
 
             currentScreen++;
             updateButtonStates();
+            updateCheckoutButtonVisibility();
+
+            // Update URL hash
+            updateHash(currentScreen);
         }
     });
 
-    // Backward navigation
+    // Backward navigation (keeping original logic)
     $('.back-btn').click(function () {
         if ($(this).hasClass('disabled')) {
             return; // Don't proceed if button is disabled
@@ -108,10 +177,22 @@ jQuery(document).ready(function ($) {
 
             currentScreen--;
             updateButtonStates();
+            updateCheckoutButtonVisibility();
+
+            // Update URL hash
+            updateHash(currentScreen);
         }
     });
 
-    // Function to update button states based on current screen and selections
+    // Update hash function
+    function updateHash(screenNumber) {
+        const newHash = `#screen${screenNumber}`;
+        if (window.location.hash !== newHash) {
+            history.replaceState(null, '', newHash);
+        }
+    }
+
+    // Function to update button states based on current screen and selections (keeping original logic)
     function updateButtonStates() {
         console.log('=== UPDATE BUTTON STATES ===');
         console.log('Current screen:', currentScreen);
@@ -148,7 +229,7 @@ jQuery(document).ready(function ($) {
 
             case 2: // Modem screen (reordered from case 1)
                 const modemSelected = $('.modem-row-selected').length;
-                
+
                 // Special check for "own modem" selection
                 let ownModemValid = true;
                 const $selectedOwnModem = $('.modem-4.modem-row-selected');
@@ -157,10 +238,10 @@ jQuery(document).ready(function ($) {
                     const inputValue = $input.val().trim();
                     ownModemValid = inputValue.length >= 5 && inputValue.length <= 100;
                 }
-                
+
                 console.log('Modem selected count:', modemSelected);
                 console.log('Own modem valid:', ownModemValid);
-                
+
                 if (modemSelected && ownModemValid) {
                     $nextBtn.removeClass('disabled');
                 } else {
@@ -193,7 +274,26 @@ jQuery(document).ready(function ($) {
         console.log('=== END UPDATE BUTTON STATES ===');
     }
 
-    // Check for card selections and update button states
+    // Function to show/hide the Skip to Checkout button based on whether user came from checkout
+    function updateCheckoutButtonVisibility() {
+        const $checkoutBtn = $('.checkout-btn');
+
+        if (cameFromCheckout) {
+            console.log('User came from checkout - showing Skip to Checkout button');
+            $checkoutBtn.show();
+        } else {
+            console.log('User did not come from checkout - hiding Skip to Checkout button');
+            $checkoutBtn.hide();
+        }
+    }
+
+    // Handle Skip to Checkout button click
+    $('.checkout-btn').click(function () {
+        console.log('Skip to Checkout button clicked');
+        window.location.href = finalSlideRedirectUrl;
+    });
+
+    // Check for card selections and update button states (keeping original logic)
     $(document).on('click', '.modem-0, .modem-1, .modem-2, .modem-3, .modem-4, .installation-row, .tv-0, .tv-1, .tv-2, .phone-0, .phone-1, .phone-2', function () {
         setTimeout(updateButtonStates, 300); // Small delay to ensure classes are updated
     });
@@ -205,16 +305,16 @@ jQuery(document).ready(function ($) {
     });
 
     // Listen for input changes on own modem field
-    $(document).on('input', '.own-modem-input', function() {
+    $(document).on('input', '.own-modem-input', function () {
         const $input = $(this);
         const $row = $input.closest('[class*="modem-"]');
-        
+
         // Clear validation errors if input is valid
         if ($input.val().trim().length >= 5) {
             $input.removeClass('error');
             $row.find('.own-modem-error').hide();
         }
-        
+
         // Update button states when input changes
         updateButtonStates();
     });
