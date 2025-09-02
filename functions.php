@@ -366,6 +366,47 @@ function enqueue_checkout_cc_copy_script() {
 add_action('wp_enqueue_scripts', 'enqueue_checkout_cc_copy_script');
 
 
+// ===== Enqueue confirm-terms.js file to incorporate confirm terms and conditions logic
+
+/**
+ * Enqueue Terms & Conditions Confirmation Script
+ * Add this function to your functions.php file
+ */
+
+function enqueue_confirm_terms_script() {
+    // Only load on checkout page or pages with Moneris payment shortcodes
+    if (is_checkout() || 
+        is_page(264127) || // Your checkout page ID
+        (is_singular() && (
+            has_shortcode(get_post()->post_content, 'moneris_payment_form') ||
+            has_shortcode(get_post()->post_content, 'moneris_complete_payment_button')
+        ))) {
+        
+        wp_enqueue_script(
+            'confirm-terms-js',
+            get_stylesheet_directory_uri() . '/js/confirm-terms.js',
+            array('jquery'), // Dependencies
+            '1.0.0', // Version number
+            true // Load in footer
+        );
+        
+        // Optional: Pass any PHP data to the JavaScript if needed
+        wp_localize_script('confirm-terms-js', 'confirmTermsData', array(
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('confirm_terms_nonce'),
+            'checkoutUrl' => get_permalink(2867), // Your checkout page URL
+            'debug' => defined('WP_DEBUG') && WP_DEBUG // Enable debug mode if WP_DEBUG is true
+        ));
+        
+        // Also ensure jQuery is loaded
+        wp_enqueue_script('jquery');
+    }
+}
+
+// Hook the function to wp_enqueue_scripts
+add_action('wp_enqueue_scripts', 'enqueue_confirm_terms_script');
+
+
 // Add Filter to Exclude Pay Later Product From Being Added to Monthly Summary
 
 add_filter('woocommerce_cart_item_visible', 'exclude_payafter_from_monthly_summary', 10, 3);
@@ -1770,10 +1811,7 @@ add_shortcode('upfront_fee_summary', 'upfront_fee_summary_shortcode');
 /*-------*/
 
 
-
-// Monthly Fee Summary Table Shortcode with Internet Plan
-
-// Update your monthly fee summary function to trigger the action
+// Monthly Fee Summary Table Shortcode with Internet Plan and Promotional Pricing
 function monthly_fee_summary_shortcode() {
     global $post;
     
@@ -1823,21 +1861,57 @@ function monthly_fee_summary_shortcode() {
                         $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
                     }
                     
-                    // Get product category name
-                    $category_name = '';
+                    // Get promotional pricing fields
+                    $monthly_promo_fee = 0;
+                    $monthly_promo_blurb = '';
+                    if (function_exists('get_field')) {
+                        $monthly_promo_fee = get_field('monthly_promo_fee', $current_product_id);
+                        if (empty($monthly_promo_fee) && $monthly_promo_fee !== '0') {
+                            $monthly_promo_fee = get_field('monthly_promo_fee', 'product_' . $current_product_id);
+                        }
+                        $monthly_promo_fee = is_numeric($monthly_promo_fee) ? floatval($monthly_promo_fee) : 0;
+                        
+                        $monthly_promo_blurb = get_field('monthly_promo_blurb', $current_product_id);
+                        if (empty($monthly_promo_blurb)) {
+                            $monthly_promo_blurb = get_field('monthly_promo_blurb', 'product_' . $current_product_id);
+                        }
+                    }
+                    
+                    // Calculate final fee (original fee minus promo discount)
+                    $final_monthly_fee = $monthly_fee - $monthly_promo_fee;
+                    $final_monthly_fee = max(0, $final_monthly_fee); // Ensure it doesn't go below 0
+                    
+                    // Get category name
                     $terms = get_the_terms($current_product_id, 'product_cat');
+                    $category_name = '';
                     if (!empty($terms) && !is_wp_error($terms)) {
                         $category_name = $terms[0]->name;
                     }
                     
-                    // Add current plan to table
-                    $output .= '<tr class="internet-plan-row">';
-                    $output .= '<td>' . esc_html($current_product->get_name()) . '</td>';
+                    // Build product name with promotional blurb if exists
+                    $product_name_display = esc_html($current_product->get_name());
+                    if (!empty($monthly_promo_blurb)) {
+                        $product_name_display .= '<br><span class="monthly-promo-blurb">' . esc_html($monthly_promo_blurb) . '</span>';
+                    }
+                    
+                    // Build pricing display
+                    $pricing_display = '';
+                    if ($monthly_promo_fee > 0) {
+                        // Show strikethrough original price and promotional price below
+                        $pricing_display = '<span class="monthly-fee-strikethrough">' . wc_price($monthly_fee) . '</span><br><span class="monthly-fee-sale-price">' . wc_price($final_monthly_fee) . '</span>';
+                    } else {
+                        // Show regular price
+                        $pricing_display = wc_price($monthly_fee);
+                    }
+                    
+                    $output .= '<tr>';
+                    $output .= '<td>' . $product_name_display . '</td>';
                     $output .= '<td>' . esc_html($category_name) . '</td>';
-                    $output .= '<td>' . wc_price($monthly_fee) . '</td>';
+                    $output .= '<td>' . $pricing_display . '</td>';
                     $output .= '</tr>';
                     
-                    $subtotal += $monthly_fee;
+                    // Add the discounted price to subtotal
+                    $subtotal += $final_monthly_fee;
                 }
             }
         }
@@ -1905,13 +1979,50 @@ function monthly_fee_summary_shortcode() {
                 $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
             }
             
+            // Get promotional pricing fields for cart items
+            $monthly_promo_fee = 0;
+            $monthly_promo_blurb = '';
+            if (function_exists('get_field')) {
+                $monthly_promo_fee = get_field('monthly_promo_fee', $product_id);
+                if (empty($monthly_promo_fee) && $monthly_promo_fee !== '0') {
+                    $monthly_promo_fee = get_field('monthly_promo_fee', 'product_' . $product_id);
+                }
+                $monthly_promo_fee = is_numeric($monthly_promo_fee) ? floatval($monthly_promo_fee) : 0;
+                
+                $monthly_promo_blurb = get_field('monthly_promo_blurb', $product_id);
+                if (empty($monthly_promo_blurb)) {
+                    $monthly_promo_blurb = get_field('monthly_promo_blurb', 'product_' . $product_id);
+                }
+            }
+            
+            // Calculate final fee (original fee minus promo discount)
+            $final_monthly_fee = $monthly_fee - $monthly_promo_fee;
+            $final_monthly_fee = max(0, $final_monthly_fee); // Ensure it doesn't go below 0
+            
+            // Build product name with promotional blurb if exists
+            $product_name_display = esc_html($product_name);
+            if (!empty($monthly_promo_blurb)) {
+                $product_name_display .= '<br><span class="monthly-promo-blurb">' . esc_html($monthly_promo_blurb) . '</span>';
+            }
+            
+            // Build pricing display
+            $pricing_display = '';
+            if ($monthly_promo_fee > 0) {
+                // Show strikethrough original price and promotional price below
+                $pricing_display = '<span class="monthly-fee-strikethrough">' . wc_price($monthly_fee) . '</span><br><span class="monthly-fee-sale-price">' . wc_price($final_monthly_fee) . '</span>';
+            } else {
+                // Show regular price
+                $pricing_display = wc_price($monthly_fee);
+            }
+            
             $output .= '<tr>';
-            $output .= '<td>' . esc_html($product_name) . '</td>';
+            $output .= '<td>' . $product_name_display . '</td>';
             $output .= '<td>' . esc_html($category_name) . '</td>';
-            $output .= '<td>' . wc_price($monthly_fee) . '</td>';
+            $output .= '<td>' . $pricing_display . '</td>';
             $output .= '</tr>';
             
-            $subtotal += $monthly_fee;
+            // Add the discounted price to subtotal
+            $subtotal += $final_monthly_fee;
         }
     }
     
@@ -1925,7 +2036,7 @@ function monthly_fee_summary_shortcode() {
         }
     }
     
-    // Calculate tax
+    // Calculate tax using the same method as original
     $tax_total = 0;
     if (wc_tax_enabled()) {
         $tax_rates = WC_Tax::get_rates();
@@ -1935,7 +2046,7 @@ function monthly_fee_summary_shortcode() {
         }
     }
     
-    // Add subtotal, tax and total rows
+    // Add subtotal, tax and total rows with original class names
     $output .= '<tr class="subtotal-row"><td colspan="2">Subtotal</td><td>' . wc_price($subtotal) . '</td></tr>';
     $output .= '<tr class="tax-row"><td colspan="2">Tax</td><td>' . wc_price($tax_total) . '</td></tr>';
     $output .= '<tr class="total-row"><td colspan="2">Total Monthly</td><td>' . wc_price($subtotal + $tax_total) . '</td></tr>';
@@ -2187,6 +2298,7 @@ add_shortcode('edit_order_popup', 'edit_order_popup_shortcode');
 /**
  * Monthly Fee Total Shortcode
  * Displays only the total monthly fee amount (same as monthly_fee_summary_shortcode total)
+ * Now includes promotional pricing discounts
  */
 function monthly_fee_total_shortcode($atts) {
     global $post;
@@ -2231,7 +2343,22 @@ function monthly_fee_total_shortcode($atts) {
                         }
                         $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
                     }
-                    $subtotal += $monthly_fee;
+                    
+                    // Get promotional pricing discount
+                    $monthly_promo_fee = 0;
+                    if (function_exists('get_field')) {
+                        $monthly_promo_fee = get_field('monthly_promo_fee', $current_product_id);
+                        if (empty($monthly_promo_fee) && $monthly_promo_fee !== '0') {
+                            $monthly_promo_fee = get_field('monthly_promo_fee', 'product_' . $current_product_id);
+                        }
+                        $monthly_promo_fee = is_numeric($monthly_promo_fee) ? floatval($monthly_promo_fee) : 0;
+                    }
+                    
+                    // Calculate final fee (original fee minus promo discount)
+                    $final_monthly_fee = $monthly_fee - $monthly_promo_fee;
+                    $final_monthly_fee = max(0, $final_monthly_fee); // Ensure it doesn't go below 0
+                    
+                    $subtotal += $final_monthly_fee;
                 }
             }
         }
@@ -2268,10 +2395,24 @@ function monthly_fee_total_shortcode($atts) {
             $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
         }
         
-        $subtotal += $monthly_fee * $cart_item['quantity'];
+        // Get promotional pricing discount for this product
+        $monthly_promo_fee = 0;
+        if (function_exists('get_field')) {
+            $monthly_promo_fee = get_field('monthly_promo_fee', $product_id);
+            if (empty($monthly_promo_fee) && $monthly_promo_fee !== '0') {
+                $monthly_promo_fee = get_field('monthly_promo_fee', 'product_' . $product_id);
+            }
+            $monthly_promo_fee = is_numeric($monthly_promo_fee) ? floatval($monthly_promo_fee) : 0;
+        }
+        
+        // Calculate final fee (original fee minus promo discount)
+        $final_monthly_fee = $monthly_fee - $monthly_promo_fee;
+        $final_monthly_fee = max(0, $final_monthly_fee); // Ensure it doesn't go below 0
+        
+        $subtotal += $final_monthly_fee * $cart_item['quantity'];
     }
     
-    // Calculate tax on monthly fees
+    // Calculate tax on monthly fees (using discounted subtotal)
     $tax_total = 0;
     if (wc_tax_enabled()) {
         $tax_rates = WC_Tax::get_rates();
