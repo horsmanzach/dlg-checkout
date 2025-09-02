@@ -26,25 +26,44 @@ jQuery(document).ready(function ($) {
         // Check if Moneris form exists and checkbox hasn't been added yet
         if ($('#moneris-payment-form').length > 0 && $('#same-cc-info-checkbox').length === 0) {
 
-            // Find the postal code field in the Moneris form
-            const postalCodeField = $('#moneris_postal_code').closest('.moneris-form-row');
+            // Find the message container (first element in the form) to insert checkbox before all form fields
+            const messageContainer = $('#moneris-payment-form .moneris-message-container');
 
-            if (postalCodeField.length > 0) {
-                // Add the checkbox after the postal code field
+            if (messageContainer.length > 0) {
+                // Add the checkbox right after the message container (before all form fields)
                 const checkboxHTML = `
                     <div class="moneris-form-row same-cc-checkbox-row">
-                        <label class="same-cc-checkbox-label" for="same-cc-info-checkbox">
-                            <input type="checkbox" id="same-cc-info-checkbox" class="same-cc-checkbox" disabled>
-                            Copy Monthly Billing Credit Card Info
-                        </label>
-                        <small class="same-cc-help-text">
-                            Complete monthly billing credit card validation first to enable this option
-                        </small>
+                        <input type="checkbox" id="same-cc-info-checkbox" class="same-cc-checkbox" disabled>
+                        <div class="same-cc-text-content">
+                            <div class="same-cc-checkbox-title">Copy Monthly Billing Credit Card Info</div>
+                            <small class="same-cc-help-text">
+                                Complete monthly billing credit card validation first to enable this option
+                            </small>
+                        </div>
                     </div>
                 `;
 
-                postalCodeField.after(checkboxHTML);
-                console.log('Same Credit Card Info checkbox added to Moneris form');
+                messageContainer.after(checkboxHTML);
+                console.log('Same Credit Card Info checkbox added to top of Moneris form');
+            } else {
+                // Fallback: if message container not found, add at the beginning of the form
+                const monerisForm = $('#moneris-payment-form');
+                if (monerisForm.length > 0) {
+                    const checkboxHTML = `
+                        <div class="moneris-form-row same-cc-checkbox-row">
+                            <input type="checkbox" id="same-cc-info-checkbox" class="same-cc-checkbox" disabled>
+                            <div class="same-cc-text-content">
+                                <div class="same-cc-checkbox-title">Copy Monthly Billing Credit Card Info</div>
+                                <small class="same-cc-help-text">
+                                    Complete monthly billing credit card validation first to enable this option
+                                </small>
+                            </div>
+                        </div>
+                    `;
+
+                    monerisForm.prepend(checkboxHTML);
+                    console.log('Same Credit Card Info checkbox added to top of Moneris form (fallback)');
+                }
             }
         }
     }
@@ -77,6 +96,17 @@ jQuery(document).ready(function ($) {
             }
         });
 
+        // Make the entire checkbox row clickable
+        $(document).on('click', '.same-cc-checkbox-row', function (e) {
+            // Don't trigger if clicking directly on the checkbox (avoid double toggle)
+            if (!$(e.target).is('#same-cc-info-checkbox')) {
+                const checkbox = $('#same-cc-info-checkbox');
+                if (!checkbox.prop('disabled')) {
+                    checkbox.prop('checked', !checkbox.prop('checked')).trigger('change');
+                }
+            }
+        });
+
         // Monitor for successful monthly billing validation messages
         const observer = new MutationObserver(function (mutations) {
             mutations.forEach(function (mutation) {
@@ -93,44 +123,39 @@ jQuery(document).ready(function ($) {
             });
         });
 
-        // Start observing validation message container
-        const validationContainer = document.querySelector('.cc-validation-message');
-        if (validationContainer) {
-            observer.observe(validationContainer.parentNode, {
-                childList: true,
-                subtree: true
-            });
-        }
+        // Start observing the document for changes
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
     }
 
     function updateCheckboxState() {
         const checkbox = $('#same-cc-info-checkbox');
         const helpText = $('.same-cc-help-text');
+        const checkboxRow = $('.same-cc-checkbox-row');
 
         if (checkbox.length === 0) return;
 
-        // Check if credit card option is selected in monthly billing
-        const isCCSelected = $('input[name="monthly_payment_method"][value="cc"]').is(':checked');
-
-        if (!isCCSelected) {
+        // Check if monthly payment method is set to credit card
+        const monthlyPaymentMethod = $('input[name="monthly_payment_method"]:checked').val();
+        if (monthlyPaymentMethod !== 'cc') {
             checkbox.prop('disabled', true).prop('checked', false).removeClass('enabled');
-            helpText.text('Must validate monthly billing credit card first');
+            checkboxRow.removeClass('success').addClass('disabled');
+            helpText.text('Select credit card for monthly billing to enable this option');
             return;
         }
 
-        // Check if all monthly billing CC fields are filled
-        const monthlyFields = {
-            name: $('#cc_cardholder_name').val()?.trim(),
-            number: $('#cc_card_number').val()?.trim(),
-            expiry: $('#cc_expiry').val()?.trim(),
-            cvv: $('#cc_cvv').val()?.trim(),
-            postal: $('#cc_postal_code').val()?.trim()
-        };
-
-        const allFieldsFilled = Object.values(monthlyFields).every(value => value && value.length > 0);
+        // Check if all monthly billing fields are filled
+        const requiredFields = ['#cc_cardholder_name', '#cc_card_number', '#cc_expiry', '#cc_cvv', '#cc_postal_code'];
+        const allFieldsFilled = requiredFields.every(selector => {
+            const value = $(selector).val();
+            return value && value.trim().length > 0;
+        });
 
         if (!allFieldsFilled) {
             checkbox.prop('disabled', true).prop('checked', false).removeClass('enabled');
+            checkboxRow.removeClass('success').removeClass('disabled');
             helpText.text('Complete all monthly billing credit card fields first');
             return;
         }
@@ -144,12 +169,14 @@ jQuery(document).ready(function ($) {
 
         if (hasErrors && !hasSuccessMessage) {
             checkbox.prop('disabled', true).prop('checked', false).removeClass('enabled');
+            checkboxRow.removeClass('success').removeClass('disabled');
             helpText.text('Fix validation errors in monthly billing first');
             return;
         }
 
         // If we get here, enable the checkbox
         checkbox.prop('disabled', false).addClass('enabled');
+        checkboxRow.removeClass('disabled').addClass('success');
         helpText.text('Check to copy validated credit card info to upfront payment');
 
         console.log('Same CC checkbox enabled - monthly billing validated');
@@ -185,7 +212,7 @@ jQuery(document).ready(function ($) {
             '#moneris_cardholder_name': monthlyData.name,
             '#moneris_card_number': monthlyData.number,
             '#moneris_expiry_date': monthlyData.expiry,
-            '#moneris_cvv': monthlyData.cvv,  // FIXED: Changed from #moneris_cvd to #moneris_cvv
+            '#moneris_cvv': monthlyData.cvv,
             '#moneris_postal_code': monthlyData.postal
         };
 
@@ -195,14 +222,14 @@ jQuery(document).ready(function ($) {
             if (field.length > 0) {
                 // Clear field first, then set value
                 field.val('').val(value).trigger('change').trigger('input');
-                console.log(`Copied to ${selector}: ${selector.includes('cvd') ? '***' : value} (Field found: ${field.length > 0})`);
+                console.log(`Copied to ${selector}: ${selector.includes('cvv') ? '***' : value} (Field found: ${field.length > 0})`);
 
                 // Special handling for CVV field - try alternative selectors if main one doesn't work
-                if (selector === '#moneris_cvd' && field.val() !== value) {
+                if (selector === '#moneris_cvv' && field.val() !== value) {
                     console.warn('CVV field may not accept programmatic input. Field value after setting:', field.val());
 
                     // Try alternative CVV field names
-                    const alternativeSelectors = ['#moneris_cvv', '#cvv', '#card_cvv', '[name*="cvv"]', '[name*="cvd"]'];
+                    const alternativeSelectors = ['#cvv', '#card_cvv', '[name*="cvv"]', '[name*="cvd"]'];
                     alternativeSelectors.forEach(altSelector => {
                         const altField = $(altSelector);
                         if (altField.length > 0) {
@@ -215,7 +242,7 @@ jQuery(document).ready(function ($) {
                 console.warn(`Field not found: ${selector}`);
 
                 // For missing fields, log what fields are actually available
-                if (selector === '#moneris_cvd') {
+                if (selector === '#moneris_cvv') {
                     console.log('Available fields containing "cvv" or "cvd":',
                         $('input[id*="cvv"], input[name*="cvv"], input[id*="cvd"], input[name*="cvd"]').map(function () {
                             return '#' + this.id + ' (name: ' + this.name + ')';
