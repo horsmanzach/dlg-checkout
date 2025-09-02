@@ -689,7 +689,7 @@ function moneris_payment_form_shortcode($atts) {
     <div class="moneris-payment-container">
         <?php if ($atts['show_amount'] === 'true' && $total_amount > 0): ?>
             <div class="moneris-payment-amount">
-                <h3>Payment Amount: <?php echo $total_display; ?></h3>
+                <h3>Amount Due Today: <?php echo $total_display; ?></h3>
             </div>
         <?php endif; ?>
         
@@ -1945,6 +1945,241 @@ function monthly_fee_summary_shortcode() {
     return $output;
 }
 add_shortcode('monthly_fee_summary', 'monthly_fee_summary_shortcode');
+
+
+
+/*========Edit Order Popup Table Shortcode========*/
+
+function edit_order_popup_shortcode() {
+    // Get cart items
+    $cart = WC()->cart;
+    
+    // If cart is empty, return empty table
+    if ($cart->is_empty()) {
+        return '<table class="edit-order-table"><thead><tr><th>Product</th><th>Category</th><th>Edit</th></tr></thead><tbody><tr><td colspan="3">No products in cart</td></tr></tbody></table>';
+    }
+    
+    // Categories to exclude (Pay After Deposit only)
+    $deposit_category_id = get_term_by('slug', 'deposit', 'product_cat');
+    $deposit_category_id = $deposit_category_id ? $deposit_category_id->term_id : null;
+    $installation_category_id = 63; // Installation category ID
+    $installation_parent_product_id = 265084; // Installation parent product ID
+    $pay_after_deposit_id = 265827; // Pay After deposit product ID
+    
+    // Get current internet plan URL slug
+    $internet_plan_slug = '';
+    $internet_plan_category_id = 19; // Internet plan category ID
+    
+    // Find the internet plan in cart to get its URL slug
+    foreach ($cart->get_cart() as $cart_item) {
+        $product_id = $cart_item['product_id'];
+        $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'ids'));
+        
+        if (in_array($internet_plan_category_id, $product_cats)) {
+            $internet_plan_product = wc_get_product($product_id);
+            if ($internet_plan_product) {
+                $internet_plan_url = get_permalink($product_id);
+                // Extract slug from URL
+                $internet_plan_slug = basename(parse_url($internet_plan_url, PHP_URL_PATH));
+            }
+            break;
+        }
+    }
+    
+    // Category slug to slide mapping
+    $category_slides = array(
+        'installation' => 'screen1',
+        'modems-new' => 'screen2', 
+        'tv-plan' => 'screen3',
+        'phone-plan' => 'screen4'
+    );
+    
+    // Define display order for products
+    $category_order = array(
+        'internet-plan' => 1,
+        'installation' => 2,
+        'modems-new' => 3,
+        'tv-plan' => 4,
+        'phone-plan' => 5
+    );
+    
+    // Collect and organize cart items by category
+    $organized_items = array();
+    
+    // Loop through cart items and organize by category
+    foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
+        $product = $cart_item['data'];
+        $product_id = $product->get_id();
+        $parent_id = $product->get_parent_id();
+        
+        // Get product categories
+        $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'ids'));
+        
+        // Skip Pay After deposit product
+        if ($product_id == $pay_after_deposit_id) {
+            continue;
+        }
+        
+        // Skip deposit category products (but NOT installation products)
+        if ($deposit_category_id && in_array($deposit_category_id, $product_cats)) {
+            continue;
+        }
+        
+        $product_name = $product->get_name();
+        
+        // Get product category name and slug
+        $category_name = '';
+        $category_slug = '';
+        
+        // For installation products (variations), get category from parent product
+        if ($is_installation && $parent_id) {
+            $terms = get_the_terms($parent_id, 'product_cat');
+        } else {
+            $terms = get_the_terms($product_id, 'product_cat');
+        }
+        
+        if (!empty($terms) && !is_wp_error($terms)) {
+            $category_name = $terms[0]->name;
+            $category_slug = $terms[0]->slug;
+        }
+        
+        // Debug logging - remove this after testing
+        error_log("Product ID: $product_id, Parent ID: $parent_id, Is Installation: " . ($is_installation ? 'YES' : 'NO') . ", Category Slug: $category_slug, Category Name: $category_name");
+        
+        // Get ACF monthly fee field
+        $monthly_fee = 0;
+        if (function_exists('get_field')) {
+            $monthly_fee = get_field('monthly_fee', $product_id);
+            
+            if (empty($monthly_fee) && $monthly_fee !== '0') {
+                $monthly_fee = get_field('monthlyfee', 'product' . $product_id);
+            }
+            
+            $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
+        }
+        
+        // Get installation product attributes (using same method as upfront_fee_summary_shortcode)
+        $product_attributes = '';
+        $is_installation = in_array($installation_category_id, $product_cats) || $parent_id == $installation_parent_product_id;
+        
+        if ($is_installation) {
+            // Check for variation attributes from cart item (same as upfront_fee_summary_shortcode)
+            $installation_dates = array();
+            if (isset($cart_item['variation']) && is_array($cart_item['variation'])) {
+                $installation_dates = array(
+                    'preferred-date' => isset($cart_item['variation']['attribute_preferred-date']) ? 
+                        $cart_item['variation']['attribute_preferred-date'] : '',
+                    'secondary-date' => isset($cart_item['variation']['attribute_secondary-date']) ? 
+                        $cart_item['variation']['attribute_secondary-date'] : ''
+                );
+            }
+            
+            // Format attributes display
+            if (!empty($installation_dates['preferred-date']) && !empty($installation_dates['secondary-date'])) {
+                $product_attributes = '<br><small style="color: #666;">' . 
+                    esc_html($installation_dates['preferred-date'] . ', ' . $installation_dates['secondary-date']) . 
+                    '</small>';
+            } elseif (!empty($installation_dates['preferred-date'])) {
+                $product_attributes = '<br><small style="color: #666;">' . 
+                    esc_html($installation_dates['preferred-date']) . 
+                    '</small>';
+            }
+        }
+        
+        // Store item data for later sorting and display
+        $item_data = array(
+            'product_id' => $product_id,
+            'product_name' => $product_name,
+            'category_name' => $category_name,
+            'category_slug' => $category_slug,
+            'monthly_fee' => $monthly_fee,
+            'product_cats' => $product_cats,
+            'cart_item_key' => $cart_item_key,
+            'product_attributes' => $product_attributes,
+            'is_installation' => $is_installation,
+            'parent_id' => $parent_id,
+            'order' => $is_installation ? 2 : (isset($category_order[$category_slug]) ? $category_order[$category_slug] : 999)
+        );
+        
+        $organized_items[] = $item_data;
+    }
+    
+    // Sort items by category order
+    usort($organized_items, function($a, $b) {
+        return $a['order'] - $b['order'];
+    });
+    
+    $output = '<table class="edit-order-table">';
+    $output .= '<thead><tr><th>Product</th><th>Category</th><th>Edit Product</th></tr></thead>';
+    $output .= '<tbody>';
+    
+    $has_items = false;
+    
+    // Display sorted items
+    foreach ($organized_items as $item) {
+        // Generate edit button URL
+        $edit_url = '';
+        $edit_button = '';
+        
+        // Initialize warning message variable
+        $internet_plan_warning = '';
+        
+        // Check if this is an internet plan
+        if (in_array($internet_plan_category_id, $item['product_cats'])) {
+            // Internet plan always goes to the main internet selection page
+            $edit_url = 'https://diallog.magnaprototype.com/residential/internet/';
+            $edit_button = '<a href="' . esc_url($edit_url) . '" class="edit-product-btn btn-primary">Edit</a>';
+            
+            // Add warning message for internet plans
+            $internet_plan_warning = '<br><div class="internet-plan-warning" style="display: flex; align-items: center; margin-top: 5px; color: #e74c3c; font-size: 12px;">' .
+                '<i class="fa fa-exclamation-triangle" style="margin-right: 5px; font-size: 14px;" aria-hidden="true"></i>' .
+                '<span>Changing internet plans will clear all previous selections</span>' .
+                '</div>';
+        } 
+        // Check if this is an installation product (by category or parent ID)
+        elseif ($item['is_installation']) {
+            if (!empty($internet_plan_slug)) {
+                $edit_url = 'https://diallog.magnaprototype.com/product/' . $internet_plan_slug . '/#screen1';
+                $edit_button = '<a href="' . esc_url($edit_url) . '" class="edit-product-btn btn-primary">Edit</a>';
+            } else {
+                $edit_button = '<span class="edit-product-btn btn-disabled">Edit</span>';
+            }
+        }
+        // For other categories, use the internet plan's product page with anchor
+        elseif (!empty($internet_plan_slug) && isset($category_slides[$item['category_slug']])) {
+            $slide_anchor = $category_slides[$item['category_slug']];
+            $edit_url = 'https://diallog.magnaprototype.com/product/' . $internet_plan_slug . '/#' . $slide_anchor;
+            $edit_button = '<a href="' . esc_url($edit_url) . '" class="edit-product-btn btn-primary">Edit</a>';
+        } 
+        // Fallback for other products - just go to internet plan page
+        elseif (!empty($internet_plan_slug)) {
+            $edit_url = 'https://diallog.magnaprototype.com/product/' . $internet_plan_slug . '/';
+            $edit_button = '<a href="' . esc_url($edit_url) . '" class="edit-product-btn btn-secondary">Edit</a>';
+        }
+        // If no internet plan found, disable the button
+        else {
+            $edit_button = '<span class="edit-product-btn btn-disabled">Edit</span>';
+        }
+        
+        $output .= '<tr class="edit-order-row" data-product-id="' . esc_attr($item['product_id']) . '" data-category="' . esc_attr($item['category_slug']) . '">';
+        $output .= '<td class="product-name">' . esc_html($item['product_name']) . $item['product_attributes'] . $internet_plan_warning . '</td>';
+        $output .= '<td class="product-category">' . esc_html($item['category_name']) . '</td>';
+        $output .= '<td class="product-edit">' . $edit_button . '</td>';
+        $output .= '</tr>';
+        
+        $has_items = true;
+    }
+    
+    // If no valid items found
+    if (!$has_items) {
+        $output .= '<tr><td colspan="3">No editable products in cart</td></tr>';
+    }
+    
+    $output .= '</tbody></table>';
+    
+    return $output;
+}
+add_shortcode('edit_order_popup', 'edit_order_popup_shortcode');
 
 
 /*========Add Total Monthly Cost Shortcode=======*/
