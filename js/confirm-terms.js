@@ -1,140 +1,358 @@
 /**
- * Terms & Conditions Confirmation Handler
+ * Terms & Conditions Confirmation Handler - PERFORMANCE OPTIMIZED
  * File: js/confirm-terms.js
  * 
  * This script handles the terms and conditions confirmation flow and integrates
  * with the Moneris payment button to ensure users confirm T&C before payment.
  */
 
-jQuery(document).ready(function($) {
-    
-    // State variable to track if terms are confirmed
+jQuery(document).ready(function ($) {
+
+    // State variables to track validation status
     let termsConfirmed = false;
-    
+    let monthlyBillingValidated = false;
+    let lastButtonState = null; // Track last button state to prevent unnecessary updates
+
     // Initialize the enhanced terms and conditions functionality
     initializeTermsAndConditions();
     initializePopupFunctionality();
-    
+    setupMonthlyBillingEventListeners();
+
     /**
      * Initialize Terms and Conditions confirmation system
      */
     function initializeTermsAndConditions() {
         console.log('Initializing Terms & Conditions confirmation system...');
-        
-        // Set initial state of Moneris button to disabled
-        disableMonerisButton();
-        
-        // Monitor for dynamically loaded Moneris buttons
-        monitorForMonerisButton();
-        
+
         // Check if terms were previously confirmed in this session
         restoreTermsState();
-        
+
+        // Monitor for dynamically loaded Moneris buttons (ONE TIME SETUP)
+        setupMonerisButtonMonitoring();
+
+        // Initial check on page load (ONE TIME)
+        setTimeout(function () {
+            checkMonthlyBillingValidation();
+            updateButtonState();
+        }, 1000);
+
         console.log('Terms & Conditions system initialized');
     }
-    
+
     /**
-     * Initialize popup functionality (enhanced version of your original script)
+     * Initialize popup functionality
      */
     function initializePopupFunctionality() {
         console.log('Initializing popup functionality...');
-        
-        // Wrap popup content (your existing functionality)
-        $('.dl-popup-content').each(function(){
+
+        // Wrap popup content
+        $('.dl-popup-content').each(function () {
             $(this).wrap('<div class="dl-popup-wrapper"><div class="dl-popup-inside">');
         });
-        
-        // Handle popup triggers (your existing functionality)
-        $('.dl-popup-trigger, .dl-menu-popup > a').off().click(function(e){
+
+        // Handle popup triggers
+        $('.dl-popup-trigger, .dl-menu-popup > a').off().click(function (e) {
             e.preventDefault();
             var SectionID = $(this).attr('href');
             $(SectionID).closest('.dl-popup-wrapper').addClass('popup-is-visible');
             $(SectionID).closest('.et_builder_inner_content').addClass('popup-is-visible');
             $('body').addClass('dl-noscroll');
-        });	
-        
-        // Handle standard popup close (your existing functionality)
-        $('.dl-popup-close').click(function(e){
+        });
+
+        // Handle standard popup close
+        $('.dl-popup-close').click(function (e) {
             e.preventDefault();
             closePopup($(this));
         });
-        
+
         console.log('Popup functionality initialized');
     }
-    
+
     /**
      * Setup the confirm terms button handler
      */
-    $(document).on('click', '.confirm-terms', function(e){
+    $(document).on('click', '.confirm-terms', function (e) {
         e.preventDefault();
-        
         console.log('Terms confirmation button clicked');
-        
-        // Close the popup
+
         closePopup($(this));
-        
-        // Mark terms as confirmed and update UI
         confirmTermsAndConditions();
-        
-        // Prevent event bubbling
+
         e.stopPropagation();
         return false;
     });
-    
+
+    /**
+     * Check monthly billing validation state
+     */
+    function checkMonthlyBillingValidation() {
+        const ccValidated = $('.validate-card-btn').hasClass('confirmed');
+        const bankValidated = $('.validate-bank-btn').hasClass('confirmed');
+        const payAfterValidated = $('.confirm-payafter-btn').hasClass('confirmed');
+
+        monthlyBillingValidated = ccValidated || bankValidated || payAfterValidated;
+
+        console.log('Monthly billing validation check:', {
+            cc: ccValidated,
+            bank: bankValidated,
+            payAfter: payAfterValidated,
+            overall: monthlyBillingValidated
+        });
+
+        return monthlyBillingValidated;
+    }
+
+    /**
+     * PERFORMANCE OPTIMIZED: Update button state only when necessary
+     */
+    function updateButtonState() {
+        const termsOk = termsConfirmed;
+        const monthlyBillingOk = checkMonthlyBillingValidation();
+        const bothValid = termsOk && monthlyBillingOk;
+
+        // Create state signature to avoid unnecessary DOM updates
+        const currentState = `${termsOk}-${monthlyBillingOk}-${bothValid}`;
+
+        // PERFORMANCE FIX: Only update DOM if state actually changed
+        if (lastButtonState === currentState) {
+            console.log('Button state unchanged, skipping DOM update');
+            return;
+        }
+
+        console.log('Button state changed from', lastButtonState, 'to', currentState);
+        lastButtonState = currentState;
+
+        const $monerisBtn = $('#moneris-complete-payment-btn');
+        if ($monerisBtn.length === 0) {
+            console.log('Moneris button not found');
+            return;
+        }
+
+        if (bothValid) {
+            enableMonerisButton($monerisBtn);
+        } else {
+            disableMonerisButton($monerisBtn, termsOk, monthlyBillingOk);
+        }
+    }
+
+    /**
+     * Enable the Moneris payment button (OPTIMIZED - only updates when needed)
+     */
+    function enableMonerisButton($monerisBtn) {
+        console.log('Enabling Moneris payment button - both validations passed');
+
+        $monerisBtn
+            .prop('disabled', false)
+            .removeClass('terms-not-confirmed')
+            .css({
+                'opacity': '1',
+                'cursor': 'pointer',
+                'pointer-events': 'auto',
+                'transition': 'opacity 0.3s ease'
+            });
+
+        // PERFORMANCE FIX: Remove messages without recreating
+        const $container = $monerisBtn.closest('.moneris-complete-payment-container');
+        $container.find('.validation-requirement-message').remove();
+
+        // Show brief success message only once
+        if (!$container.find('.payment-enabled-message').length) {
+            $container.append(
+                '<div class="payment-enabled-message" style="color: #28a745; font-size: 14px; margin-top: 10px; text-align: center; opacity: 0;">' +
+                '✓ Payment button enabled' +
+                '</div>'
+            );
+            $('.payment-enabled-message').animate({ opacity: 1 }, 500).delay(3000).animate({ opacity: 0 }, 500, function () {
+                $(this).remove(); // Clean up after animation
+            });
+        }
+    }
+
+    /**
+     * Disable the Moneris payment button (OPTIMIZED - only updates when needed)
+     */
+    function disableMonerisButton($monerisBtn, termsOk, monthlyBillingOk) {
+        console.log('Disabling Moneris payment button - requirements not met');
+
+        $monerisBtn
+            .prop('disabled', true)
+            .addClass('terms-not-confirmed')
+            .css({
+                'opacity': '0.6',
+                'cursor': 'not-allowed',
+                'pointer-events': 'none'
+            });
+
+        const $container = $monerisBtn.closest('.moneris-complete-payment-container');
+
+        // PERFORMANCE FIX: Only update message if it doesn't exist or content changed
+        let $existingMessage = $container.find('.validation-requirement-message');
+
+        let messages = [];
+        if (!monthlyBillingOk) {
+            messages.push('✗ Select and validate a monthly billing method (Credit Card, Bank Account, or Pay After)');
+        } else {
+            messages.push('✓ Monthly billing method validated');
+        }
+
+        if (!termsOk) {
+            messages.push('✗ Confirm Terms & Conditions');
+        } else {
+            messages.push('✓ Terms & Conditions confirmed');
+        }
+
+        const newMessageContent = messages.join('');
+
+        // Only update if message doesn't exist or content is different
+        if ($existingMessage.length === 0 || $existingMessage.data('content') !== newMessageContent) {
+            $existingMessage.remove(); // Remove old message
+
+            const messageHtml = '<div class="validation-requirement-message" data-content="' +
+                newMessageContent + '" style="color: #dc3545; font-size: 14px; margin-top: 10px; text-align: center;">' +
+                '<div style="margin-bottom: 5px;"><strong>Payment Requirements:</strong></div>' +
+                messages.map(msg => '<div style="margin: 3px 0;">' + msg + '</div>').join('') +
+                '</div>';
+
+            $container.append(messageHtml);
+        }
+    }
+
+    /**
+     * Event-driven monthly billing monitoring (NO POLLING)
+     */
+    function setupMonthlyBillingEventListeners() {
+        console.log('Setting up monthly billing event listeners...');
+
+        // Listen for clicks on validation buttons
+        $(document).on('click', '.validate-card-btn, .validate-bank-btn, .confirm-payafter-btn', function () {
+            const $button = $(this);
+            console.log('Monthly billing button clicked:', $button.attr('class'));
+
+            // Check validation state after a short delay
+            setTimeout(function () {
+                const previousState = monthlyBillingValidated;
+                const currentState = checkMonthlyBillingValidation();
+
+                if (previousState !== currentState) {
+                    console.log('Monthly billing validation state changed:', currentState);
+                    updateButtonState(); // This now prevents unnecessary DOM updates
+                }
+            }, 500);
+        });
+
+        // Monitor class changes on validation buttons
+        const observer = new MutationObserver(function (mutations) {
+            let shouldUpdate = false;
+
+            mutations.forEach(function (mutation) {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+                    const $target = $(mutation.target);
+                    if ($target.hasClass('validate-card-btn') ||
+                        $target.hasClass('validate-bank-btn') ||
+                        $target.hasClass('confirm-payafter-btn')) {
+                        shouldUpdate = true;
+                    }
+                }
+            });
+
+            if (shouldUpdate) {
+                console.log('Monthly billing button class changed');
+                setTimeout(function () {
+                    const previousState = monthlyBillingValidated;
+                    const currentState = checkMonthlyBillingValidation();
+
+                    if (previousState !== currentState) {
+                        console.log('Monthly billing validation state changed via mutation:', currentState);
+                        updateButtonState();
+                    }
+                }, 100);
+            }
+        });
+
+        observer.observe(document.body, {
+            attributes: true,
+            attributeFilter: ['class'],
+            subtree: true
+        });
+
+        console.log('Monthly billing event listeners configured');
+    }
+
+    /**
+     * PERFORMANCE OPTIMIZED: Setup Moneris button monitoring (NO CONTINUOUS POLLING)
+     */
+    function setupMonerisButtonMonitoring() {
+        // ONE-TIME mutation observer for new Moneris buttons
+        const buttonObserver = new MutationObserver(function (mutations) {
+            let foundNewButton = false;
+
+            mutations.forEach(function (mutation) {
+                if (mutation.type === 'childList') {
+                    const $newMonerisBtn = $(mutation.target).find('#moneris-complete-payment-btn');
+                    if ($newMonerisBtn.length > 0) {
+                        foundNewButton = true;
+                    }
+                }
+            });
+
+            if (foundNewButton) {
+                console.log('New Moneris button detected');
+                setTimeout(function () {
+                    updateButtonState(); // Check state once for new button
+                }, 100);
+            }
+        });
+
+        buttonObserver.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+    }
+
     /**
      * Enhanced popup close function
      */
     function closePopup($trigger) {
         $('.popup-is-visible').removeClass('popup-is-visible');
         $('body').removeClass('dl-noscroll');
-        
-        // Handle video pause (your existing functionality)
+
         var PopupVideoIframe = $trigger.closest('.dl-popup-content').find('.et_pb_video_box iframe');
         var PopupVideoSrc = PopupVideoIframe.attr("src");
         if (PopupVideoSrc) {
             PopupVideoIframe.attr("src", PopupVideoSrc);
         }
-        
+
         var PopupVideoHTML = $trigger.closest('.dl-popup-content').find('.et_pb_video_box video');
         if (PopupVideoHTML.length) {
             PopupVideoHTML.trigger('pause');
         }
     }
-    
+
     /**
      * Handle terms and conditions confirmation
      */
     function confirmTermsAndConditions() {
         console.log('Processing terms confirmation...');
-        
-        // Mark terms as confirmed
+
         termsConfirmed = true;
-        
-        // Update the tc-button appearance
         styleConfirmedTcButton();
-        
-        // Enable the Moneris payment button
-        enableMonerisButton();
-        
-        // Store confirmation state
+        updateButtonState(); // Use optimized update function
+
         sessionStorage.setItem('termsConfirmed', 'true');
-        
-        // Fire events for other scripts
         $(document).trigger('termsConfirmed');
-        
+
         console.log('Terms confirmed successfully');
     }
-    
+
     /**
      * Style the tc-button to show it's been confirmed
      */
     function styleConfirmedTcButton() {
         const $tcButton = $('.tc-button');
-        
-        if ($tcButton.length > 0) {
+
+        if ($tcButton.length > 0 && !$tcButton.hasClass('terms-confirmed')) {
             console.log('Styling tc-button as confirmed');
-            
-            // Add confirmed styling with animation
+
             $tcButton
                 .addClass('terms-confirmed')
                 .css({
@@ -143,242 +361,81 @@ jQuery(document).ready(function($) {
                     'border-color': '#28a745',
                     'transition': 'all 0.3s ease'
                 });
-            
-            // Add checkmark if it doesn't exist
+
             if (!$tcButton.find('.terms-checkmark').length) {
                 $tcButton.prepend('<span class="terms-checkmark">✓ </span>');
             }
-            
-            // Update button text
+
             const originalText = $tcButton.text().replace('✓ ', '');
             if (!originalText.includes('Confirmed')) {
                 $tcButton.html('<span class="terms-checkmark">✓ </span>' + originalText + ' (Confirmed)');
             }
-            
-            // Add a subtle animation
+
             $tcButton.fadeOut(200).fadeIn(400);
         }
     }
-    
-    /**
-     * Disable the Moneris payment button and add visual indication
-     */
-    function disableMonerisButton() {
-        const $monerisBtn = $('#moneris-complete-payment-btn');
-        
-        if ($monerisBtn.length > 0) {
-            console.log('Disabling Moneris payment button - terms not confirmed');
-            
-            $monerisBtn
-                .prop('disabled', true)
-                .addClass('terms-not-confirmed')
-                .css({
-                    'opacity': '0.6',
-                    'cursor': 'not-allowed',
-                    'pointer-events': 'none'
-                });
-            
-            // Add message if it doesn't exist
-            const $container = $monerisBtn.closest('.moneris-complete-payment-container');
-            if ($container.length > 0 && !$container.find('.terms-requirement-message').length) {
-                $container.append(
-                    '<div class="terms-requirement-message" style="color: #dc3545; font-size: 14px; margin-top: 10px; text-align: center;">' +
-                    '<i>Please confirm Terms & Conditions to enable payment</i>' +
-                    '</div>'
-                );
-            }
-        }
-    }
-    
-    /**
-     * Enable the Moneris payment button
-     */
-    function enableMonerisButton() {
-        const $monerisBtn = $('#moneris-complete-payment-btn');
-        
-        if ($monerisBtn.length > 0) {
-            console.log('Enabling Moneris payment button - terms confirmed');
-            
-            // Remove disabled state
-            $monerisBtn
-                .prop('disabled', false)
-                .removeClass('terms-not-confirmed')
-                .css({
-                    'opacity': '1',
-                    'cursor': 'pointer',
-                    'pointer-events': 'auto',
-                    'transition': 'opacity 0.3s ease'
-                });
-            
-            // Update or remove requirement message
-            const $message = $('.terms-requirement-message');
-            if ($message.length > 0) {
-                $message
-                    .css('color', '#28a745')
-                    .html('<i>✓ Terms & Conditions confirmed</i>')
-                    .fadeOut(4000);
-            }
-            
-            // Show success message briefly
-            const $container = $monerisBtn.closest('.moneris-complete-payment-container');
-            if ($container.length > 0) {
-                if (!$container.find('.payment-enabled-message').length) {
-                    $container.append(
-                        '<div class="payment-enabled-message" style="color: #28a745; font-size: 14px; margin-top: 10px; text-align: center; opacity: 0;">' +
-                        '✓ Payment button enabled' +
-                        '</div>'
-                    );
-                    
-                    $('.payment-enabled-message').animate({opacity: 1}, 500).delay(3000).animate({opacity: 0}, 500);
-                }
-            }
-        }
-        
-        // Also look for buttons that might be added dynamically
-        setTimeout(function() {
-            const $laterButtons = $('#moneris-complete-payment-btn').not('.terms-enabled');
-            if ($laterButtons.length > 0) {
-                $laterButtons.addClass('terms-enabled').prop('disabled', false).css({
-                    'opacity': '1',
-                    'cursor': 'pointer',
-                    'pointer-events': 'auto'
-                });
-            }
-        }, 1000);
-    }
-    
+
     /**
      * Restore terms confirmation state from session storage
      */
     function restoreTermsState() {
-        // Check if terms were previously confirmed
         const wasConfirmed = sessionStorage.getItem('termsConfirmed') === 'true';
-        
+
         if (wasConfirmed) {
             console.log('Restoring previously confirmed terms state');
             termsConfirmed = true;
-            
-            // Restore confirmed state
-            setTimeout(function() {
+
+            setTimeout(function () {
                 const $tcButton = $('.tc-button');
-                if ($tcButton.length > 0 && !$tcButton.hasClass('terms-confirmed')) {
+                if ($tcButton.length > 0) {
                     styleConfirmedTcButton();
                 }
-                
-                enableMonerisButton();
-            }, 500);
-        } else {
-            // Ensure Moneris button is disabled initially
-            setTimeout(function() {
-                const $monerisBtn = $('#moneris-complete-payment-btn');
-                if ($monerisBtn.length > 0 && !$monerisBtn.prop('disabled')) {
-                    disableMonerisButton();
-                }
+                updateButtonState();
             }, 500);
         }
     }
-    
+
     /**
-     * Monitor for dynamically loaded Moneris buttons
+     * Handle clicks on disabled Moneris button
      */
-    function monitorForMonerisButton() {
-        // Use a mutation observer to watch for dynamically added buttons
-        const observer = new MutationObserver(function(mutations) {
-            mutations.forEach(function(mutation) {
-                if (mutation.type === 'childList') {
-                    const $newMonerisBtn = $(mutation.target).find('#moneris-complete-payment-btn');
-                    if ($newMonerisBtn.length > 0) {
-                        console.log('New Moneris button detected');
-                        if (!termsConfirmed) {
-                            setTimeout(function() {
-                                disableMonerisButton();
-                            }, 100);
-                        } else {
-                            setTimeout(function() {
-                                enableMonerisButton();
-                            }, 100);
-                        }
-                    }
-                }
-            });
-        });
-        
-        observer.observe(document.body, {
-            childList: true,
-            subtree: true
-        });
-        
-        // Also check periodically in case mutation observer misses something
-        setInterval(function() {
-            const $monerisBtn = $('#moneris-complete-payment-btn');
-            if ($monerisBtn.length > 0) {
-                const isCurrentlyDisabled = $monerisBtn.prop('disabled');
-                const shouldBeDisabled = !termsConfirmed;
-                
-                if (isCurrentlyDisabled !== shouldBeDisabled) {
-                    if (shouldBeDisabled) {
-                        disableMonerisButton();
-                    } else {
-                        enableMonerisButton();
-                    }
-                }
-            }
-        }, 2000);
-    }
-    
-    /**
-     * Handle clicks on disabled Moneris button to show Terms & Conditions popup
-     */
-    $(document).on('click', '#moneris-complete-payment-btn', function(e) {
+    $(document).on('click', '#moneris-complete-payment-btn', function (e) {
         const $btn = $(this);
-        
-        if ($btn.hasClass('terms-not-confirmed') || ($btn.prop('disabled') && !termsConfirmed)) {
+
+        if ($btn.prop('disabled')) {
             e.preventDefault();
             e.stopPropagation();
-            
-            console.log('Disabled Moneris button clicked - opening Terms & Conditions popup');
-            
-            // Find and trigger the Terms & Conditions popup
-            const $tcButton = $('.tc-button');
-            if ($tcButton.length > 0) {
-                // Get the href from tc-button to open the right popup
-                const popupTarget = $tcButton.attr('href');
-                if (popupTarget) {
-                    $(popupTarget).closest('.dl-popup-wrapper').addClass('popup-is-visible');
-                    $(popupTarget).closest('.et_builder_inner_content').addClass('popup-is-visible');
-                    $('body').addClass('dl-noscroll');
+
+            console.log('Disabled Moneris button clicked');
+
+            // Show what's missing without recreating DOM
+            updateButtonState();
+
+            // Open Terms popup if terms not confirmed
+            if (!termsConfirmed) {
+                const $tcButton = $('.tc-button');
+                if ($tcButton.length > 0) {
+                    const popupTarget = $tcButton.attr('href');
+                    if (popupTarget) {
+                        $(popupTarget).closest('.dl-popup-wrapper').addClass('popup-is-visible');
+                        $(popupTarget).closest('.et_builder_inner_content').addClass('popup-is-visible');
+                        $('body').addClass('dl-noscroll');
+                    }
                 }
             }
-            
-            // Show message in the Moneris validation area
-            const $container = $btn.closest('.moneris-complete-payment-container');
-            let $validationDiv = $container.find('.moneris-payment-validation-message');
-            
-            // If no validation div exists, create one
-            if (!$validationDiv.length) {
-                $validationDiv = $('<div class="moneris-payment-validation-message"></div>');
-                $container.append($validationDiv);
-            }
-            
-            $validationDiv
-                .html('<div style="color: #dc3545; margin-top: 10px; text-align: center; font-size: 14px;">Please read and confirm the Terms & Conditions to continue with payment.</div>')
-                .fadeIn()
-                .delay(5000)
-                .fadeOut();
-            
+
             return false;
         }
     });
-    
+
     /**
-     * Reset terms confirmation (useful for testing or if user navigates back)
+     * Reset terms confirmation
      */
     function resetTermsConfirmation() {
         console.log('Resetting terms confirmation');
-        
+
         termsConfirmed = false;
-        
-        // Reset tc-button styling
+        lastButtonState = null; // Reset state tracking
+
         const $tcButton = $('.tc-button');
         $tcButton
             .removeClass('terms-confirmed')
@@ -388,69 +445,61 @@ jQuery(document).ready(function($) {
                 'border-color': ''
             })
             .find('.terms-checkmark').remove();
-        
-        // Disable Moneris button
-        disableMonerisButton();
-        
-        // Clear session storage
+
+        updateButtonState();
         sessionStorage.removeItem('termsConfirmed');
     }
-    
+
     /**
-     * Handle page navigation - manage terms confirmation state
+     * Handle page navigation
      */
-    $(window).on('beforeunload', function() {
-        // Store current URL to check if we're staying on checkout
+    $(window).on('beforeunload', function () {
         const currentUrl = window.location.href;
         sessionStorage.setItem('lastCheckoutUrl', currentUrl);
-        
-        // Only preserve terms confirmation if staying on checkout pages
+
         if (termsConfirmed && currentUrl.includes('checkout')) {
             sessionStorage.setItem('termsConfirmed', 'true');
         }
     });
-    
-    // Check if we're on a different page and should reset terms
+
     const lastUrl = sessionStorage.getItem('lastCheckoutUrl');
     const currentUrl = window.location.href;
     if (lastUrl && lastUrl !== currentUrl && !currentUrl.includes('checkout')) {
         sessionStorage.removeItem('termsConfirmed');
     }
-    
+
     /**
      * Public API for other scripts
      */
     window.TermsAndConditions = {
-        isConfirmed: function() {
+        isConfirmed: function () {
             return termsConfirmed;
         },
         reset: resetTermsConfirmation,
-        confirm: function() {
+        confirm: function () {
             confirmTermsAndConditions();
         },
-        getState: function() {
+        getState: function () {
             return {
                 confirmed: termsConfirmed,
+                monthlyBillingValidated: monthlyBillingValidated,
                 tcButtonExists: $('.tc-button').length > 0,
                 monerisButtonExists: $('#moneris-complete-payment-btn').length > 0,
                 monerisButtonEnabled: !$('#moneris-complete-payment-btn').prop('disabled')
             };
         }
     };
-    
-    // Debug function for troubleshooting
-    window.debugTermsAndConditions = function() {
+
+    // Debug function
+    window.debugTermsAndConditions = function () {
         console.log('=== Terms & Conditions Debug Info ===');
         console.log('Terms Confirmed:', termsConfirmed);
-        console.log('TC Button exists:', $('.tc-button').length > 0);
-        console.log('TC Button classes:', $('.tc-button').attr('class'));
-        console.log('Moneris Button exists:', $('#moneris-complete-payment-btn').length > 0);
-        console.log('Moneris Button disabled:', $('#moneris-complete-payment-btn').prop('disabled'));
-        console.log('Moneris Button classes:', $('#moneris-complete-payment-btn').attr('class'));
-        console.log('Session Storage:', sessionStorage.getItem('termsConfirmed'));
+        console.log('Monthly Billing Validated:', monthlyBillingValidated);
+        console.log('Last Button State:', lastButtonState);
+        console.log('Current State Signature:', `${termsConfirmed}-${monthlyBillingValidated}-${termsConfirmed && monthlyBillingValidated}`);
         console.log('===============================');
-        
+
         return window.TermsAndConditions.getState();
     };
-    
+
 }); // End jQuery document ready
