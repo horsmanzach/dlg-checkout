@@ -1,6 +1,7 @@
 /**
  * Credit Card Copy Functionality for New Checkout Template - CHECKBOX VERSION
  * File: js/checkout-cc-copy.js
+ * UPDATED: Fixed validation requirement for copy checkbox
  */
 
 jQuery(document).ready(function ($) {
@@ -69,24 +70,35 @@ jQuery(document).ready(function ($) {
     }
 
     function setupEventListeners() {
-        // Monitor monthly billing credit card validation
-        $(document).on('click', '.validate-card-btn', function () {
-            // Small delay to allow validation to complete
-            setTimeout(updateCheckboxState, 1000);
+        // UPDATED: Listen for custom events from monthly-billing.js
+        $(document).on('monthlyBillingValidationSuccess', function (event, data) {
+            console.log('Monthly billing validation success event received:', data);
+            setTimeout(updateCheckboxState, 100);
         });
 
-        // Monitor monthly billing field changes
+        $(document).on('monthlyBillingStateChanged', function () {
+            console.log('Monthly billing state changed event received');
+            setTimeout(updateCheckboxState, 100);
+        });
+
+        // UPDATED: Monitor for successful validation completion
+        $(document).on('click', '.validate-card-btn', function () {
+            // Wait for validation AJAX to complete and update checkbox state
+            setTimeout(updateCheckboxState, 1500);
+        });
+
+        // Monitor monthly billing field changes (but don't enable until validated)
         $(document).on('input change',
             '#cc_cardholder_name, #cc_card_number, #cc_expiry, #cc_cvv, #cc_postal_code',
             function () {
-                // Update checkbox state when fields change
-                setTimeout(updateCheckboxState, 500);
+                // Update checkbox state when fields change (will disable if validation is lost)
+                setTimeout(updateCheckboxState, 200);
             }
         );
 
         // Monitor monthly payment method selection
         $(document).on('change', 'input[name="monthly_payment_method"]', function () {
-            updateCheckboxState();
+            setTimeout(updateCheckboxState, 100);
         });
 
         // Same Credit Card Info checkbox change handler
@@ -107,18 +119,19 @@ jQuery(document).ready(function ($) {
             }
         });
 
-        // Monitor for successful monthly billing validation messages
+        // UPDATED: Use MutationObserver for better detection of dynamic content changes
         const observer = new MutationObserver(function (mutations) {
             mutations.forEach(function (mutation) {
-                if (mutation.type === 'childList') {
-                    const addedNodes = Array.from(mutation.addedNodes);
-                    addedNodes.forEach(function (node) {
-                        if (node.nodeType === 1 &&
-                            (node.classList.contains('cc-validation-message') ||
-                                $(node).find('.cc-validation-message').length > 0)) {
-                            setTimeout(updateCheckboxState, 500);
-                        }
-                    });
+                if (mutation.type === 'childList' || mutation.type === 'characterData') {
+                    const target = $(mutation.target);
+
+                    // Check if validation message or button state changed
+                    if (target.hasClass('cc-validation-message') ||
+                        target.hasClass('validate-card-btn') ||
+                        target.closest('.cc-validation-message').length > 0 ||
+                        target.closest('.validate-card-btn').length > 0) {
+                        setTimeout(updateCheckboxState, 200);
+                    }
                 }
             });
         });
@@ -126,8 +139,39 @@ jQuery(document).ready(function ($) {
         // Start observing the document for changes
         observer.observe(document.body, {
             childList: true,
-            subtree: true
+            subtree: true,
+            characterData: true
         });
+
+        // UPDATED: Also listen for form reset events
+        $(document).on('reset', '#moneris-payment-form', function () {
+            setTimeout(updateCheckboxState, 100);
+        });
+
+        // UPDATED: Listen for validation button text changes
+        const buttonObserver = new MutationObserver(function (mutations) {
+            mutations.forEach(function (mutation) {
+                if (mutation.type === 'childList' || mutation.type === 'characterData') {
+                    const target = mutation.target;
+                    if ($(target).hasClass('validate-card-btn') ||
+                        $(target).closest('.validate-card-btn').length > 0) {
+                        setTimeout(updateCheckboxState, 100);
+                    }
+                }
+            });
+        });
+
+        // Observe changes to validation button
+        const validateBtn = document.querySelector('.validate-card-btn');
+        if (validateBtn) {
+            buttonObserver.observe(validateBtn, {
+                childList: true,
+                subtree: true,
+                characterData: true,
+                attributes: true,
+                attributeFilter: ['class']
+            });
+        }
     }
 
     function updateCheckboxState() {
@@ -137,12 +181,15 @@ jQuery(document).ready(function ($) {
 
         if (checkbox.length === 0) return;
 
+        console.log('Updating checkbox state...');
+
         // Check if monthly payment method is set to credit card
         const monthlyPaymentMethod = $('input[name="monthly_payment_method"]:checked').val();
         if (monthlyPaymentMethod !== 'cc') {
             checkbox.prop('disabled', true).prop('checked', false).removeClass('enabled');
             checkboxRow.removeClass('success').addClass('disabled');
             helpText.text('Select credit card for monthly billing to enable this option');
+            console.log('Monthly payment method not CC, disabling checkbox');
             return;
         }
 
@@ -157,20 +204,18 @@ jQuery(document).ready(function ($) {
             checkbox.prop('disabled', true).prop('checked', false).removeClass('enabled');
             checkboxRow.removeClass('success').removeClass('disabled');
             helpText.text('Complete all monthly billing credit card fields first');
+            console.log('Not all fields filled, disabling checkbox');
             return;
         }
 
-        // Check for validation success (look for success message or lack of error styling)
-        const hasErrors = $('#cc-content .field-error-message:visible').length > 0 ||
-            $('#cc-content input.error, #cc-content input.flash_error').length > 0;
+        // UPDATED: More robust validation success detection
+        const isValidationSuccessful = checkValidationSuccess();
 
-        const hasSuccessMessage = $('.cc-validation-message:visible').text().toLowerCase().includes('success') ||
-            $('.cc-validation-message:visible').text().toLowerCase().includes('valid');
-
-        if (hasErrors && !hasSuccessMessage) {
+        if (!isValidationSuccessful) {
             checkbox.prop('disabled', true).prop('checked', false).removeClass('enabled');
-            checkboxRow.removeClass('success').removeClass('disabled');
-            helpText.text('Fix validation errors in monthly billing first');
+            checkboxRow.removeClass('success').addClass('disabled');
+            helpText.text('Credit card validation required before copying info');
+            console.log('Validation not successful, disabling checkbox');
             return;
         }
 
@@ -179,10 +224,108 @@ jQuery(document).ready(function ($) {
         checkboxRow.removeClass('disabled').addClass('success');
         helpText.text('Check to copy validated credit card info to upfront payment');
 
-        console.log('Same CC checkbox enabled - monthly billing validated');
+        console.log('Same CC checkbox enabled - monthly billing validated successfully');
+    }
+
+    // UPDATED: Enhanced validation success detection with multiple fallback methods
+    function checkValidationSuccess() {
+        console.log('Checking validation success...');
+
+        // Method 1: Check if validation button shows "Card Confirmed ✓" with confirmed class
+        const validateButton = $('.validate-card-btn');
+        const buttonIsConfirmed = validateButton.hasClass('confirmed') &&
+            (validateButton.text().includes('Card Confirmed ✓') ||
+                validateButton.text().includes('Confirmed ✓'));
+
+        if (buttonIsConfirmed) {
+            console.log('✓ Validation success detected: Button shows confirmed state');
+            return true;
+        }
+
+        // Method 2: Check for success validation message with green styling
+        const validationMessage = $('.cc-validation-message:visible');
+        if (validationMessage.length > 0) {
+            const messageText = validationMessage.text().toLowerCase();
+            const messageHtml = validationMessage.html().toLowerCase();
+
+            const hasSuccessKeywords = messageText.includes('validated through moneris') ||
+                messageText.includes('card validated') ||
+                messageText.includes('card details confirmed') ||
+                messageText.includes('✓') ||
+                messageText.includes('success');
+
+            const hasSuccessColor = messageHtml.includes('#27ae60') ||
+                messageHtml.includes('color: #27ae60') ||
+                messageHtml.includes('rgb(39, 174, 96)') ||
+                validationMessage.find('div[style*="#27ae60"]').length > 0;
+
+            if (hasSuccessKeywords && hasSuccessColor) {
+                console.log('✓ Validation success detected: Success message present');
+                return true;
+            }
+        }
+
+        // Method 3: Check if all fields have "valid" class (green borders)
+        const requiredFields = ['#cc_cardholder_name', '#cc_card_number', '#cc_expiry', '#cc_cvv', '#cc_postal_code'];
+        const allFieldsValid = requiredFields.every(selector => {
+            return $(selector).hasClass('valid');
+        });
+
+        if (allFieldsValid && requiredFields.length > 0) {
+            console.log('✓ Validation success detected: All fields have valid class');
+            return true;
+        }
+
+        // Method 4: Check payment option header for confirmed state
+        const ccHeader = $('.payment-option-header[data-option="cc"]');
+        if (ccHeader.hasClass('confirmed-method')) {
+            console.log('✓ Validation success detected: CC header has confirmed-method class');
+            return true;
+        }
+
+        // Method 5: Check for confirmed arrow on CC header
+        const ccArrow = ccHeader.find('.accordion-arrow');
+        if (ccArrow.hasClass('confirmed-arrow') && ccArrow.text() === '✓') {
+            console.log('✓ Validation success detected: CC arrow shows confirmed state');
+            return true;
+        }
+
+        // Method 6: Check if there are no visible error messages and validation was attempted
+        const hasVisibleErrors = $('.cc-validation-message:visible').find('div').css('color') === 'rgb(231, 76, 60)' || // #e74c3c
+            $('.cc-validation-message:visible').html().includes('#e74c3c') ||
+            $('.field-error-message:visible').length > 0 ||
+            $('#cc_cardholder_name.error, #cc_card_number.error, #cc_expiry.error, #cc_cvv.error, #cc_postal_code.error').length > 0;
+
+        if (!hasVisibleErrors) {
+            // Check if validation was attempted (button was clicked or message exists)
+            const validationAttempted = $('.cc-validation-message').length > 0 ||
+                validateButton.text() !== 'Validate Card' ||
+                validateButton.hasClass('confirmed');
+
+            if (validationAttempted) {
+                console.log('✓ Validation success detected: No errors present after validation attempt');
+                return true;
+            }
+        }
+
+        // Method 7: Check for global validation state variables (if they exist)
+        if (typeof window.monthlyBillingValidated !== 'undefined' && window.monthlyBillingValidated === true) {
+            console.log('✓ Validation success detected: Global validation flag set');
+            return true;
+        }
+
+        console.log('❌ Validation not successful - no success indicators found');
+        return false;
     }
 
     function copyCreditCardInfo() {
+        // Double-check validation before copying
+        if (!checkValidationSuccess()) {
+            alert('Error: Monthly billing credit card must be validated before copying.');
+            $('#same-cc-info-checkbox').prop('checked', false);
+            return;
+        }
+
         // Get monthly billing credit card data
         const monthlyData = {
             name: $('#cc_cardholder_name').val()?.trim(),
@@ -199,14 +342,15 @@ jQuery(document).ready(function ($) {
             return;
         }
 
-        console.log('Copying credit card data:', {
+        console.log('Copying validated credit card data:', {
             name: monthlyData.name,
             number: monthlyData.number.substring(0, 4) + '****', // Log partial number for security
             expiry: monthlyData.expiry,
-            cvv: monthlyData.cvv ? '***' : 'MISSING', // Log if CVV exists
+            cvv: monthlyData.cvv ? '***' : 'empty',
             postal: monthlyData.postal
         });
 
+        // Map to upfront payment form fields (update these selectors based on actual form)
         // Copy to Moneris upfront payment fields
         const monerisFields = {
             '#moneris_cardholder_name': monthlyData.name,
@@ -217,12 +361,14 @@ jQuery(document).ready(function ($) {
         };
 
         // Fill each field and trigger change events
+        let copiedFields = 0;
         Object.entries(monerisFields).forEach(([selector, value]) => {
             const field = $(selector);
             if (field.length > 0) {
                 // Clear field first, then set value
                 field.val('').val(value).trigger('change').trigger('input');
-                console.log(`Copied to ${selector}: ${selector.includes('cvv') ? '***' : value} (Field found: ${field.length > 0})`);
+                copiedFields++;
+                console.log(`✓ Copied to ${selector}: ${selector.includes('cvv') ? '***' : value}`);
 
                 // Special handling for CVV field - try alternative selectors if main one doesn't work
                 if (selector === '#moneris_cvv' && field.val() !== value) {
@@ -239,7 +385,7 @@ jQuery(document).ready(function ($) {
                     });
                 }
             } else {
-                console.warn(`Field not found: ${selector}`);
+                console.warn(`⚠ Field not found: ${selector}`);
 
                 // For missing fields, log what fields are actually available
                 if (selector === '#moneris_cvv') {
@@ -251,16 +397,41 @@ jQuery(document).ready(function ($) {
             }
         });
 
-        // Show success feedback
-        const helpText = $('.same-cc-help-text');
-        const originalText = helpText.text();
-        helpText.text('✓ Credit card information copied successfully!').css('color', '#27ae60');
+        // Show feedback to user
+        if (copiedFields > 0) {
+            // Update help text to show success
+            const helpText = $('.same-cc-help-text');
+            const originalText = helpText.text();
+            helpText.text(`✓ Credit card info copied successfully! (${copiedFields} fields)`).css('color', '#27ae60');
 
-        // Revert help text after 3 seconds
-        setTimeout(function () {
-            helpText.text(originalText).css('color', '');
-        }, 3000);
+            // Revert help text after 4 seconds
+            setTimeout(function () {
+                helpText.text(originalText).css('color', '');
+            }, 4000);
 
-        console.log('Credit card info copying completed from monthly billing to upfront payment');
+            console.log(`✓ Credit card info copying completed: ${copiedFields} fields copied from monthly billing to upfront payment`);
+        } else {
+            alert('Warning: No upfront payment fields were found to copy to. Please check the form structure.');
+            $('#same-cc-info-checkbox').prop('checked', false);
+        }
     }
+
+    // UPDATED: Expose function globally for other scripts if needed
+    window.updateCopyCheckboxState = updateCheckboxState;
+
+    // UPDATED: Add debugging function for troubleshooting
+    window.debugCopyCheckbox = function () {
+        console.log('=== Copy Checkbox Debug Info ===');
+        console.log('Checkbox exists:', $('#same-cc-info-checkbox').length > 0);
+        console.log('Monthly method selected:', $('input[name="monthly_payment_method"]:checked').val());
+        console.log('All fields filled:', ['#cc_cardholder_name', '#cc_card_number', '#cc_expiry', '#cc_cvv', '#cc_postal_code'].every(s => $(s).val()?.trim().length > 0));
+        console.log('Validation successful:', checkValidationSuccess());
+        console.log('Button state:', {
+            text: $('.validate-card-btn').text(),
+            hasConfirmed: $('.validate-card-btn').hasClass('confirmed')
+        });
+        console.log('Validation message:', $('.cc-validation-message:visible').text());
+        console.log('Fields with valid class:', $('#cc_cardholder_name.valid, #cc_card_number.valid, #cc_expiry.valid, #cc_cvv.valid, #cc_postal_code.valid').length);
+        console.log('=== End Debug Info ===');
+    };
 });
