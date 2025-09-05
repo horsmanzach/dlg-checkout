@@ -456,88 +456,101 @@ function enqueue_checkout_cc_copy_script() {
 }
 add_action('wp_enqueue_scripts', 'enqueue_checkout_cc_copy_script');
 
-// ====Enqueue Monthly Billing scripts and styles
-/*function enqueue_monthly_billing_assets() {
+/**
+ * Dynamic Terms and Conditions - PHP Logic Only
+ * Add this to your functions.php file
+ */
+
+/**
+ * Enqueue provider terms script and pass data to JavaScript
+ */
+function enqueue_provider_terms_script() {
     // Only load on checkout page
-    if (!is_checkout()) return;
+    if (!is_checkout()) {
+        return;
+    }
     
-    // Enqueue JavaScript
+    // Enqueue the JavaScript file
     wp_enqueue_script(
-        'monthly-billing-js',
-        get_stylesheet_directory_uri() . '/js/monthly-billing.js',
+        'provider-terms-js',
+        get_stylesheet_directory_uri() . '/js/provider-terms.js',
         array('jquery'),
         '1.0.0',
         true
     );
     
-    // Localize script with AJAX data
-    wp_localize_script('monthly-billing-js', 'monthlyBilling', array(
-        'ajaxUrl' => admin_url('admin-ajax.php'),
-        'nonce' => wp_create_nonce('checkout_nonce'),
-         'checkoutNonce' => wp_create_nonce('checkout_nonce')  // Add this line
+    // Get the provider class to show and pass it to JavaScript
+    $provider_class = get_current_provider_terms_class();
+    
+    // Localize script to pass PHP data to JavaScript
+    wp_localize_script('provider-terms-js', 'providerTermsData', array(
+        'providerClass' => $provider_class,
+        'isCheckout' => is_checkout()
     ));
 }
-add_action('wp_enqueue_scripts', 'enqueue_monthly_billing_assets'); */
-
-
-
-// ===== Enqueue checkout-cc-copy.js file to copy credit card credentails
-
-// Enqueue the checkout CC copy functionality
-/*function enqueue_checkout_cc_copy_script() {
-    if (is_checkout() || is_page() ) {
-        wp_enqueue_script(
-            'checkout-cc-copy',
-            get_stylesheet_directory_uri() . '/js/checkout-cc-copy.js',
-            array('jquery'),
-            '1.0.0',
-            true
-        );
-    }
-}
-add_action('wp_enqueue_scripts', 'enqueue_checkout_cc_copy_script'); 
-*/
-
-
-// ===== Enqueue confirm-terms.js file to incorporate confirm terms and conditions logic
+add_action('wp_enqueue_scripts', 'enqueue_provider_terms_script');
 
 /**
- * Enqueue Terms & Conditions Confirmation Script
- * Add this function to your functions.php file
+ * Get the CSS class for the current provider terms module
  */
-
-/*function enqueue_confirm_terms_script() {
-    // Only load on checkout page or pages with Moneris payment shortcodes
-    if (is_checkout() || 
-        is_page(264127) || // Your checkout page ID
-        (is_singular() && (
-            has_shortcode(get_post()->post_content, 'moneris_payment_form') ||
-            has_shortcode(get_post()->post_content, 'moneris_complete_payment_button')
-        ))) {
-        
-        wp_enqueue_script(
-            'confirm-terms-js',
-            get_stylesheet_directory_uri() . '/js/confirm-terms.js',
-            array('jquery'), // Dependencies
-            '1.0.0', // Version number
-            true // Load in footer
-        );
-        
-        // Optional: Pass any PHP data to the JavaScript if needed
-        wp_localize_script('confirm-terms-js', 'confirmTermsData', array(
-            'ajaxUrl' => admin_url('admin-ajax.php'),
-            'nonce' => wp_create_nonce('confirm_terms_nonce'),
-            'checkoutUrl' => get_permalink(2867), // Your checkout page URL
-            'debug' => defined('WP_DEBUG') && WP_DEBUG // Enable debug mode if WP_DEBUG is true
-        ));
-        
-        // Also ensure jQuery is loaded
-        wp_enqueue_script('jquery');
+function get_current_provider_terms_class() {
+    // Check if cart is empty
+    if (WC()->cart->is_empty()) {
+        return '';
     }
+    
+    // Internet plan category ID
+    $internet_plan_category_id = 19;
+    
+    // Provider category IDs mapping to CSS classes
+    $provider_categories = array(
+        65 => 'bell-terms-module',      // Bell
+        66 => 'rogers-terms-module',    // Rogers
+        67 => 'cogeco-terms-module',    // Cogeco
+        68 => 'telus-terms-module',     // Telus
+        69 => 'shaw-terms-module'       // Shaw
+    );
+    
+    // Loop through cart items to find internet plan
+    foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+        $_product = $cart_item['data'];
+        
+        // Skip if product doesn't exist
+        if (!$_product || !$_product->exists()) {
+            continue;
+        }
+        
+        // Get product category IDs
+        $product_cat_ids = $_product->get_category_ids();
+        
+        // Check if this product is an internet plan (has category ID 19)
+        if (in_array($internet_plan_category_id, $product_cat_ids)) {
+            
+            // Check which provider category this internet plan has
+            foreach ($provider_categories as $provider_cat_id => $css_class) {
+                if (in_array($provider_cat_id, $product_cat_ids)) {
+                    return $css_class;
+                }
+            }
+        }
+    }
+    
+    return ''; // No provider found
 }
 
-// Hook the function to wp_enqueue_scripts
-add_action('wp_enqueue_scripts', 'enqueue_confirm_terms_script'); */
+/**
+ * Optional: AJAX handler for dynamic updates if cart changes
+ * You can call this via AJAX if you need real-time updates
+ */
+function ajax_get_provider_terms_class() {
+    $provider_class = get_current_provider_terms_class();
+    
+    wp_send_json_success(array(
+        'providerClass' => $provider_class
+    ));
+}
+add_action('wp_ajax_get_provider_terms_class', 'ajax_get_provider_terms_class');
+add_action('wp_ajax_nopriv_get_provider_terms_class', 'ajax_get_provider_terms_class');
 
 
 // Add Filter to Exclude Pay Later Product From Being Added to Monthly Summary
@@ -812,30 +825,6 @@ function get_moneris_config() {
         );
     }
 }
-
-/**
- * UPDATED: =====Enqueue payment gateway scripts (updated to handle separate button)
- */
-/* function enqueue_moneris_payment_assets() {
-    if (is_checkout() || 
-        has_shortcode(get_post()->post_content, 'moneris_payment_form') ||
-        has_shortcode(get_post()->post_content, 'moneris_complete_payment_button')) {
-        
-        wp_enqueue_script(
-            'moneris-payment-js',
-            get_stylesheet_directory_uri() . '/js/moneris-payment.js',
-            array('jquery'),
-            '1.0.1', // Updated version
-            true
-        );
-        
-        wp_localize_script('moneris-payment-js', 'monerisPayment', array(
-            'ajaxUrl' => admin_url('admin-ajax.php'),
-            'nonce' => wp_create_nonce('moneris_payment_nonce')
-        ));
-    }
-} */
-
 
 
 /**
@@ -1849,12 +1838,28 @@ function upfront_fee_summary_shortcode() {
        $product_name = $product->get_name();
        $product_price = $product->get_price();
        
-       // Get product category
-       $category_name = '';
-       $terms = get_the_terms($product_id, 'product_cat');
-       if (!empty($terms) && !is_wp_error($terms)) {
-           $category_name = $terms[0]->name;
-       }
+       // Get product category with priority for Internet Plan
+$category_name = '';
+$terms = get_the_terms($product_id, 'product_cat');
+if (!empty($terms) && !is_wp_error($terms)) {
+    // Check if this product is an internet plan (has category ID 19)
+    $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'ids'));
+    $is_internet_plan = in_array($internet_plan_category_id, $product_cats);
+    
+    if ($is_internet_plan) {
+        // For internet plans, always show "Internet Plan" category
+        $internet_plan_term = get_term($internet_plan_category_id, 'product_cat');
+        if ($internet_plan_term && !is_wp_error($internet_plan_term)) {
+            $category_name = $internet_plan_term->name;
+        } else {
+            // Fallback if term lookup fails
+            $category_name = 'Internet Plan';
+        }
+    } else {
+        // For non-internet plans, use the first category as before
+        $category_name = $terms[0]->name;
+    }
+}
        
        // Skip installation products (already handled above)
        $installation_category_id = 63;
@@ -2127,12 +2132,28 @@ function monthly_fee_summary_shortcode() {
         $product_name = $product->get_name();
         $parent_id = $product->get_parent_id();
         
-        // Get product category
+        // Get product category with priority for Internet Plan
         $category_name = '';
         $terms = get_the_terms($product_id, 'product_cat');
         if (!empty($terms) && !is_wp_error($terms)) {
-            $category_name = $terms[0]->name;
+            // Check if this product is an internet plan (has category ID 19)
+            $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'ids'));
+    $is_internet_plan = in_array($internet_plan_category_id, $product_cats);
+    
+    if ($is_internet_plan) {
+        // For internet plans, always show "Internet Plan" category
+        $internet_plan_term = get_term($internet_plan_category_id, 'product_cat');
+        if ($internet_plan_term && !is_wp_error($internet_plan_term)) {
+            $category_name = $internet_plan_term->name;
+        } else {
+            // Fallback if term lookup fails
+            $category_name = 'Internet Plan';
         }
+    } else {
+        // For non-internet plans, use the first category as before
+        $category_name = $terms[0]->name;
+    }
+}
         
         // Skip if this is the main product (already added above)
         if ($product_id == $current_product_id) {
@@ -2250,6 +2271,7 @@ add_shortcode('monthly_fee_summary', 'monthly_fee_summary_shortcode');
 
 
 
+
 /*========Edit Order Popup Table Shortcode========*/
 
 function edit_order_popup_shortcode() {
@@ -2329,7 +2351,7 @@ function edit_order_popup_shortcode() {
         
         $product_name = $product->get_name();
         
-        // Get product category name and slug
+        // Get product category name and slug with priority for Internet Plan
         $category_name = '';
         $category_slug = '';
         
@@ -2341,8 +2363,25 @@ function edit_order_popup_shortcode() {
         }
         
         if (!empty($terms) && !is_wp_error($terms)) {
-            $category_name = $terms[0]->name;
-            $category_slug = $terms[0]->slug;
+            // Check if this product is an internet plan (has category ID 19)
+            $is_internet_plan = in_array($internet_plan_category_id, $product_cats);
+            
+            if ($is_internet_plan) {
+                // For internet plans, always show "Internet Plan" category
+                $internet_plan_term = get_term($internet_plan_category_id, 'product_cat');
+                if ($internet_plan_term && !is_wp_error($internet_plan_term)) {
+                    $category_name = $internet_plan_term->name;
+                    $category_slug = $internet_plan_term->slug;
+                } else {
+                    // Fallback if term lookup fails
+                    $category_name = 'Internet Plan';
+                    $category_slug = 'internet-plan';
+                }
+            } else {
+                // For non-internet plans, use the first category as before
+                $category_name = $terms[0]->name;
+                $category_slug = $terms[0]->slug;
+            }
         }
         
         // Debug logging - remove this after testing
