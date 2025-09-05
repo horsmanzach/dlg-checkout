@@ -1726,6 +1726,11 @@ function add_deposit_fees_to_cart() {
     }
 }
 
+// ----------- Automatically Add Internet Plan to Cart When Redirected to Product page
+// ----- Also Automatically Replace Old Internet Plan With New One if Different Internet Plan Page is Visited 
+
+
+
 /*======Upfront Fee Summary Table - 
 Last Edited Fri, August 15-
 Removed 'Installation' & 'Extras' row headers =========*/
@@ -1955,10 +1960,6 @@ function monthly_fee_summary_shortcode() {
     // Get cart items
     $cart = WC()->cart;
     
-    $output = '<table class="fee-summary-table monthly-fee-table">';
-    $output .= '<thead><tr><th>Product</th><th>Category</th><th>Monthly Fee</th></tr></thead>';
-    $output .= '<tbody>';
-    
     $subtotal = 0;
     $internet_plan_in_cart = false;
     $current_product_id = 0;
@@ -1969,87 +1970,151 @@ function monthly_fee_summary_shortcode() {
     $deposit_category_id = get_term_by('slug', 'deposit', 'product_cat');
     $deposit_category_id = $deposit_category_id ? $deposit_category_id->term_id : null;
     
-    // Check if we're on a product page
+    // Get the correct internet plan category ID
+    $internet_plan_category = get_term_by('slug', 'internet-plan', 'product_cat');
+    $internet_plan_category_id = $internet_plan_category ? $internet_plan_category->term_id : 19; // fallback to 19
+    
+    error_log("=== MONTHLY FEE SUMMARY DEBUG ===");
+    error_log("Internet plan category ID: " . $internet_plan_category_id);
+    error_log("Is product page: " . (is_product() ? 'YES' : 'NO'));
+    error_log("Post ID: " . ($post ? $post->ID : 'NO POST'));
+    
+    // Check if we're on a product page and handle cart addition FIRST
     if (is_product() && $post) {
         $current_product_id = $post->ID;
+        error_log("Current product ID: " . $current_product_id);
         
         // Skip if this is the installation product
-        if ($current_product_id == $installation_product_id) {
-            // Do nothing - skip this product
-        } else {
+        if ($current_product_id != $installation_product_id) {
             $current_product = wc_get_product($current_product_id);
             
             if ($current_product && $current_product->get_type() === 'simple') {
                 // Check if this is an internet plan product
                 $product_cats = wp_get_post_terms($current_product_id, 'product_cat', array('fields' => 'ids'));
-                $is_internet_plan = in_array(19, $product_cats); // Replace with your actual category ID
+                $is_internet_plan = in_array($internet_plan_category_id, $product_cats);
+                
+                error_log("Product categories: " . print_r($product_cats, true));
+                error_log("Is internet plan: " . ($is_internet_plan ? 'YES' : 'NO'));
                 
                 if ($is_internet_plan) {
-                    // Get current plan monthly fee
-                    $monthly_fee = 0;
-                    if (function_exists('get_field')) {
-                        $monthly_fee = get_field('monthly_fee', $current_product_id);
-                        if (empty($monthly_fee) && $monthly_fee !== '0') {
-                            $monthly_fee = get_field('monthly_fee', 'product_' . $current_product_id);
-                        }
-                        $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
-                    }
-                    
-                    // Get promotional pricing fields
-                    $monthly_promo_fee = 0;
-                    $monthly_promo_blurb = '';
-                    if (function_exists('get_field')) {
-                        $monthly_promo_fee = get_field('monthly_promo_fee', $current_product_id);
-                        if (empty($monthly_promo_fee) && $monthly_promo_fee !== '0') {
-                            $monthly_promo_fee = get_field('monthly_promo_fee', 'product_' . $current_product_id);
-                        }
-                        $monthly_promo_fee = is_numeric($monthly_promo_fee) ? floatval($monthly_promo_fee) : 0;
-                        
-                        $monthly_promo_blurb = get_field('monthly_promo_blurb', $current_product_id);
-                        if (empty($monthly_promo_blurb)) {
-                            $monthly_promo_blurb = get_field('monthly_promo_blurb', 'product_' . $current_product_id);
+                    // Check if this internet plan is already in cart
+                    $plan_already_in_cart = false;
+                    foreach ($cart->get_cart() as $cart_item) {
+                        if ($cart_item['product_id'] == $current_product_id) {
+                            $plan_already_in_cart = true;
+                            $internet_plan_in_cart = true;
+                            error_log("Internet plan already in cart");
+                            break;
                         }
                     }
                     
-                    // Calculate final fee (original fee minus promo discount)
-                    $final_monthly_fee = $monthly_fee - $monthly_promo_fee;
-                    $final_monthly_fee = max(0, $final_monthly_fee); // Ensure it doesn't go below 0
-                    
-                    // ONLY DISPLAY IF MONTHLY FEE IS GREATER THAN 0
-                    if ($monthly_fee > 0) {
-                        // Get category name
-                        $terms = get_the_terms($current_product_id, 'product_cat');
-                        $category_name = '';
-                        if (!empty($terms) && !is_wp_error($terms)) {
-                            $category_name = $terms[0]->name;
+                    // If not in cart, add it (and remove any other internet plans)
+                    if (!$plan_already_in_cart) {
+                        // Remove any other internet plans first
+                        foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
+                            $cart_product_cats = wp_get_post_terms($cart_item['product_id'], 'product_cat', array('fields' => 'ids'));
+                            if (in_array($internet_plan_category_id, $cart_product_cats)) {
+                                $cart->remove_cart_item($cart_item_key);
+                                error_log("Removed existing internet plan from cart: " . $cart_item['product_id']);
+                            }
                         }
                         
-                        // Build product name with promotional blurb if exists
-                        $product_name_display = esc_html($current_product->get_name());
-                        if (!empty($monthly_promo_blurb)) {
-                            $product_name_display .= '<br><span class="monthly-promo-blurb">' . esc_html($monthly_promo_blurb) . '</span>';
+                        // Add current internet plan
+                        $added = $cart->add_to_cart($current_product_id, 1);
+                        error_log("Added internet plan to cart: " . ($added ? 'SUCCESS' : 'FAILED'));
+                        
+                        if ($added) {
+                            $internet_plan_in_cart = true;
+                            // Recalculate cart after changes
+                            $cart->calculate_totals();
                         }
-                        
-                        // Build pricing display
-                        $pricing_display = '';
-                        if ($monthly_promo_fee > 0) {
-                            // Show strikethrough original price and promotional price below
-                            $pricing_display = '<span class="monthly-fee-strikethrough">' . wc_price($monthly_fee) . '</span><br><span class="monthly-fee-sale-price">' . wc_price($final_monthly_fee) . '</span>';
-                        } else {
-                            // Show regular price
-                            $pricing_display = wc_price($monthly_fee);
-                        }
-                        
-                        $output .= '<tr>';
-                        $output .= '<td>' . $product_name_display . '</td>';
-                        $output .= '<td>' . esc_html($category_name) . '</td>';
-                        $output .= '<td>' . $pricing_display . '</td>';
-                        $output .= '</tr>';
-                        
-                        // Set flag and add to subtotal using final fee
-                        $internet_plan_in_cart = true;
-                        $subtotal += $final_monthly_fee;
                     }
+                }
+            }
+        }
+    }
+    
+    // Start building output
+    $output = '<table class="fee-summary-table monthly-fee-table">';
+    $output .= '<thead><tr><th>Product</th><th>Category</th><th>Monthly Fee</th></tr></thead>';
+    $output .= '<tbody>';
+    
+    // Now display the current product if it's an internet plan
+    if (is_product() && $post && $current_product_id > 0 && $current_product_id != $installation_product_id) {
+        $current_product = wc_get_product($current_product_id);
+        
+        if ($current_product && $current_product->get_type() === 'simple') {
+            $product_cats = wp_get_post_terms($current_product_id, 'product_cat', array('fields' => 'ids'));
+            $is_internet_plan = in_array($internet_plan_category_id, $product_cats);
+            
+            if ($is_internet_plan) {
+                // Get current plan monthly fee
+                $monthly_fee = 0;
+                if (function_exists('get_field')) {
+                    $monthly_fee = get_field('monthly_fee', $current_product_id);
+                    if (empty($monthly_fee) && $monthly_fee !== '0') {
+                        $monthly_fee = get_field('monthly_fee', 'product_' . $current_product_id);
+                    }
+                    $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
+                }
+                
+                // Get promotional pricing fields
+                $monthly_promo_fee = 0;
+                $monthly_promo_blurb = '';
+                if (function_exists('get_field')) {
+                    $monthly_promo_fee = get_field('monthly_promo_fee', $current_product_id);
+                    if (empty($monthly_promo_fee) && $monthly_promo_fee !== '0') {
+                        $monthly_promo_fee = get_field('monthly_promo_fee', 'product_' . $current_product_id);
+                    }
+                    $monthly_promo_fee = is_numeric($monthly_promo_fee) ? floatval($monthly_promo_fee) : 0;
+                    
+                    $monthly_promo_blurb = get_field('monthly_promo_blurb', $current_product_id);
+                    if (empty($monthly_promo_blurb)) {
+                        $monthly_promo_blurb = get_field('monthly_promo_blurb', 'product_' . $current_product_id);
+                    }
+                }
+                
+                // Calculate final fee (original fee minus promo discount)
+                $final_monthly_fee = $monthly_fee - $monthly_promo_fee;
+                $final_monthly_fee = max(0, $final_monthly_fee); // Ensure it doesn't go below 0
+                
+                error_log("Monthly fee: " . $monthly_fee . ", Promo fee: " . $monthly_promo_fee . ", Final: " . $final_monthly_fee);
+                
+                // ONLY DISPLAY IF MONTHLY FEE IS GREATER THAN 0
+                if ($monthly_fee > 0) {
+                    // Get category name
+                    $terms = get_the_terms($current_product_id, 'product_cat');
+                    $category_name = '';
+                    if (!empty($terms) && !is_wp_error($terms)) {
+                        $category_name = $terms[0]->name;
+                    }
+                    
+                    // Build product name with promotional blurb if exists
+                    $product_name_display = esc_html($current_product->get_name());
+                    if (!empty($monthly_promo_blurb)) {
+                        $product_name_display .= '<br><span class="monthly-promo-blurb">' . esc_html($monthly_promo_blurb) . '</span>';
+                    }
+                    
+                    // Build pricing display
+                    $pricing_display = '';
+                    if ($monthly_promo_fee > 0) {
+                        // Show strikethrough original price and promotional price below
+                        $pricing_display = '<span class="monthly-fee-strikethrough">' . wc_price($monthly_fee) . '</span><br><span class="monthly-fee-sale-price">' . wc_price($final_monthly_fee) . '</span>';
+                    } else {
+                        // Show regular price
+                        $pricing_display = wc_price($monthly_fee);
+                    }
+                    
+                    $output .= '<tr>';
+                    $output .= '<td>' . $product_name_display . '</td>';
+                    $output .= '<td>' . esc_html($category_name) . '</td>';
+                    $output .= '<td>' . $pricing_display . '</td>';
+                    $output .= '</tr>';
+                    
+                    // Add to subtotal using final fee
+                    $subtotal += $final_monthly_fee;
+                    
+                    error_log("Added internet plan to display: " . $current_product->get_name() . " with fee: " . $final_monthly_fee);
                 }
             }
         }
@@ -2088,7 +2153,7 @@ function monthly_fee_summary_shortcode() {
         }
         
         // Set internet plan flag if this is an internet plan
-        $is_internet_plan = in_array(19, $product_cats);
+        $is_internet_plan = in_array($internet_plan_category_id, $product_cats);
         if ($is_internet_plan) {
             $internet_plan_in_cart = true;
         }
@@ -2159,16 +2224,6 @@ function monthly_fee_summary_shortcode() {
         }
     }
     
-    // Add current internet plan to cart if it's not there already
-    if ($current_product_id > 0 && !$internet_plan_in_cart && $current_product_id != $installation_product_id) {
-        $product_cats = wp_get_post_terms($current_product_id, 'product_cat', array('fields' => 'ids'));
-        $is_internet_plan = in_array(19, $product_cats);
-        
-        if ($is_internet_plan) {
-            WC()->cart->add_to_cart($current_product_id, 1);
-        }
-    }
-    
     // Calculate tax using the same method as original
     $tax_total = 0;
     if (wc_tax_enabled()) {
@@ -2185,6 +2240,9 @@ function monthly_fee_summary_shortcode() {
     $output .= '<tr class="total-row"><td colspan="2">Total Monthly</td><td>' . wc_price($subtotal + $tax_total) . '</td></tr>';
     
     $output .= '</tbody></table>';
+    
+    error_log("Final internet_plan_in_cart status: " . ($internet_plan_in_cart ? 'TRUE' : 'FALSE'));
+    error_log("=== END MONTHLY FEE SUMMARY DEBUG ===");
     
     return $output;
 }
