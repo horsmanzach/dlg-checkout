@@ -1,5 +1,6 @@
 /**
  * Monthly Billing Functionality for Checkout - CORRECTED FOR ACTUAL HTML STRUCTURE
+ * UPDATED: Added triggers for copy checkbox validation requirement
  */
 jQuery(document).ready(function ($) {
     console.log('Monthly billing: Starting initialization...');
@@ -63,6 +64,11 @@ jQuery(document).ready(function ($) {
                 content.slideDown(300);
                 arrow.text('▲');
                 updateSelectedMethod(option);
+
+                // UPDATED: Trigger copy checkbox state update when method changes
+                setTimeout(function () {
+                    $(document).trigger('monthlyBillingStateChanged');
+                }, 100);
             }
         });
 
@@ -89,6 +95,11 @@ jQuery(document).ready(function ($) {
                 radio.prop('checked', false);
                 updateSelectedMethod('');
                 resetConfirmations();
+
+                // UPDATED: Trigger copy checkbox state update when method changes
+                setTimeout(function () {
+                    $(document).trigger('monthlyBillingStateChanged');
+                }, 100);
                 return;
             }
 
@@ -107,6 +118,11 @@ jQuery(document).ready(function ($) {
             arrow.text('▲');
             radio.prop('checked', true);
             updateSelectedMethod(option);
+
+            // UPDATED: Trigger copy checkbox state update when method changes
+            setTimeout(function () {
+                $(document).trigger('monthlyBillingStateChanged');
+            }, 100);
         });
     }
 
@@ -278,6 +294,21 @@ jQuery(document).ready(function ($) {
                         clearOtherMonthlyBillingOptions('cc');
                         markMethodAsConfirmed('cc');
 
+                        // UPDATED: Trigger copy checkbox state update events
+                        $(document).trigger('monthlyBillingValidationSuccess', {
+                            method: 'cc',
+                            cardData: cardData
+                        });
+
+                        // Also trigger a general update event for the copy checkbox
+                        setTimeout(function () {
+                            if (typeof window.updateCopyCheckboxState === 'function') {
+                                window.updateCopyCheckboxState();
+                            }
+                            // Also trigger a custom event that checkout-cc-copy.js can listen for
+                            $(document).trigger('monthlyBillingStateChanged');
+                        }, 100);
+
                     } else {
                         // ERROR HANDLING: First check if response.data exists and has message
                         let errorMessage = 'Unknown error';
@@ -344,6 +375,11 @@ jQuery(document).ready(function ($) {
                         }
 
                         button.text('Validate Card').removeClass('confirmed');
+
+                        // UPDATED: Trigger copy checkbox state update when validation fails
+                        setTimeout(function () {
+                            $(document).trigger('monthlyBillingStateChanged');
+                        }, 100);
                     }
                 },
                 error: function (xhr, status, error) {
@@ -351,6 +387,11 @@ jQuery(document).ready(function ($) {
                     button.prop('disabled', false);
                     $('.cc-validation-message').html('<div style="color: #e74c3c; padding: 10px; background: #fdf2f2; border: 1px solid #e74c3c; border-radius: 4px;"><strong>❌ Validation error</strong><br><br>Please try again.</div>').show();
                     button.text('Validate Card').removeClass('confirmed');
+
+                    // UPDATED: Trigger copy checkbox state update when validation error occurs
+                    setTimeout(function () {
+                        $(document).trigger('monthlyBillingStateChanged');
+                    }, 100);
                 }
             });
         });
@@ -454,6 +495,11 @@ jQuery(document).ready(function ($) {
 
             // Mark as confirmed after clearing
             markMethodAsConfirmed('bank');
+
+            // UPDATED: Trigger copy checkbox state update when bank is validated
+            setTimeout(function () {
+                $(document).trigger('monthlyBillingStateChanged');
+            }, 100);
         });
     }
 
@@ -511,6 +557,11 @@ jQuery(document).ready(function ($) {
                         // Update fee tables
                         updateFeeTables();
                         showRefreshNotification();
+
+                        // UPDATED: Trigger copy checkbox state update when pay after is confirmed
+                        setTimeout(function () {
+                            $(document).trigger('monthlyBillingStateChanged');
+                        }, 100);
                     } else {
                         button.text('Confirm Pay After').prop('disabled', false);
                         alert('Error adding Pay After deposit: ' + (response.data || 'Unknown error'));
@@ -776,6 +827,15 @@ jQuery(document).ready(function ($) {
             } else if (method === 'cc') {
                 $('.validate-card-btn').text('Card Confirmed ✓').addClass('confirmed');
                 $('.cc-validation-message').html('<div style="color: #27ae60; padding: 10px; background: #e8f5e8; border: 1px solid #27ae60; border-radius: 4px;"><strong>✓ Card details confirmed!</strong><br>Your credit card information has been validated for monthly billing.</div>').show();
+
+                // UPDATED: Trigger copy checkbox state update when restoring CC state
+                setTimeout(function () {
+                    $(document).trigger('monthlyBillingValidationSuccess', {
+                        method: 'cc',
+                        cardData: null // No card data available during restore
+                    });
+                    $(document).trigger('monthlyBillingStateChanged');
+                }, 200);
             } else if (method === 'bank') {
                 $('.validate-bank-btn').text('Bank Details Confirmed ✓').addClass('confirmed');
                 $('.bank-validation-message').html('<div style="color: #27ae60; padding: 10px; background: #e8f5e8; border: 1px solid #27ae60; border-radius: 4px;"><strong>✓ Bank details confirmed!</strong><br>Your banking information has been saved for monthly billing.</div>').show();
