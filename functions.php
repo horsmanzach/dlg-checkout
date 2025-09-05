@@ -107,6 +107,41 @@ function ajax_remove_monthly_billing_deposits() {
     ));
 }
 
+// ----  Simple validation state check - used in confirm-terms.js for both monthly billing and terms and condition validation check
+
+
+add_action('wp_ajax_simple_validation_check', 'simple_validation_check');
+add_action('wp_ajax_nopriv_simple_validation_check', 'simple_validation_check');
+
+function simple_validation_check() {
+    // Check if any monthly billing method is validated
+    $has_payafter = false;
+    $has_monthly_option = false;
+    
+    // Check for Pay After deposit in cart
+    if (WC()->cart) {
+        foreach (WC()->cart->get_cart() as $cart_item) {
+            if ($cart_item['product_id'] == 265827) { // Pay After product ID
+                $has_payafter = true;
+                break;
+            }
+        }
+    }
+    
+    // Check user meta for saved monthly billing option
+    $monthly_option = dg_get_user_meta('monthly_bill_payment_option');
+    if (!empty($monthly_option) && in_array(strtolower($monthly_option), ['cc', 'bank'])) {
+        $has_monthly_option = true;
+    }
+    
+    $is_validated = $has_payafter || $has_monthly_option;
+    
+    wp_send_json_success(array(
+        'validated' => $is_validated,
+        'method' => $has_payafter ? 'payafter' : ($has_monthly_option ? $monthly_option : 'none')
+    ));
+}
+
 // AJAX Handler to refresh upfront summary code directly after adding Pay Later Depsosut
 
 add_action('wp_ajax_refresh_upfront_summary_shortcode', 'ajax_refresh_upfront_summary_shortcode');
@@ -324,8 +359,105 @@ function ajax_add_payafter_deposit() {
     }
 }
 
-// ====Enqueue Monthly Billing scripts and styles
+
+// ----- 4 Updated Enqueueing Functions for monthly_billing_assets, confirm_terms_script, mneris_payment_assets and checkout_cc_copy_script
+
+// ===== UPDATED: Enqueue monthly-billing.js file with proper versioning
 function enqueue_monthly_billing_assets() {
+    // Only load on checkout page or pages with monthly billing functionality
+    if (is_checkout() || 
+        is_page(264127) || // Your checkout page ID
+        (is_singular() && has_shortcode(get_post()->post_content, 'monthly_billing_section'))) {
+        
+        wp_enqueue_script(
+            'monthly-billing-js',
+            get_stylesheet_directory_uri() . '/js/monthly-billing.js',
+            array('jquery'),
+            '1.1.0', // Updated version for cache busting
+            true
+        );
+        
+        // Localize script with AJAX data
+        wp_localize_script('monthly-billing-js', 'monthlyBilling', array(
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('checkout_nonce'),
+            'checkoutNonce' => wp_create_nonce('checkout_nonce')
+        ));
+    }
+}
+add_action('wp_enqueue_scripts', 'enqueue_monthly_billing_assets');
+
+// ===== UPDATED: Enqueue confirm-terms.js file with proper dependencies
+
+function enqueue_confirm_terms_script() {
+    // Only load on checkout page or pages with Moneris payment shortcodes
+    if (is_checkout() || 
+        is_page(264127) || // Your checkout page ID
+        (is_singular() && (
+            has_shortcode(get_post()->post_content, 'moneris_payment_form') ||
+            has_shortcode(get_post()->post_content, 'moneris_complete_payment_button')
+        ))) {
+        
+        wp_enqueue_script(
+            'confirm-terms-js',
+            get_stylesheet_directory_uri() . '/js/confirm-terms.js',
+            array('jquery', 'monthly-billing-js'), // UPDATED: Add monthly-billing-js as dependency
+            '1.1.0', // Updated version for cache busting
+            true
+        );
+        
+        // Localize script with validation data
+        wp_localize_script('confirm-terms-js', 'confirmTerms', array(
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('checkout_nonce'),
+            'checkoutPageId' => 264127,
+            'validationEnabled' => true
+        ));
+    }
+}
+add_action('wp_enqueue_scripts', 'enqueue_confirm_terms_script');
+
+/**
+ * UPDATED: Enqueue payment gateway scripts with proper dependencies
+ */
+function enqueue_moneris_payment_assets() {
+    if (is_checkout() || 
+        has_shortcode(get_post()->post_content, 'moneris_payment_form') ||
+        has_shortcode(get_post()->post_content, 'moneris_complete_payment_button')) {
+        
+        wp_enqueue_script(
+            'moneris-payment-js',
+            get_stylesheet_directory_uri() . '/js/moneris-payment.js',
+            array('jquery', 'confirm-terms-js'), // UPDATED: Add confirm-terms-js as dependency
+            '1.1.0', // Updated version for cache busting
+            true
+        );
+        
+        wp_localize_script('moneris-payment-js', 'monerisPayment', array(
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('moneris_payment_nonce')
+        ));
+    }
+}
+// NOTE: Make sure this runs after the confirm-terms script is enqueued
+add_action('wp_enqueue_scripts', 'enqueue_moneris_payment_assets', 15);
+
+// ===== UPDATED: Enqueue checkout-cc-copy.js file to copy credit card credentials
+function enqueue_checkout_cc_copy_script() {
+    if (is_checkout() || is_page()) {
+        wp_enqueue_script(
+            'checkout-cc-copy',
+            get_stylesheet_directory_uri() . '/js/checkout-cc-copy.js',
+            array('jquery'),
+            '1.0.1', // Updated version
+            true
+        );
+    }
+}
+add_action('wp_enqueue_scripts', 'enqueue_checkout_cc_copy_script');
+
+// ====Enqueue Monthly Billing scripts and styles
+/*function enqueue_monthly_billing_assets() {
     // Only load on checkout page
     if (!is_checkout()) return;
     
@@ -345,15 +477,15 @@ function enqueue_monthly_billing_assets() {
          'checkoutNonce' => wp_create_nonce('checkout_nonce')  // Add this line
     ));
 }
-add_action('wp_enqueue_scripts', 'enqueue_monthly_billing_assets');
+add_action('wp_enqueue_scripts', 'enqueue_monthly_billing_assets'); */
 
 
 
 // ===== Enqueue checkout-cc-copy.js file to copy credit card credentails
 
 // Enqueue the checkout CC copy functionality
-function enqueue_checkout_cc_copy_script() {
-    if (is_checkout() || is_page() /* add specific page conditions */) {
+/*function enqueue_checkout_cc_copy_script() {
+    if (is_checkout() || is_page() ) {
         wp_enqueue_script(
             'checkout-cc-copy',
             get_stylesheet_directory_uri() . '/js/checkout-cc-copy.js',
@@ -363,7 +495,8 @@ function enqueue_checkout_cc_copy_script() {
         );
     }
 }
-add_action('wp_enqueue_scripts', 'enqueue_checkout_cc_copy_script');
+add_action('wp_enqueue_scripts', 'enqueue_checkout_cc_copy_script'); 
+*/
 
 
 // ===== Enqueue confirm-terms.js file to incorporate confirm terms and conditions logic
@@ -373,7 +506,7 @@ add_action('wp_enqueue_scripts', 'enqueue_checkout_cc_copy_script');
  * Add this function to your functions.php file
  */
 
-function enqueue_confirm_terms_script() {
+/*function enqueue_confirm_terms_script() {
     // Only load on checkout page or pages with Moneris payment shortcodes
     if (is_checkout() || 
         is_page(264127) || // Your checkout page ID
@@ -404,7 +537,7 @@ function enqueue_confirm_terms_script() {
 }
 
 // Hook the function to wp_enqueue_scripts
-add_action('wp_enqueue_scripts', 'enqueue_confirm_terms_script');
+add_action('wp_enqueue_scripts', 'enqueue_confirm_terms_script'); */
 
 
 // Add Filter to Exclude Pay Later Product From Being Added to Monthly Summary
@@ -683,7 +816,7 @@ function get_moneris_config() {
 /**
  * UPDATED: =====Enqueue payment gateway scripts (updated to handle separate button)
  */
-function enqueue_moneris_payment_assets() {
+/* function enqueue_moneris_payment_assets() {
     if (is_checkout() || 
         has_shortcode(get_post()->post_content, 'moneris_payment_form') ||
         has_shortcode(get_post()->post_content, 'moneris_complete_payment_button')) {
@@ -701,7 +834,7 @@ function enqueue_moneris_payment_assets() {
             'nonce' => wp_create_nonce('moneris_payment_nonce')
         ));
     }
-}
+} */
 
 
 
@@ -803,7 +936,6 @@ function moneris_complete_payment_button_shortcode($atts) {
                 data-redirect-url="<?php echo esc_url($atts['redirect_url']); ?>">
             <?php echo esc_html($atts['button_text']); ?>
         </button>
-        <div class="moneris-payment-validation-message"></div>
     </div>
     <?php
     return ob_get_clean();
