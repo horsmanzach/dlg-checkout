@@ -35,29 +35,76 @@ jQuery(document).ready(function ($) {
     function jumpToScreen(screenNumber) {
         console.log('Jumping to screen:', screenNumber);
 
-        // Calculate how many steps to move from screen 1 to target screen
-        const stepsToMove = screenNumber - 1;
+        // Kill all existing animations
+        gsap.killTweensOf('.checkout-container [id^="screen"]');
 
-        // Move all screens to their target positions instantly
+        // Hide all screens first
         for (let i = 1; i <= totalScreens; i++) {
             const screen = $(`#screen${i}`);
-            const offset = (i - screenNumber) * 100; // Calculate offset percentage
 
-            // Use GSAP to set position instantly (duration: 0)
+            // Completely reset the element
             gsap.set(screen, {
-                x: `${offset}%`,
-                opacity: i === screenNumber ? 1 : 0
+                x: 0,
+                y: 0,
+                opacity: 0,
+                scale: 1,
+                rotation: 0,
+                clearProps: "transform",
+                display: 'none'
             });
         }
 
-        currentScreen = screenNumber;
-        updateButtonStates();
-
-        // Adjust container height after positioning
+        // Use a timeout to ensure the reset is complete
         setTimeout(() => {
-            adjustContainerHeight();
-            scrollToTop();
-        }, 50);
+            // Now show and position screens one by one
+            for (let i = 1; i <= totalScreens; i++) {
+                const screen = $(`#screen${i}`);
+
+                // Make sure the screen is visible in DOM
+                screen.css('display', 'block');
+
+                if (i === screenNumber) {
+                    // Target screen - center it and make visible
+                    gsap.set(screen, {
+                        x: '0%',
+                        opacity: 1
+                    });
+                    console.log(`Screen ${i} positioned at center (0%)`);
+                } else if (i < screenNumber) {
+                    // Screens before target - position to the left
+                    gsap.set(screen, {
+                        x: '-100%',
+                        opacity: 0
+                    });
+                    console.log(`Screen ${i} positioned to left (-100%)`);
+                } else {
+                    // Screens after target - position to the right
+                    gsap.set(screen, {
+                        x: '100%',
+                        opacity: 0
+                    });
+                    console.log(`Screen ${i} positioned to right (100%)`);
+                }
+            }
+
+            currentScreen = screenNumber;
+            updateButtonStates();
+
+            // Final adjustments
+            setTimeout(() => {
+                adjustContainerHeight();
+                scrollToTop();
+
+                // Log the final state for debugging
+                console.log('Final screen positions:');
+                for (let i = 1; i <= totalScreens; i++) {
+                    const screen = $(`#screen${i}`);
+                    const transform = screen.css('transform');
+                    const opacity = screen.css('opacity');
+                    console.log(`Screen ${i}: transform=${transform}, opacity=${opacity}`);
+                }
+            }, 150);
+        }, 100);
     }
 
     // Check for hash navigation after the page loads
@@ -222,56 +269,76 @@ jQuery(document).ready(function ($) {
                     console.log('Installation requirements met - enabling button');
                     $nextBtn.removeClass('disabled');
                 } else {
-                    console.log('Installation requirements NOT met - disabling button');
+                    console.log('Installation requirements not met - disabling button');
                     $nextBtn.addClass('disabled');
                 }
                 break;
 
-            case 2: // Modem screen (reordered from case 1)
+            case 2: // Modems screen
                 const modemSelected = $('.modem-row-selected').length;
+                const ownModemValid = validateOwnModemInput();
 
-                // Special check for "own modem" selection
-                let ownModemValid = true;
-                const $selectedOwnModem = $('.modem-4.modem-row-selected');
-                if ($selectedOwnModem.length) {
-                    const $input = $selectedOwnModem.find('.own-modem-input');
-                    const inputValue = $input.val().trim();
-                    ownModemValid = inputValue.length >= 5 && inputValue.length <= 100;
-                }
+                console.log('Modem row selected count:', modemSelected);
+                console.log('Own modem validation passed:', ownModemValid);
 
-                console.log('Modem selected count:', modemSelected);
-                console.log('Own modem valid:', ownModemValid);
-
-                if (modemSelected && ownModemValid) {
+                if (modemSelected || ownModemValid) {
+                    console.log('Modem requirements met - enabling button');
                     $nextBtn.removeClass('disabled');
                 } else {
+                    console.log('Modem requirements not met - disabling button');
                     $nextBtn.addClass('disabled');
                 }
                 break;
 
             case 3: // TV screen
                 const tvSelected = $('.tv-row-selected').length;
-                console.log('TV selected count:', tvSelected);
+                console.log('TV row selected count:', tvSelected);
+
                 if (tvSelected) {
+                    console.log('TV requirements met - enabling button');
                     $nextBtn.removeClass('disabled');
                 } else {
+                    console.log('TV requirements not met - disabling button');
                     $nextBtn.addClass('disabled');
                 }
                 break;
 
             case 4: // Phone screen
                 const phoneSelected = $('.phone-row-selected').length;
-                console.log('Phone selected count:', phoneSelected);
+                console.log('Phone row selected count:', phoneSelected);
+
                 if (phoneSelected) {
+                    console.log('Phone requirements met - enabling button');
                     $nextBtn.removeClass('disabled');
                 } else {
+                    console.log('Phone requirements not met - disabling button');
                     $nextBtn.addClass('disabled');
                 }
                 break;
+
+            default:
+                console.log('Unknown screen - disabling button');
+                $nextBtn.addClass('disabled');
+                break;
         }
 
-        console.log('Next button disabled?', $nextBtn.hasClass('disabled'));
+        console.log('Next button disabled state:', $nextBtn.hasClass('disabled'));
         console.log('=== END UPDATE BUTTON STATES ===');
+    }
+
+    // Function to validate own modem input
+    function validateOwnModemInput() {
+        let isValid = false;
+        $('.own-modem-input').each(function () {
+            const $input = $(this);
+            const $row = $input.closest('[class*="modem-"]');
+
+            if ($row.hasClass('modem-row-selected') && $input.val().trim().length >= 5) {
+                isValid = true;
+                return false; // Break out of each loop
+            }
+        });
+        return isValid;
     }
 
     // Function to show/hide the Skip to Checkout button based on whether user came from checkout
