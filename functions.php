@@ -1678,12 +1678,20 @@ function get_cart_items_ajax() {
     check_ajax_referer('modem_selection_nonce', 'nonce');
     
     $items = array();
+    $modem_details = '';
+    
     foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
         $items[] = $cart_item['product_id'];
+        
+        // Check if this is the "I Have My Own Modem" product and get the details
+        if ($cart_item['product_id'] == 265769 && isset($cart_item['modem_details'])) {
+            $modem_details = $cart_item['modem_details'];
+        }
     }
     
     wp_send_json_success(array(
-        'items' => $items
+        'items' => $items,
+        'modem_details' => $modem_details
     ));
     
     wp_die();
@@ -2523,13 +2531,9 @@ function edit_order_popup_shortcode() {
 add_shortcode('edit_order_popup', 'edit_order_popup_shortcode');
 
 
-/*========Add Total Monthly Cost Shortcode=======*/
+/*========Total Monthly Fee Shortcode=======*/
 
-/**
- * Monthly Fee Total Shortcode
- * Displays only the total monthly fee amount (same as monthly_fee_summary_shortcode total)
- * Now includes promotional pricing discounts
- */
+
 function monthly_fee_total_shortcode($atts) {
     global $post;
     
@@ -2574,7 +2578,7 @@ function monthly_fee_total_shortcode($atts) {
                         $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
                     }
                     
-                    // Get promotional pricing discount
+                    // Get promotional pricing (CORRECTED: Use as replacement value, not discount)
                     $monthly_promo_fee = 0;
                     if (function_exists('get_field')) {
                         $monthly_promo_fee = get_field('monthly_promo_fee', $current_product_id);
@@ -2584,9 +2588,8 @@ function monthly_fee_total_shortcode($atts) {
                         $monthly_promo_fee = is_numeric($monthly_promo_fee) ? floatval($monthly_promo_fee) : 0;
                     }
                     
-                    // Calculate final fee (original fee minus promo discount)
-                    $final_monthly_fee = $monthly_fee - $monthly_promo_fee;
-                    $final_monthly_fee = max(0, $final_monthly_fee); // Ensure it doesn't go below 0
+                    // Use promo fee as the final price if it exists, otherwise use regular fee
+                    $final_monthly_fee = $monthly_promo_fee > 0 ? $monthly_promo_fee : $monthly_fee;
                     
                     $subtotal += $final_monthly_fee;
                 }
@@ -2625,7 +2628,7 @@ function monthly_fee_total_shortcode($atts) {
             $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
         }
         
-        // Get promotional pricing discount for this product
+        // Get promotional pricing (CORRECTED: Use as replacement value, not discount)
         $monthly_promo_fee = 0;
         if (function_exists('get_field')) {
             $monthly_promo_fee = get_field('monthly_promo_fee', $product_id);
@@ -2635,14 +2638,13 @@ function monthly_fee_total_shortcode($atts) {
             $monthly_promo_fee = is_numeric($monthly_promo_fee) ? floatval($monthly_promo_fee) : 0;
         }
         
-        // Calculate final fee (original fee minus promo discount)
-        $final_monthly_fee = $monthly_fee - $monthly_promo_fee;
-        $final_monthly_fee = max(0, $final_monthly_fee); // Ensure it doesn't go below 0
+        // Use promo fee as the final price if it exists, otherwise use regular fee
+        $final_monthly_fee = $monthly_promo_fee > 0 ? $monthly_promo_fee : $monthly_fee;
         
         $subtotal += $final_monthly_fee * $cart_item['quantity'];
     }
     
-    // Calculate tax on monthly fees (using discounted subtotal)
+    // Calculate tax on monthly fees (using promotional subtotal)
     $tax_total = 0;
     if (wc_tax_enabled()) {
         $tax_rates = WC_Tax::get_rates();
@@ -3555,106 +3557,6 @@ function remove_category_product() {
 }
 
 
-// ------- MONTHLY SUMMARY SHORTCODE FUNCTION
-
-/*function display_monthly_fees_summary_shortcode() {
-    // Ensure WooCommerce cart is initialized
-    if (!is_object(WC()->cart)) {
-        WC()->cart = new WC_Cart();
-    }
-
-    $cart = WC()->cart;
-
-    // Get the current product ID from the URL
-    global $post;
-    $main_product_id = $post->ID;
-    $main_product = wc_get_product($main_product_id);
-    $main_product_title = $main_product->get_name();
-    $main_product_monthly_fee = get_post_meta($main_product_id, 'monthly_fee', true);
-
-    // Get the product's category
-    $terms = get_the_terms($main_product_id, 'product_cat');
-    $main_product_category = '';
-    if ($terms && !is_wp_error($terms)) {
-        $main_product_category = $terms[0]->name;
-    }
-
-    // Calculate the monthly subtotal, including the main composite product's fee
-    $total_monthly_fee_subtotal = $main_product_monthly_fee ? $main_product_monthly_fee : 0;
-    $total_monthly_fee_subtotal += calculate_monthly_fees_subtotal();
-
-    // Calculate the tax for the main product's monthly fee
-    $main_product_tax = 0;
-    if ($main_product_monthly_fee) {
-        $tax_rates = WC_Tax::get_rates();
-        $main_product_tax = array_sum(WC_Tax::calc_tax($main_product_monthly_fee, $tax_rates, false));
-    }
-
-    // Calculate the total tax, including the main composite product's tax
-    $total_monthly_fee_tax = $main_product_tax + calculate_monthly_fees_tax();
-
-    // Calculate the total monthly fee
-    $total_monthly_fee = $total_monthly_fee_subtotal + $total_monthly_fee_tax;
-
-    $output = '<h4>' . __('Your Monthly Summary ', 'woocommerce') . '</h4>';
-    $output .= '<p style="margin-bottom: 10px; line-height: 1.2em;">This amount will be billed to you on a monthly basis starting next month</p>';
-    $output .= '<table class="shop_table shop_table_responsive monthly_summary_table">';
-
-    // Display the main composite product as the first item
-    if ($main_product_monthly_fee) {
-        $output .= '<tr class="individual-monthly-fee" data-product-id="' . esc_attr($main_product_id) . '">
-            <th>' . esc_html($main_product_title) . '<br/><span class="product-categories">Category: ' . esc_html($main_product_category) . '</span></th>
-            <td>' . wc_price($main_product_monthly_fee) . '</td>
-        </tr>';
-    } 
-
-    // Display the selected components
-    foreach ($cart->get_cart() as $cart_item) {
-        $product = $cart_item['data'];
-        $product_title = $product->get_name();
-        $product_categories = wc_get_product_category_list($product->get_id(), ', ', '<span class="product-categories">', '</span>');
-        $monthly_fee = isset($cart_item['monthly_fee']) ? $cart_item['monthly_fee'] : 0;
-        $quantity = $cart_item['quantity'];
-        $product_monthly_fee_total = $monthly_fee * $quantity;
-
-        // Skip the main product if it's already added
-        if ($cart_item['product_id'] == $main_product_id) {
-            continue;
-        }
-
-        $output .= '<tr class="individual-monthly-fee">
-            <th>' . $product_title . '<br/>' . $product_categories . '</th>
-            <td>' . wc_price($product_monthly_fee_total) . '</td>
-        </tr>';
-    }
-
-    // Always display subtotal, tax, and total rows
-    $output .= '<tr class="total-monthly-fees-subtotal">
-        <th>' . __('Monthly Subtotal', 'woocommerce') . '</th>
-        <td>' . wc_price($total_monthly_fee_subtotal) . '</td>
-    </tr>';
-    $output .= '<tr class="total-monthly-fees-tax">
-        <th>' . __('Monthly Tax', 'woocommerce') . '</th>
-        <td class="monthly-fee-tax">' . wc_price($total_monthly_fee_tax) . '</td>
-    </tr>';
-    $output .= '<tr class="total-monthly-fees">
-        <th>' . __('Total Monthly Fees', 'woocommerce') . '</th>
-        <td>' . wc_price($total_monthly_fee) . '</td>
-    </tr>';
-
-    $output .= '</table>';
-
-    return $output;
-}
-
-add_shortcode('monthly_fees_summary', 'display_monthly_fees_summary_shortcode');
-
-*/
-
-
-
-// Hide shipping costs in the checkout order review table
-// add_filter('woocommerce_cart_totals_shipping_html', '__return_empty_string');
 
 /*============Monthly Fee Summary AJAX Functions ============*/
 
