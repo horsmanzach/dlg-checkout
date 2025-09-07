@@ -169,8 +169,9 @@ jQuery(document).ready(function ($) {
     }
 
     /**
-     * Disable the Moneris payment button (OPTIMIZED - only updates when needed)
-     */
+   * Disable the Moneris payment button (OPTIMIZED - only updates when needed)
+   * UPDATED: Added different styling for success vs error messages
+   */
     function disableMonerisButton($monerisBtn, termsOk, monthlyBillingOk) {
         console.log('Disabling Moneris payment button - requirements not met');
 
@@ -190,33 +191,51 @@ jQuery(document).ready(function ($) {
 
         let messages = [];
         if (!monthlyBillingOk) {
-            messages.push('✗ Select and validate a monthly billing method (Credit Card, Bank Account, or Pay After)');
+            messages.push({
+                text: '✗ Select and validate a monthly billing method (Credit Card, Bank Account, or Pay After)',
+                type: 'error'
+            });
         } else {
-            messages.push('✓ Monthly billing method validated');
+            messages.push({
+                text: '✓ Monthly billing method validated',
+                type: 'success'
+            });
         }
 
         if (!termsOk) {
-            messages.push('✗ Confirm Terms & Conditions');
+            messages.push({
+                text: '✗ Confirm Terms & Conditions',
+                type: 'error'
+            });
         } else {
-            messages.push('✓ Terms & Conditions confirmed');
+            messages.push({
+                text: '✓ Terms & Conditions confirmed',
+                type: 'success'
+            });
         }
 
-        const newMessageContent = messages.join('');
+        // Create content signature for comparison (just the text)
+        const newMessageContent = messages.map(msg => msg.text).join('');
 
         // Only update if message doesn't exist or content is different
         if ($existingMessage.length === 0 || $existingMessage.data('content') !== newMessageContent) {
             $existingMessage.remove(); // Remove old message
 
+            // Build the message HTML with individual styling for each message
+            let messagesHtml = messages.map(msg => {
+                const color = msg.type === 'success' ? '#139948' : '#dc3545'; // Green for success, red for error
+                return `<div style="margin: 3px 0; color: ${color};">${msg.text}</div>`;
+            }).join('');
+
             const messageHtml = '<div class="validation-requirement-message" data-content="' +
-                newMessageContent + '" style="color: #dc3545; font-size: 14px; margin-top: 10px; text-align: center;">' +
-                '<div style="margin-bottom: 5px;"><strong>Payment Requirements:</strong></div>' +
-                messages.map(msg => '<div style="margin: 3px 0;">' + msg + '</div>').join('') +
+                newMessageContent + '" style="font-size: 14px; margin-top: 10px; text-align: center;">' +
+                messagesHtml +
                 '</div>';
 
             $container.append(messageHtml);
+            console.log('Updated validation requirement message with colored styling');
         }
     }
-
     /**
      * Event-driven monthly billing monitoring (NO POLLING)
      */
