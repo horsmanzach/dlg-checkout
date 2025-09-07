@@ -238,42 +238,48 @@ jQuery(document).ready(function ($) {
 
     // Function to check cart and highlight selected row
 
-function checkCartAndHighlight() {
-    $.ajax({
-        type: 'POST',
-        url: modem_selection_vars.ajax_url,
-        data: {
-            action: 'get_cart_items',
-            nonce: modem_selection_vars.nonce
-        },
-        success: function (response) {
-            if (response.success && response.data.items.length > 0) {
-                const cartItems = response.data.items;
+    function checkCartAndHighlight() {
+        $.ajax({
+            type: 'POST',
+            url: modem_selection_vars.ajax_url,
+            data: {
+                action: 'get_cart_items',
+                nonce: modem_selection_vars.nonce
+            },
+            success: function (response) {
+                if (response.success && response.data.items.length > 0) {
+                    const cartItems = response.data.items;
+                    const modemDetails = response.data.modem_details || '';
 
-                // Find which modem rows have products in cart and highlight them
-                for (const [rowClass, productId] of Object.entries(modemRows)) {
-                    if (cartItems.includes(productId)) {
-                        $(`.${rowClass}`).addClass('modem-row-selected');
+                    // Find which modem rows have products in cart and highlight them
+                    for (const [rowClass, productId] of Object.entries(modemRows)) {
+                        if (cartItems.includes(productId)) {
+                            $(`.${rowClass}`).addClass('modem-row-selected');
+
+                            // If this is the "I Have My Own Modem" product (265769), populate the input field
+                            if (productId === 265769 && modemDetails) {
+                                $(`.${rowClass} .own-modem-input`).val(modemDetails);
+                            }
+                        }
                     }
-                }
 
-                // Find which phone rows have products in cart and highlight them
-                for (const [rowClass, productId] of Object.entries(phoneRows)) {
-                    if (cartItems.includes(productId)) {
-                        $(`.${rowClass}`).addClass('phone-row-selected');
+                    // Find which phone rows have products in cart and highlight them
+                    for (const [rowClass, productId] of Object.entries(phoneRows)) {
+                        if (cartItems.includes(productId)) {
+                            $(`.${rowClass}`).addClass('phone-row-selected');
+                        }
                     }
-                }
 
-                // Find which TV rows have products in cart and highlight them
-                for (const [rowClass, productId] of Object.entries(tvRows)) {
-                    if (cartItems.includes(productId)) {
-                        $(`.${rowClass}`).addClass('tv-row-selected');
+                    // Find which TV rows have products in cart and highlight them
+                    for (const [rowClass, productId] of Object.entries(tvRows)) {
+                        if (cartItems.includes(productId)) {
+                            $(`.${rowClass}`).addClass('tv-row-selected');
+                        }
                     }
                 }
             }
-        }
-    });
-}
+        });
+    }
 
     // Function to add own modem to cart with details
     function addOwnModemToCart(productId, modemDetails) {
