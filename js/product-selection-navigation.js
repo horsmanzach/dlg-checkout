@@ -4,11 +4,13 @@ jQuery(document).ready(function ($) {
     const totalScreens = 4;
     const finalSlideRedirectUrl = 'https://diallog.magnaprototype.com/checkout';
     let cameFromCheckout = false;
+    initializeProgressBarClicks();
 
     // Initialize container height based on first screen
     adjustContainerHeight();
     updateButtonStates();
     updateCheckoutButtonVisibility();
+    updateCheckoutButtonState(); 
 
     // Handle hash-based navigation on page load
     function initializeFromHash() {
@@ -18,7 +20,7 @@ jQuery(document).ready(function ($) {
             const match = hash.match(/^#screen(\d+)$/);
             if (match) {
                 const targetScreen = parseInt(match[1]);
-                if (targetScreen >= 1 && targetScreen <= totalScreens && targetScreen !== 1) {
+                if (targetScreen >= 1 && targetScreen <= totalScreens) {
                     console.log('Navigating to screen from hash:', targetScreen);
                     // User came from checkout if they have a hash URL
                     cameFromCheckout = true;
@@ -53,6 +55,7 @@ jQuery(document).ready(function ($) {
                 display: 'none'
             });
         }
+        
 
         // Use a timeout to ensure the reset is complete
         setTimeout(() => {
@@ -89,6 +92,7 @@ jQuery(document).ready(function ($) {
 
             currentScreen = screenNumber;
             updateButtonStates();
+            updateProgressBar(currentScreen);
 
             // Final adjustments
             setTimeout(() => {
@@ -176,6 +180,7 @@ jQuery(document).ready(function ($) {
 
             currentScreen++;
             updateButtonStates();
+            updateProgressBar(currentScreen);
             updateCheckoutButtonVisibility();
 
             // Update URL hash
@@ -224,6 +229,7 @@ jQuery(document).ready(function ($) {
 
             currentScreen--;
             updateButtonStates();
+            updateProgressBar(currentScreen);
             updateCheckoutButtonVisibility();
 
             // Update URL hash
@@ -238,6 +244,125 @@ jQuery(document).ready(function ($) {
             history.replaceState(null, '', newHash);
         }
     }
+
+    // ---- Update SVG Progress Bar
+
+    function updateProgressBar(currentStep) {
+    console.log('Updating progress bar for step:', currentStep);
+    
+    // Get the SVG element
+    const $progressBar = $('#progress-bar');
+    if (!$progressBar.length) {
+        console.log('Progress bar SVG not found');
+        return;
+    }
+    
+    // Reset all steps first
+    $progressBar.find('.step-group').each(function() {
+        const $step = $(this);
+        const stepNumber = parseInt($step.attr('data-step'));
+        const $circle = $step.find('circle');
+        const $text = $step.find('text');
+        
+        if (stepNumber < currentStep) {
+            // Previous steps - completed and clickable
+            $step.removeClass('current-step disabled-step').addClass('clickable-step');
+            $circle.attr('fill', '#81C784').attr('stroke', '#2E7D32');
+            $text.attr('fill', 'white');
+        } else if (stepNumber === currentStep) {
+            // Current step - active
+            $step.removeClass('clickable-step disabled-step').addClass('current-step');
+            $circle.attr('fill', '#4CAF50').attr('stroke', '#2E7D32');
+            $text.attr('fill', 'white');
+        } else {
+            // Future steps - disabled
+            $step.removeClass('current-step clickable-step').addClass('disabled-step');
+            $circle.attr('fill', '#DDDDDD').attr('stroke', '#BBBBBB');
+            $text.attr('fill', '#666666');
+        }
+    });
+
+      // Update connecting lines
+    $progressBar.find('line').each(function() {
+        const $line = $(this);
+        const x1 = parseInt($line.attr('x1'));
+        const x2 = parseInt($line.attr('x2'));
+        
+        // Determine which step this line connects based on x coordinates
+        let lineStep = 0;
+        if (x1 === 90 && x2 === 170) lineStep = 1; // Line 1-2
+        else if (x1 === 210 && x2 === 290) lineStep = 2; // Line 2-3
+        else if (x1 === 330 && x2 === 410) lineStep = 3; // Line 3-4
+        
+        if (lineStep < currentStep) {
+            // Line before current step - green
+            $line.attr('stroke', '#4CAF50');
+        } else {
+            // Line at or after current step - grey
+            $line.attr('stroke', '#DDDDDD');
+        }
+    });
+    }
+
+// Add click handlers for progress bar navigation
+function initializeProgressBarClicks() {
+    $(document).on('click', '.step-group.clickable-step', function() {
+        const targetStep = parseInt($(this).attr('data-step'));
+        console.log('Progress bar clicked, navigating to step:', targetStep);
+        
+        if (targetStep < currentScreen) {
+            // Allow navigation to previous completed steps
+            navigateToScreen(targetStep);
+        }
+    });
+}
+
+
+// Function to navigate directly to a specific screen
+function navigateToScreen(targetScreen) {
+    if (targetScreen === currentScreen) return;
+    
+    const currentEl = $(`#screen${currentScreen}`);
+    const targetEl = $(`#screen${targetScreen}`);
+    
+    // Scroll to top first
+    scrollToTop();
+    
+    // Determine animation direction
+    const direction = targetScreen > currentScreen ? 1 : -1;
+    
+    // Animate current screen out
+    gsap.to(currentEl, {
+        duration: 0.5,
+        x: direction > 0 ? '-100%' : '100%',
+        opacity: 0,
+        ease: 'power2.inOut'
+    });
+    
+    // Animate target screen in
+    gsap.fromTo(targetEl,
+        {
+            x: direction > 0 ? '100%' : '-100%',
+            opacity: 0
+        },
+        {
+            duration: 0.5,
+            x: '0%',
+            opacity: 1,
+            ease: 'power2.inOut',
+            onComplete: function () {
+                adjustContainerHeight();
+            }
+        }
+    );
+    
+    currentScreen = targetScreen;
+    updateButtonStates();
+    updateProgressBar(currentScreen);
+    updateCheckoutButtonVisibility();
+    updateHash(currentScreen);
+}
+    
 
     // Function to update button states based on current screen and selections (keeping original logic)
     function updateButtonStates() {
@@ -323,6 +448,11 @@ jQuery(document).ready(function ($) {
         }
 
         console.log('Next button disabled state:', $nextBtn.hasClass('disabled'));
+
+        
+        updateCheckoutButtonState();
+        updateProgressBar(currentScreen);
+
         console.log('=== END UPDATE BUTTON STATES ===');
     }
 
@@ -354,37 +484,134 @@ jQuery(document).ready(function ($) {
         }
     }
 
-    // Handle Skip to Checkout button click
-    $('.checkout-btn').click(function () {
-        console.log('Skip to Checkout button clicked');
-        window.location.href = finalSlideRedirectUrl;
+
+    // Function to validate all product selection requirements
+function validateAllSelections() {
+    console.log('=== VALIDATING ALL SELECTIONS ===');
+    
+    // Check Installation screen (screen 1)
+    const installationSelected = $('.installation-row-selected').length;
+    const preferredChecked = $('.preferred-date-radio:checked').length;
+    const secondaryChecked = $('.secondary-date-radio:checked').length;
+    const installationValid = installationSelected || (preferredChecked && secondaryChecked);
+    
+    console.log('Installation validation:', {
+        installationSelected,
+        preferredChecked,
+        secondaryChecked,
+        valid: installationValid
     });
+    
+    if (!installationValid) {
+        console.log('❌ Installation requirements not met');
+        return false;
+    }
 
-    // Check for card selections and update button states (keeping original logic)
-    $(document).on('click', '.modem-0, .modem-1, .modem-2, .modem-3, .modem-4, .installation-row, .tv-0, .tv-1, .tv-2, .phone-0, .phone-1, .phone-2', function () {
-        setTimeout(updateButtonStates, 300); // Small delay to ensure classes are updated
+    // Check Modems screen (screen 2) 
+    const modemSelected = $('.modem-row-selected').length;
+    const ownModemValid = validateOwnModemInput();
+    const modemValid = modemSelected || ownModemValid;
+    
+    console.log('Modem validation:', {
+        modemSelected,
+        ownModemValid,
+        valid: modemValid
     });
+    
+    if (!modemValid) {
+        console.log('❌ Modem requirements not met');
+        return false;
+    }
 
-    // Listen for changes to radio buttons for installation
-    $(document).on('change', '.preferred-date-radio, .secondary-date-radio', function () {
-        console.log('Installation date radio changed');
-        setTimeout(updateButtonStates, 500);
+    // Check TV screen (screen 3)
+    const tvSelected = $('.tv-row-selected').length;
+    
+    console.log('TV validation:', {
+        tvSelected,
+        valid: tvSelected > 0
     });
+    
+    if (!tvSelected) {
+        console.log('❌ TV requirements not met');
+        return false;
+    }
 
-    // Listen for input changes on own modem field
-    $(document).on('input', '.own-modem-input', function () {
-        const $input = $(this);
-        const $row = $input.closest('[class*="modem-"]');
+    // Check Phone screen (screen 4)
+    const phoneSelected = $('.phone-row-selected').length;
+    
+    console.log('Phone validation:', {
+        phoneSelected,
+        valid: phoneSelected > 0
+    });
+    
+    if (!phoneSelected) {
+        console.log('❌ Phone requirements not met');
+        return false;
+    }
 
-        // Clear validation errors if input is valid
-        if ($input.val().trim().length >= 5) {
-            $input.removeClass('error');
-            $row.find('.own-modem-error').hide();
+    console.log('✅ All selection requirements met');
+    return true;
+}
+
+// Also update the checkout button state based on validation
+function updateCheckoutButtonState() {
+    const $checkoutBtn = $('.checkout-btn');
+    
+    if (cameFromCheckout && $checkoutBtn.is(':visible')) {
+        // Only check validation if the button is visible
+        const allValid = validateAllSelections();
+        
+        if (allValid) {
+            $checkoutBtn.removeClass('disabled');
+            console.log('Checkout button enabled - all selections valid');
+        } else {
+            $checkoutBtn.addClass('disabled');
+            console.log('Checkout button disabled - missing selections');
         }
+    }
+}
 
-        // Update button states when input changes
+
+  // Updated Skip to Checkout button click handler with validation
+$('.checkout-btn').click(function () {
+    console.log('Skip to Checkout button clicked');
+    
+    // Validate all selections before proceeding
+    if (!validateAllSelections()) {
+        // Show user-friendly error message
+        alert('Please make sure you have selected an option for each category (Installation, Modem, TV, and Phone) before proceeding to checkout.');
+        return; // Don't proceed if validation fails
+    }
+    
+    // If validation passes, proceed to checkout
+    console.log('All validations passed - proceeding to checkout');
+    window.location.href = finalSlideRedirectUrl;
+});
+
+    // Make sure to call updateCheckoutButtonState when selections change
+$(document).on('click', '.modem-0, .modem-1, .modem-2, .modem-3, .modem-4, .installation-row, .tv-0, .tv-1, .tv-2, .phone-0, .phone-1, .phone-2', function () {
+    setTimeout(function() {
+        updateButtonStates(); // This now includes checkout button validation
+        updateCheckoutButtonState(); // Extra call for safety
+    }, 300);
+});
+
+// Also update on radio button changes
+$(document).on('change', '.preferred-date-radio, .secondary-date-radio', function () {
+    console.log('Installation date radio changed');
+    setTimeout(function() {
         updateButtonStates();
-    });
+        updateCheckoutButtonState();
+    }, 500);
+});
+
+// Update on own modem input changes
+$(document).on('input', '.own-modem-input', function () {
+    setTimeout(function() {
+        updateButtonStates();
+        updateCheckoutButtonState();
+    }, 300);
+});
 
     // Alternative: Use MutationObserver for class changes
     const installationRows = document.querySelectorAll('.installation-row');
