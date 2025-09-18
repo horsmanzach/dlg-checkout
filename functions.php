@@ -12,6 +12,105 @@ function add_step8_script() {
 }
 */ 
 
+/*Block Hubspot*/
+
+function completely_block_hubspot_on_staging() {
+    // Check if staging site
+    $staging_domains = array('diallog.magnaprototype.com');
+    
+    if (in_array($_SERVER['HTTP_HOST'], $staging_domains)) {
+        add_action('wp_head', function() {
+            echo '<script>
+                // Complete HubSpot blocking
+                (function() {
+                    // Block all HubSpot functions immediately
+                    window._hsq = [];
+                    window._hsq.push = function() { return false; };
+                    window.hbspt = { 
+                        forms: { create: function() { return false; } },
+                        cta: { load: function() { return false; } },
+                        chat: { 
+                            load: function() { return false; },
+                            widget: { load: function() { return false; } }
+                        }
+                    };
+                    
+                    // Block HubSpot tracking
+                    window.hubspot = function() { return false; };
+                    window._hsp = [];
+                    
+                    // Override XMLHttpRequest to block HubSpot requests
+                    var originalOpen = XMLHttpRequest.prototype.open;
+                    XMLHttpRequest.prototype.open = function(method, url) {
+                        if (url.includes("hubspot.com") || 
+                            url.includes("hsappstatic.net") || 
+                            url.includes("hs-scripts.com") ||
+                            url.includes("hsforms.com")) {
+                            return false;
+                        }
+                        return originalOpen.apply(this, arguments);
+                    };
+                    
+                    // Override fetch to block HubSpot requests
+                    var originalFetch = window.fetch;
+                    window.fetch = function(url, options) {
+                        if (typeof url === "string" && 
+                            (url.includes("hubspot.com") || 
+                             url.includes("hsappstatic.net") || 
+                             url.includes("hs-scripts.com") ||
+                             url.includes("hsforms.com"))) {
+                            return Promise.reject(new Error("HubSpot blocked"));
+                        }
+                        return originalFetch.apply(this, arguments);
+                    };
+                    
+                    // Remove HubSpot elements continuously
+                    function removeHubSpotElements() {
+                        // Remove chat widget
+                        var chatWidget = document.querySelector("#hubspot-messages-iframe-container, [id*=hubspot], [class*=hubspot], [data-hubspot-rendered], .hs-richtext");
+                        if (chatWidget) {
+                            chatWidget.remove();
+                        }
+                        
+                        // Remove all HubSpot scripts
+                        var hsScripts = document.querySelectorAll("script[src*=\"hubspot\"], script[src*=\"hs-scripts\"], script[src*=\"hsforms\"], script[src*=\"hsappstatic\"]");
+                        hsScripts.forEach(function(script) {
+                            script.remove();
+                        });
+                        
+                        // Remove HubSpot iframes
+                        var hsIframes = document.querySelectorAll("iframe[src*=\"hubspot\"], iframe[id*=\"hubspot\"]");
+                        hsIframes.forEach(function(iframe) {
+                            iframe.remove();
+                        });
+                    }
+                    
+                    // Run removal on page load and continuously
+                    document.addEventListener("DOMContentLoaded", removeHubSpotElements);
+                    setInterval(removeHubSpotElements, 1000);
+                    
+                })();
+            </script>';
+        }, 1);
+        
+        // Also add CSS to hide any remaining HubSpot elements
+        add_action('wp_head', function() {
+            echo '<style>
+                [id*="hubspot"], 
+                [class*="hubspot"], 
+                [data-hubspot-rendered],
+                .hs-richtext,
+                #hubspot-messages-iframe-container {
+                    display: none !important;
+                    visibility: hidden !important;
+                    opacity: 0 !important;
+                }
+            </style>';
+        });
+    }
+}
+add_action('init', 'completely_block_hubspot_on_staging');
+
 function verify_card_ex($payment_info) {
 
 	$mpg_response = VerifyCard( $payment_info );
@@ -2795,52 +2894,61 @@ function upfront_fee_total_shortcode($atts) {
     $cart = WC()->cart;
     
     if ($cart->is_empty()) {
-        return '$0.00';
-    }
-    
-    $subtotal = 0;
-    $deposit_total = 0;
-    
-    // Loop through cart items
-    foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
-        $product = $cart_item['data'];
-        $product_id = $product->get_id();
-        $product_price = $product->get_price();
-        $subtotal += $product_price;
+        $total_display = '$0.00';
+    } else {
+        $subtotal = 0;
+        $deposit_total = 0;
         
-        // Get deposit fee
-        $deposit_fee = 0;
-        if (function_exists('get_field')) {
-            $deposit_fee = get_field('deposit-fee', $product_id);
+        // Loop through cart items
+        foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
+            $product = $cart_item['data'];
+            $product_id = $product->get_id();
+            $product_price = $product->get_price();
+            $subtotal += $product_price;
             
-            // If direct approach fails, try with product_ prefix
-            if (empty($deposit_fee) && $deposit_fee !== '0') {
-                $deposit_fee = get_field('deposit-fee', 'product_' . $product_id);
+            // Get deposit fee
+            $deposit_fee = 0;
+            if (function_exists('get_field')) {
+                $deposit_fee = get_field('deposit-fee', $product_id);
+                
+                // If direct approach fails, try with product_ prefix
+                if (empty($deposit_fee) && $deposit_fee !== '0') {
+                    $deposit_fee = get_field('deposit-fee', 'product_' . $product_id);
+                }
+                
+                // Convert to numeric value
+                $deposit_fee = is_numeric($deposit_fee) ? floatval($deposit_fee) : 0;
+                $deposit_total += $deposit_fee;
             }
-            
-            // Convert to numeric value
-            $deposit_fee = is_numeric($deposit_fee) ? floatval($deposit_fee) : 0;
-            $deposit_total += $deposit_fee;
         }
+        
+        // Calculate tax (excluding deposits)
+        $tax_total = 0;
+        if (wc_tax_enabled()) {
+            $tax_rates = WC_Tax::get_rates();
+            if (!empty($tax_rates)) {
+                $taxes = WC_Tax::calc_tax($subtotal, $tax_rates);
+                $tax_total = array_sum($taxes);
+            }
+        }
+        
+        // Calculate total (subtotal + tax + deposits)
+        $total = $subtotal + $tax_total + $deposit_total;
+        
+        // Format with wc_price for consistency
+        $total_display = wc_price($total);
     }
     
-    // Calculate tax (excluding deposits)
-    $tax_total = 0;
-    if (wc_tax_enabled()) {
-        $tax_rates = WC_Tax::get_rates();
-        if (!empty($tax_rates)) {
-            $taxes = WC_Tax::calc_tax($subtotal, $tax_rates);
-            $tax_total = array_sum($taxes);
-        }
-    }
-    
-    // Calculate total (subtotal + tax + deposits)
-    $total = $subtotal + $tax_total + $deposit_total;
-    
-    // Format with wc_price for consistency
-    return wc_price($total);
+    // IMPORTANT: Return with preloader wrapper structure
+    return '<div class="upfront-fee-total-container" data-shortcode="upfront_fee_total">' .
+           '<div class="upfront-fee-content">' . $total_display . '</div>' .
+           '</div>';
 }
 add_shortcode('upfront_fee_total', 'upfront_fee_total_shortcode');
+
+
+//
+
 
 function update_fee_summary_tables() {
     check_ajax_referer('modem_selection_nonce', 'nonce');
@@ -3571,6 +3679,7 @@ function enqueue_custom_scripts() {
 		'nonce_tax' => wp_create_nonce('calculate_monthly_fee_tax_nonce'),
 		'nonce_total' => wp_create_nonce('calculate_monthly_fee_total_nonce'),
 		'update_selected_product_summary_nonce' => wp_create_nonce('update_selected_product_summary_nonce'),
+        'modem_selection_nonce' => wp_create_nonce('modem_selection_nonce'),
     ));
 }
 
