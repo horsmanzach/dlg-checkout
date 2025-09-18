@@ -356,131 +356,158 @@ jQuery(document).ready(function ($) {
     let preferredDate = '';
     let secondaryDate = '';
 
-    // Setup installation date options
-    function setupInstallationDateOptions() {
-        const preferredSelect = $('.installation-row select[name="attribute_preferred-date"]');
-        const secondarySelect = $('.installation-row select[name="attribute_secondary-date"]');
+   function setupInstallationDateOptions() {
+    const preferredSelect = $('.installation-row select[name="attribute_preferred-date"]');
+    const secondarySelect = $('.installation-row select[name="attribute_secondary-date"]');
 
-        if (preferredSelect.length && secondarySelect.length) {
-            // Create containers with column layout
-            const preferredContainer = $(`
-            <div class="date-radio-container preferred-date-container">
-                <h4>Preferred Date</h4>
-                <div class="date-options-columns">
+    if (preferredSelect.length && secondarySelect.length) {
+        // Create preferred date container
+        const preferredContainer = $(`
+            <div class="date-selection-container">
+                <h4>Preferred Installation Date</h4>
+                <div class="date-options-grid">
                     <div class="earliest-column">
+                        <h5>Earliest Available</h5>
                     </div>
                     <div class="weekday-column">
+                        <h5>Weekday Options</h5>
                     </div>
                     <div class="weekend-column">
+                        <h5>Weekend Options</h5>
                     </div>
                 </div>
             </div>
         `);
 
-            const secondaryContainer = $(`
-            <div class="date-radio-container secondary-date-container">
-                <h4>Secondary Date</h4>
-                <div class="date-options-columns">
+        // Create secondary date container
+        const secondaryContainer = $(`
+            <div class="date-selection-container">
+                <h4>Secondary Installation Date</h4>
+                <div class="date-options-grid">
                     <div class="earliest-column">
+                        <h5>Earliest Available</h5>
                     </div>
                     <div class="weekday-column">
+                        <h5>Weekday Options</h5>
                     </div>
                     <div class="weekend-column">
+                        <h5>Weekend Options</h5>
                     </div>
                 </div>
             </div>
         `);
 
-            // Process preferred date options
-            const preferredOptions = preferredSelect.find('option').not('[value=""]');
-            preferredOptions.each(function () {
-                const value = $(this).attr('value');
-                const label = $(this).text();
+        // Build preferred date options
+        preferredSelect.find('option').each(function () {
+            if ($(this).val() === '') return; // Skip empty option
 
-                const radioBtn = $(`
-                <div class="date-option">
-                    <input type="radio" name="preferred-date" id="preferred-date-${value}" 
-                           value="${value}" class="date-radio preferred-date-radio" />
-                    <label for="preferred-date-${value}">${label}</label>
-                </div>
+            const value = $(this).attr('value');
+            const label = $(this).text();
+
+            const radioBtn = $(`
+            <div class="date-option" data-value="${value}">
+                <input type="radio" name="attribute_preferred-date" id="preferred-date-${value}" 
+               value="${value}" class="date-radio preferred-date-radio" />
+                <label for="preferred-date-${value}">${label}</label>
+            </div>
             `);
 
-                // Categorize options into columns
-                if (label.toLowerCase().includes('earliest')) {
-                    preferredContainer.find('.earliest-column').append(radioBtn);
-                } else if (label.toLowerCase().includes('weekend') || label.toLowerCase().includes('saturday') || label.toLowerCase().includes('sunday')) {
-                    preferredContainer.find('.weekend-column').append(radioBtn);
-                } else {
-                    preferredContainer.find('.weekday-column').append(radioBtn);
-                }
-            });
+            // Categorize options into columns
+            if (label.toLowerCase().includes('earliest')) {
+                preferredContainer.find('.earliest-column').append(radioBtn);
+            } else if (label.toLowerCase().includes('weekend') || label.toLowerCase().includes('saturday') || label.toLowerCase().includes('sunday')) {
+                preferredContainer.find('.weekend-column').append(radioBtn);
+            } else {
+                preferredContainer.find('.weekday-column').append(radioBtn);
+            }
+        });
 
-            // Process secondary date options
-            const secondaryOptions = secondarySelect.find('option').not('[value=""]');
-            secondaryOptions.each(function () {
-                const value = $(this).attr('value');
-                const label = $(this).text();
+        // Build secondary date options
+        secondarySelect.find('option').each(function () {
+            if ($(this).val() === '') return; // Skip empty option
 
-                const radioBtn = $(`
-                <div class="date-option">
-                    <input type="radio" name="secondary-date" id="secondary-date-${value}" 
-                           value="${value}" class="date-radio secondary-date-radio" />
+            const value = $(this).attr('value');
+            const label = $(this).text();
+
+            const radioBtn = $(`
+                <div class="date-option" data-value="${value}">
+                    <input type="radio" name="attribute_secondary-date" id="secondary-date-${value}" 
+       value="${value}" class="date-radio secondary-date-radio" />
                     <label for="secondary-date-${value}">${label}</label>
                 </div>
             `);
 
-                // Categorize options into columns
-                if (label.toLowerCase().includes('earliest')) {
-                    secondaryContainer.find('.earliest-column').append(radioBtn);
-                } else if (label.toLowerCase().includes('weekend') || label.toLowerCase().includes('saturday') || label.toLowerCase().includes('sunday')) {
-                    secondaryContainer.find('.weekend-column').append(radioBtn);
-                } else {
-                    secondaryContainer.find('.weekday-column').append(radioBtn);
-                }
-            });
+            // Categorize options into columns
+            if (label.toLowerCase().includes('earliest')) {
+                secondaryContainer.find('.earliest-column').append(radioBtn);
+            } else if (label.toLowerCase().includes('weekend') || label.toLowerCase().includes('saturday') || label.toLowerCase().includes('sunday')) {
+                secondaryContainer.find('.weekend-column').append(radioBtn);
+            } else {
+                secondaryContainer.find('.weekday-column').append(radioBtn);
+            }
+        });
 
-            // Replace selects with custom layout
-            preferredSelect.parent().hide().after(preferredContainer);
-            secondarySelect.parent().hide().after(secondaryContainer);
+        // Replace selects with custom layout
+        preferredSelect.parent().hide().after(preferredContainer);
+        secondarySelect.parent().hide().after(secondaryContainer);
 
-            // Add clear button
-            const clearButton = $('<button type="button" class="clear-installation-dates" style="display: none;">Clear Dates</button>');
-            secondaryContainer.after(clearButton);
+        // Add clear button
+        const clearButton = $('<button type="button" class="clear-installation-dates" style="display: none;">Clear Dates</button>');
+        secondaryContainer.after(clearButton);
 
-            // Handle clear button click
-            clearButton.on('click', function (e) {
-                e.preventDefault();
-                e.stopPropagation();
-                preferredDate = '';
-                secondaryDate = '';
-                $('.preferred-date-radio, .secondary-date-radio').prop('checked', false);
-                installationRow.removeClass('installation-row-selected');
-                removeInstallationFromCart();
-                $(this).hide();
-            });
+        // Handle clear button click
+        clearButton.on('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            preferredDate = '';
+            secondaryDate = '';
+            $('.preferred-date-radio, .secondary-date-radio').prop('checked', false);
+            installationRow.removeClass('installation-row-selected');
+            removeInstallationFromCart();
+            $(this).hide();
+            
+            // Reset all options visibility
+            resetDateOptionVisibility();
+        });
 
-            // Handle preferred date selection
-            $('.preferred-date-radio').on('change', function () {
-                preferredDate = $(this).val();
-                preferredSelect.val(preferredDate).trigger('change');
-                clearButton.show();
-                checkInstallationSelection();
-            });
+        // Handle preferred date selection
+        $('.preferred-date-radio').on('change', function () {
+            preferredDate = $(this).val();
+            preferredSelect.val(preferredDate).trigger('change');
+            clearButton.show();
+            
+            // Update secondary options availability
+            updateSecondaryDateOptions(preferredDate);
+            
+            checkInstallationSelection();
+        });
 
-            // Handle secondary date selection
-            $('.secondary-date-radio').on('change', function () {
-                secondaryDate = $(this).val();
-                secondarySelect.val(secondaryDate).trigger('change');
-                clearButton.show();
-                checkInstallationSelection();
-            });
+        // Handle secondary date selection
+        $('.secondary-date-radio').on('change', function () {
+            secondaryDate = $(this).val();
+            secondarySelect.val(secondaryDate).trigger('change');
+            clearButton.show();
+            
+            // Update preferred options availability
+            updatePreferredDateOptions(secondaryDate);
+            
+            checkInstallationSelection();
+        });
 
-            // Show clear button if selections already exist
-            if (preferredDate || secondaryDate || $('.preferred-date-radio:checked').length || $('.secondary-date-radio:checked').length) {
-                clearButton.show();
+        // Show clear button if selections already exist
+        if (preferredDate || secondaryDate || $('.preferred-date-radio:checked').length || $('.secondary-date-radio:checked').length) {
+            clearButton.show();
+            // Update option visibility based on existing selections
+            if (preferredDate) {
+                updateSecondaryDateOptions(preferredDate);
+            }
+            if (secondaryDate) {
+                updatePreferredDateOptions(secondaryDate);
             }
         }
     }
+}
+
 
     // Check if both dates are selected and update UI/cart accordingly
 function checkInstallationSelection() {
@@ -557,44 +584,101 @@ function checkInstallationSelection() {
     }
 
     // Check if installation date is in cart when page loads
-    function checkInstallationInCart() {
-        $.ajax({
-            type: 'POST',
-            url: modem_selection_vars.ajax_url,
-            data: {
-                action: 'get_installation_dates',
-                nonce: modem_selection_vars.nonce
-            },
-            success: function (response) {
-                if (response.success && response.data.dates) {
-                    // Get the dates with correct keys
-                    preferredDate = response.data.dates['preferred-date'] || '';
-                    secondaryDate = response.data.dates['secondary-date'] || '';
+  // Enhanced checkInstallationInCart function to handle option visibility
+   function checkInstallationInCart() {
+    $.ajax({
+        type: 'POST',
+        url: modem_selection_vars.ajax_url,
+        data: {
+            action: 'get_installation_dates',
+            nonce: modem_selection_vars.nonce
+        },
+        success: function (response) {
+            if (response.success && response.data.dates) {
+                // Get the dates with correct keys
+                preferredDate = response.data.dates['preferred-date'] || '';
+                secondaryDate = response.data.dates['secondary-date'] || '';
 
-                    // Reset all radio buttons
-                    $('.preferred-date-radio').prop('checked', false);
-                    $('.secondary-date-radio').prop('checked', false);
+                // Reset all radio buttons and options
+                $('.preferred-date-radio').prop('checked', false);
+                $('.secondary-date-radio').prop('checked', false);
+                resetDateOptionVisibility();
 
-                    // Check the saved selections
-                    if (preferredDate) {
-                        $(`input[name="preferred-date"][value="${preferredDate}"]`).prop('checked', true);
-                    }
-
-                    if (secondaryDate) {
-                        $(`input[name="secondary-date"][value="${secondaryDate}"]`).prop('checked', true);
-                    }
-
-                    // If any date is set, show the clear button
-                    if (preferredDate || secondaryDate) {
-                        $('.clear-installation-dates').show();
-                    }
-
-                    // Update UI state
-                    checkInstallationSelection();
+                // Check the saved selections
+                if (preferredDate) {
+                    $(`input[name="attribute_preferred-date"][value="${preferredDate}"]`).prop('checked', true);
+                    updateSecondaryDateOptions(preferredDate);
                 }
+
+                if (secondaryDate) {
+                    $(`input[name="attribute_secondary-date"][value="${secondaryDate}"]`).prop('checked', true);
+                    updatePreferredDateOptions(secondaryDate);
+                }
+
+                // If any date is set, show the clear button
+                if (preferredDate || secondaryDate) {
+                    $('.clear-installation-dates').show();
+                }
+
+                // Update UI state
+                checkInstallationSelection();
             }
-        });
+        }
+    });
+   }
+
+
+// Function to update secondary date options based on preferred selection
+function updateSecondaryDateOptions(selectedPreferredValue) {
+    // Reset all secondary options first
+    $('.secondary-date-radio').closest('.date-option').removeClass('disabled-option').show();
+    $('.secondary-date-radio').prop('disabled', false);
+    
+    if (selectedPreferredValue) {
+        // Find and disable the matching option in secondary dates
+        const matchingSecondaryOption = $(`.secondary-date-radio[value="${selectedPreferredValue}"]`).closest('.date-option');
+        if (matchingSecondaryOption.length) {
+            matchingSecondaryOption.addClass('disabled-option').hide();
+            matchingSecondaryOption.find('.secondary-date-radio').prop('disabled', true);
+            
+            // If the disabled option was selected, clear it
+            if (secondaryDate === selectedPreferredValue) {
+                matchingSecondaryOption.find('.secondary-date-radio').prop('checked', false);
+                secondaryDate = '';
+                checkInstallationSelection();
+            }
+        }
     }
+}
+
+// Function to update preferred date options based on secondary selection
+function updatePreferredDateOptions(selectedSecondaryValue) {
+    // Reset all preferred options first
+    $('.preferred-date-radio').closest('.date-option').removeClass('disabled-option').show();
+    $('.preferred-date-radio').prop('disabled', false);
+    
+    if (selectedSecondaryValue) {
+        // Find and disable the matching option in preferred dates
+        const matchingPreferredOption = $(`.preferred-date-radio[value="${selectedSecondaryValue}"]`).closest('.date-option');
+        if (matchingPreferredOption.length) {
+            matchingPreferredOption.addClass('disabled-option').hide();
+            matchingPreferredOption.find('.preferred-date-radio').prop('disabled', true);
+            
+            // If the disabled option was selected, clear it
+            if (preferredDate === selectedSecondaryValue) {
+                matchingPreferredOption.find('.preferred-date-radio').prop('checked', false);
+                preferredDate = '';
+                checkInstallationSelection();
+            }
+        }
+    }
+}
+
+// Function to reset all date option visibility
+function resetDateOptionVisibility() {
+    $('.date-option').removeClass('disabled-option').show();
+    $('.date-radio').prop('disabled', false);
+}
 
     // Initialize installation date interface
     setupInstallationDateOptions();
