@@ -3,7 +3,6 @@
 jQuery(document).ready(function ($) {
     console.log("Custom AJAX script loaded.");
 
-    // NEW: Preloader functions
     function showPreloader(targetElement) {
         // Create spinner HTML if it doesn't exist
         if (!targetElement.find('.monthly-fee-preloader').length) {
@@ -14,15 +13,38 @@ jQuery(document).ready(function ($) {
             targetElement.append(spinnerHtml);
         }
 
-        // Show the preloader and hide the content
+        // Show the preloader
         targetElement.find('.monthly-fee-preloader').show();
-        targetElement.find('.monthly-fee-content, .upfront-fee-content').hide();
+
+        // Hide pseudo elements on the parent module
+        targetElement.closest('.upfront-fee-module').addClass('preloader-active');
+
+        // Hide content - check for wrapper first, then fallback to direct children
+        var contentElements = targetElement.find('.monthly-fee-content, .upfront-fee-content');
+        if (contentElements.length === 0) {
+            // If no content wrapper, hide direct children except preloader
+            targetElement.children().not('.monthly-fee-preloader').hide();
+        } else {
+            contentElements.hide();
+        }
     }
 
     function hidePreloader(targetElement) {
         targetElement.find('.monthly-fee-preloader').hide();
-        targetElement.find('.monthly-fee-content, .upfront-fee-content').show();
+
+        // Show pseudo elements on the parent module (moved outside the if statement)
+        targetElement.closest('.upfront-fee-module').removeClass('preloader-active');
+
+        // Show content - check for wrapper first, then fallback to direct children
+        var contentElements = targetElement.find('.monthly-fee-content, .upfront-fee-content');
+        if (contentElements.length === 0) {
+            // If no content wrapper, show direct children except preloader
+            targetElement.children().not('.monthly-fee-preloader').show();
+        } else {
+            contentElements.show();
+        }
     }
+
 
     // ENHANCED: Your existing updateMonthlyFeeSubtotal function with preloader
     function updateMonthlyFeeSubtotal() {
@@ -166,8 +188,16 @@ jQuery(document).ready(function ($) {
                 success: function (response) {
                     if (response.success) {
                         console.log("Upfront fee total updated:", response);
-                        // Update the content and hide preloader
-                        upfrontContainer.find('.upfront-fee-content').html(response.data.total);
+
+                        // FIXED: Update content properly regardless of wrapper existence
+                        var contentElements = upfrontContainer.find('.upfront-fee-content');
+                        if (contentElements.length === 0) {
+                            // If no content wrapper, replace the price span directly
+                            upfrontContainer.find('.woocommerce-Price-amount').replaceWith(response.data.total);
+                        } else {
+                            contentElements.html(response.data.total);
+                        }
+
                         hidePreloader(upfrontContainer);
                     } else {
                         console.error('Upfront fee total update failed:', response.data);
