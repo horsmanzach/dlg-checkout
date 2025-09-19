@@ -2939,12 +2939,13 @@ function upfront_fee_total_shortcode($atts) {
         $total_display = wc_price($total);
     }
     
-    // IMPORTANT: Return with preloader wrapper structure
+      // Use span instead of div to avoid Divi stripping it out
     return '<div class="upfront-fee-total-container" data-shortcode="upfront_fee_total">' .
-           '<div class="upfront-fee-content">' . $total_display . '</div>' .
+           '<span class="upfront-fee-content" style="display:block;">' . $total_display . '</span>' .
            '</div>';
 }
 add_shortcode('upfront_fee_total', 'upfront_fee_total_shortcode');
+
 
 
 //
@@ -2979,10 +2980,58 @@ add_action('wp_ajax_nopriv_update_fee_tables', 'update_fee_summary_tables');
 function get_upfront_fee_total_ajax() {
     check_ajax_referer('modem_selection_nonce', 'nonce');
     
-    $total = upfront_fee_total_shortcode(array());
+    // Calculate the total directly without calling the shortcode to avoid container nesting
+    $cart = WC()->cart;
     
+    if ($cart->is_empty()) {
+        $total_display = '$0.00';
+    } else {
+        $subtotal = 0;
+        $deposit_total = 0;
+        
+        // Loop through cart items
+        foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
+            $product = $cart_item['data'];
+            $product_id = $product->get_id();
+            $product_price = $product->get_price();
+            $subtotal += $product_price;
+            
+            // Get deposit fee
+            $deposit_fee = 0;
+            if (function_exists('get_field')) {
+                $deposit_fee = get_field('deposit-fee', $product_id);
+                
+                // If direct approach fails, try with product_ prefix
+                if (empty($deposit_fee) && $deposit_fee !== '0') {
+                    $deposit_fee = get_field('deposit-fee', 'product_' . $product_id);
+                }
+                
+                // Convert to numeric value
+                $deposit_fee = is_numeric($deposit_fee) ? floatval($deposit_fee) : 0;
+                $deposit_total += $deposit_fee;
+            }
+        }
+        
+        // Calculate tax (excluding deposits)
+        $tax_total = 0;
+        if (wc_tax_enabled()) {
+            $tax_rates = WC_Tax::get_rates();
+            if (!empty($tax_rates)) {
+                $taxes = WC_Tax::calc_tax($subtotal, $tax_rates);
+                $tax_total = array_sum($taxes);
+            }
+        }
+        
+        // Calculate total (subtotal + tax + deposits)
+        $total = $subtotal + $tax_total + $deposit_total;
+        
+        // Format with wc_price for consistency
+        $total_display = wc_price($total);
+    }
+    
+    // Return ONLY the formatted price, not the container
     wp_send_json_success(array(
-        'total' => $total
+        'total' => $total_display
     ));
     
     wp_die();
