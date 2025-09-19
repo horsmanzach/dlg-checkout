@@ -309,21 +309,27 @@ jQuery(document).ready(function ($) {
 
 
 
-    // Function to update upfront fee total
+    // Function to update upfront fee total with preloader
     function updateUpfrontTotal() {
-        $.ajax({
-            type: "POST",
-            url: modem_selection_vars.ajax_url,
-            data: {
-                action: "get_upfront_fee_total",
-                nonce: modem_selection_vars.nonce
-            },
-            success: function (response) {
-                if (response.success) {
-                    $(".upfront-fee-total-container").html(response.data.total);
+        // Simply check if the global preloader function exists and use it
+        if (typeof window.updateFeesWithPreloader === 'function') {
+            window.updateFeesWithPreloader();
+        } else {
+            // Fallback to original method
+            $.ajax({
+                type: "POST",
+                url: modem_selection_vars.ajax_url,
+                data: {
+                    action: "get_upfront_fee_total",
+                    nonce: modem_selection_vars.nonce
+                },
+                success: function (response) {
+                    if (response.success) {
+                        $(".upfront-fee-total-container").html(response.data.total);
+                    }
                 }
-            }
-        });
+            });
+        }
     }
 
     // Function to update fee tables
