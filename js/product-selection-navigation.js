@@ -488,11 +488,14 @@ jQuery(document).ready(function ($) {
             case 2: // Modems screen
                 const modemSelected = $('.modem-row-selected').length;
                 const ownModemValid = validateOwnModemInput();
+                const hasPendingOwn = $('.own-modem-pending').length > 0;
 
                 console.log('Modem selected count:', modemSelected);
                 console.log('Own modem valid:', ownModemValid);
+                console.log('Has pending own modem:', hasPendingOwn);
 
-                if (modemSelected || ownModemValid) {
+                // Valid if any modem is selected AND no own modem is in pending state
+                if ((modemSelected || ownModemValid) && !hasPendingOwn) {
                     console.log('Modem requirements met - enabling button');
                     $nextBtn.removeClass('disabled');
                 } else {
@@ -545,13 +548,19 @@ jQuery(document).ready(function ($) {
             const $input = $(this);
             const $row = $input.closest('[class*="modem-"]');
 
-            if ($row.hasClass('modem-row-selected') && $input.val().trim().length >= 5) {
+            // Only consider valid if the card is fully selected (green) AND has valid input
+            // Don't count pending state (red) as valid
+            if ($row.hasClass('modem-row-selected') &&
+                !$row.hasClass('own-modem-pending') &&
+                $input.val().trim().length >= 5) {
                 isValid = true;
                 return false; // Break out of each loop
             }
         });
         return isValid;
     }
+
+   
 
     // Function to show/hide the Skip to Checkout button based on whether user came from checkout
     function updateCheckoutButtonVisibility() {
