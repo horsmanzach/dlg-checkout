@@ -701,14 +701,14 @@ function checkInstallationSelection() {
 // Function to update secondary date options based on preferred selection
 function updateSecondaryDateOptions(selectedPreferredValue) {
     // Reset all secondary options first
-    $('.secondary-date-radio').closest('.date-option').removeClass('disabled-option').show();
+    $('.secondary-date-radio').closest('.date-option').removeClass('disabled-option disabled-option-visible').show();
     $('.secondary-date-radio').prop('disabled', false);
     
     if (selectedPreferredValue) {
         // Find and disable the matching option in secondary dates
         const matchingSecondaryOption = $(`.secondary-date-radio[value="${selectedPreferredValue}"]`).closest('.date-option');
         if (matchingSecondaryOption.length) {
-            matchingSecondaryOption.addClass('disabled-option').hide();
+            matchingSecondaryOption.addClass('disabled-option-visible'); // Changed from 'disabled-option' to 'disabled-option-visible'
             matchingSecondaryOption.find('.secondary-date-radio').prop('disabled', true);
             
             // If the disabled option was selected, clear it
@@ -724,14 +724,14 @@ function updateSecondaryDateOptions(selectedPreferredValue) {
 // Function to update preferred date options based on secondary selection
 function updatePreferredDateOptions(selectedSecondaryValue) {
     // Reset all preferred options first
-    $('.preferred-date-radio').closest('.date-option').removeClass('disabled-option').show();
+    $('.preferred-date-radio').closest('.date-option').removeClass('disabled-option disabled-option-visible').show();
     $('.preferred-date-radio').prop('disabled', false);
     
     if (selectedSecondaryValue) {
         // Find and disable the matching option in preferred dates
         const matchingPreferredOption = $(`.preferred-date-radio[value="${selectedSecondaryValue}"]`).closest('.date-option');
         if (matchingPreferredOption.length) {
-            matchingPreferredOption.addClass('disabled-option').hide();
+            matchingPreferredOption.addClass('disabled-option-visible'); // Changed from 'disabled-option' to 'disabled-option-visible'
             matchingPreferredOption.find('.preferred-date-radio').prop('disabled', true);
             
             // If the disabled option was selected, clear it
@@ -746,7 +746,7 @@ function updatePreferredDateOptions(selectedSecondaryValue) {
 
 // Function to reset all date option visibility
 function resetDateOptionVisibility() {
-    $('.date-option').removeClass('disabled-option').show();
+    $('.date-option').removeClass('disabled-option disabled-option-visible').show();
     $('.date-radio').prop('disabled', false);
 }
 
