@@ -202,7 +202,7 @@ jQuery(document).ready(function ($) {
 
         if (!allFieldsFilled) {
             checkbox.prop('disabled', true).prop('checked', false).removeClass('enabled');
-            checkboxRow.removeClass('success').removeClass('disabled');
+            checkboxRow.removeClass('success').addClass('disabled');
             helpText.text('Complete all monthly billing credit card fields first');
             console.log('Not all fields filled, disabling checkbox');
             return;
