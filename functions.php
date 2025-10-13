@@ -178,6 +178,62 @@ function ajax_remove_monthly_billing_deposits() {
     
     $keep_option = isset($_POST['keep_option']) ? sanitize_text_field($_POST['keep_option']) : '';
     
+    // If keep_option is empty, clear ALL monthly billing selections
+    if (empty($keep_option)) {
+        // Remove all deposit products from cart
+        foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+            $product_id = $cart_item['product_id'];
+            
+            // Remove the specific Pay After deposit product
+            if ($product_id == 265827) {
+                WC()->cart->remove_cart_item($cart_item_key);
+                continue;
+            }
+            
+            // Also remove any product in the "deposit" category
+            $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'slugs'));
+            if (in_array('deposit', $product_cats)) {
+                WC()->cart->remove_cart_item($cart_item_key);
+            }
+        }
+        
+        // Clear all saved monthly billing user meta
+        if (is_user_logged_in()) {
+            $user_id = get_current_user_id();
+            
+            // Clear all monthly billing related meta
+            delete_user_meta($user_id, 'monthly_bill_payment_option');
+            delete_user_meta($user_id, 'cc_monthly_billing_card_number');
+            delete_user_meta($user_id, 'cc_monthly_billing_card_expiry');
+            delete_user_meta($user_id, 'cc_monthly_billing_card_cvv');
+            delete_user_meta($user_id, 'cc_monthly_billing_full_name');
+            delete_user_meta($user_id, 'cc_monthly_billing_postcode');
+            delete_user_meta($user_id, 'bank_monthly_billing_first_name');
+            delete_user_meta($user_id, 'bank_monthly_billing_last_name');
+            delete_user_meta($user_id, 'bank_monthly_billing_account_type');
+            delete_user_meta($user_id, 'bank_monthly_billing_financial_institution');
+            delete_user_meta($user_id, 'bank_monthly_billing_transit_number');
+            delete_user_meta($user_id, 'bank_monthly_billing_institution_number');
+            delete_user_meta($user_id, 'bank_monthly_billing_account_number');
+        }
+        
+        // Clear session data if you're using sessions
+        if (isset($_SESSION)) {
+            unset($_SESSION['monthly_billing_data']);
+        }
+        
+        // Recalculate cart totals
+        WC()->cart->calculate_totals();
+        
+        wp_send_json_success(array(
+            'message' => 'All monthly billing options cleared',
+            'kept_option' => '',
+            'action' => 'cleared_all'
+        ));
+        
+        return;
+    }
+    
     // If we're not keeping the payafter option, remove all deposit products
     if ($keep_option !== 'payafter') {
         foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
@@ -195,6 +251,41 @@ function ajax_remove_monthly_billing_deposits() {
                 WC()->cart->remove_cart_item($cart_item_key);
             }
         }
+        
+        // Clear Pay After related user meta if switching away from it
+        if (is_user_logged_in()) {
+            $user_id = get_current_user_id();
+            
+            // Only clear pay after if we're keeping CC or bank
+            if (in_array($keep_option, ['cc', 'bank'])) {
+                // Don't clear the CC or bank data, just ensure pay after is not set
+                if (dg_get_user_meta('monthly_bill_payment_option') === 'payafter') {
+                    dg_update_user_meta('monthly_bill_payment_option', $keep_option);
+                }
+            }
+        }
+    }
+    
+    // If we're not keeping CC option, clear CC data
+    if ($keep_option !== 'cc' && is_user_logged_in()) {
+        $user_id = get_current_user_id();
+        delete_user_meta($user_id, 'cc_monthly_billing_card_number');
+        delete_user_meta($user_id, 'cc_monthly_billing_card_expiry');
+        delete_user_meta($user_id, 'cc_monthly_billing_card_cvv');
+        delete_user_meta($user_id, 'cc_monthly_billing_full_name');
+        delete_user_meta($user_id, 'cc_monthly_billing_postcode');
+    }
+    
+    // If we're not keeping bank option, clear bank data  
+    if ($keep_option !== 'bank' && is_user_logged_in()) {
+        $user_id = get_current_user_id();
+        delete_user_meta($user_id, 'bank_monthly_billing_first_name');
+        delete_user_meta($user_id, 'bank_monthly_billing_last_name');
+        delete_user_meta($user_id, 'bank_monthly_billing_account_type');
+        delete_user_meta($user_id, 'bank_monthly_billing_financial_institution');
+        delete_user_meta($user_id, 'bank_monthly_billing_transit_number');
+        delete_user_meta($user_id, 'bank_monthly_billing_institution_number');
+        delete_user_meta($user_id, 'bank_monthly_billing_account_number');
     }
     
     // Recalculate cart totals
@@ -202,7 +293,8 @@ function ajax_remove_monthly_billing_deposits() {
     
     wp_send_json_success(array(
         'message' => 'Other monthly billing options cleared',
-        'kept_option' => $keep_option
+        'kept_option' => $keep_option,
+        'action' => 'cleared_others'
     ));
 }
 
@@ -1013,12 +1105,16 @@ function moneris_complete_payment_button_shortcode($atts) {
     $atts = shortcode_atts(array(
         'button_text' => 'Complete Payment',
         'redirect_url' => '',
-        'button_class' => 'moneris-submit-btn' // Use original styling class
+        'button_class' => 'moneris-submit-btn',
+        'show_validation' => 'true' // NEW: Control validation message display
     ), $atts);
+    
+    // Convert show_validation to boolean
+    $show_validation = filter_var($atts['show_validation'], FILTER_VALIDATE_BOOLEAN);
     
     ob_start();
     ?>
-    <div class="moneris-complete-payment-container">
+    <div class="moneris-complete-payment-container" data-show-validation="<?php echo $show_validation ? 'true' : 'false'; ?>">
         <button type="button" id="moneris-complete-payment-btn" 
                 class="<?php echo esc_attr($atts['button_class']); ?>" 
                 data-redirect-url="<?php echo esc_url($atts['redirect_url']); ?>">
@@ -1029,7 +1125,6 @@ function moneris_complete_payment_button_shortcode($atts) {
     return ob_get_clean();
 }
 add_shortcode('moneris_complete_payment_button', 'moneris_complete_payment_button_shortcode');
-
 /**
  * AJAX handler for processing Moneris payments
  */
@@ -1436,8 +1531,7 @@ if (!function_exists('ProcessPayment')) {
 
 /*=================ZACH NEW EDITS AS OF MARCH 31=================*/
 
-/*==========Register monthly_fee shortcode========*/
-
+/*==========Updated display_monthly_fee shortcode with promotional pricing support========*/
 
 function display_monthly_fee_shortcode($atts) {
     // Extract shortcode attributes, requiring product_id
@@ -1458,15 +1552,67 @@ function display_monthly_fee_shortcode($atts) {
         $monthly_fee = get_field('monthly_fee', 'product_' . $atts['product_id']);
     }
     
-    // Check if the value is numeric (including 0) or a numeric string
+    // Get the 'monthly_promo_fee' field value from the specified product
+    $monthly_promo_fee = get_field('monthly_promo_fee', $atts['product_id']);
+    
+    // Alternative way to get the monthly_promo_fee field if the above doesn't work
+    if ($monthly_promo_fee === null && function_exists('get_field')) {
+        $monthly_promo_fee = get_field('monthly_promo_fee', 'product_' . $atts['product_id']);
+    }
+    
+    // Check if the monthly_fee value is numeric (including 0) or a numeric string
     if (is_numeric($monthly_fee) || is_string($monthly_fee)) {
-        // Convert to string to ensure consistent output
-        return esc_html((string)$monthly_fee);
+        // Convert monthly_promo_fee to numeric value
+        $monthly_promo_fee = is_numeric($monthly_promo_fee) ? floatval($monthly_promo_fee) : 0;
+        
+        // Build the pricing display
+        if ($monthly_promo_fee > 0) {
+            // Show strikethrough original price and promotional price with $ prefix
+            $output = '<span style="text-decoration: line-through; color: grey; font-size: 0.8em;">$' . esc_html((string)$monthly_fee) . '</span> ';
+            $output .= '<span style="color: green; font-weight: bold;">$' . esc_html($monthly_promo_fee) . '</span>';
+            return $output;
+        } else {
+            // Show regular price only
+            return '$' . esc_html((string)$monthly_fee);
+        }
     } else {
-        return ''; // Return empty if no monthly fee set or not numeric
+        // Return 0 if no monthly fee set or not numeric (matching original behavior)
+        return '$0';
     }
 }
 add_shortcode('display_monthly_fee', 'display_monthly_fee_shortcode');
+
+/*==========New shortcode for displaying promotional fee blurb========*/
+
+
+function display_promo_fee_blurb_shortcode($atts) {
+    // Extract shortcode attributes, requiring product_id
+    $atts = shortcode_atts(array(
+        'product_id' => '', // No default - must be specified
+    ), $atts);
+    
+    // Check if product_id is provided
+    if (empty($atts['product_id'])) {
+        return 'Product ID required'; // Or just return empty: return '';
+    }
+    
+    // Get the 'monthly_promo_blurb' field value from the specified product
+    $monthly_promo_blurb = get_field('monthly_promo_blurb', $atts['product_id']);
+    
+    // Alternative way to get the field if the above doesn't work
+    if ($monthly_promo_blurb === null && function_exists('get_field')) {
+        $monthly_promo_blurb = get_field('monthly_promo_blurb', 'product_' . $atts['product_id']);
+    }
+    
+    // Return the blurb content or empty string if not populated
+    if (!empty($monthly_promo_blurb)) {
+        return '<span style="color: green; font-style: italic;">' . esc_html($monthly_promo_blurb) . '</span>';
+    } else {
+        return ''; // Return empty if no promotional blurb set
+    }
+}
+add_shortcode('display_promo_fee_blurb', 'display_promo_fee_blurb_shortcode');
+
 
 /*======Register deposit-title shortcode========*/
 
@@ -1634,6 +1780,7 @@ function address_display_shortcode($atts) {
     // Search different address button (conditional)
     if ($atts['show_search_button'] === 'true') {
         $output .= '<a class="btn_mute plan_check_other_availability_btn" href="#" ';
+        $output .= 'data-source="shortcode" ';  
         $output .= 'data-target="#plan-building-wizard-modal" data-toggle="modal" ';
         $output .= 'rel="noopener noreferrer">Search Different Address</a>';
     }
@@ -2055,6 +2202,32 @@ if (!empty($terms) && !is_wp_error($terms)) {
    return $output;
 }
 add_shortcode('upfront_fee_summary', 'upfront_fee_summary_shortcode');
+
+
+
+
+/*--------------DEBUG CART CONTENTS: SEPT. 30TH --------*/
+
+add_action('wp_ajax_debug_cart_contents', 'debug_cart_contents');
+add_action('wp_ajax_nopriv_debug_cart_contents', 'debug_cart_contents');
+
+function debug_cart_contents() {
+    $cart_items = array();
+    foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+        $product_id = $cart_item['product_id'];
+        $product_name = $cart_item['data']->get_name();
+        $cart_items[] = array(
+            'id' => $product_id,
+            'name' => $product_name,
+            'is_payafter' => ($product_id == 265827)
+        );
+    }
+    
+    wp_send_json_success(array(
+        'cart_items' => $cart_items,
+        'payafter_in_cart' => in_array(265827, wp_list_pluck($cart_items, 'id'))
+    ));
+}
 
 
 /*-------*/
