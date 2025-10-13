@@ -151,12 +151,15 @@ jQuery(document).ready(function ($) {
                 'transition': 'opacity 0.3s ease'
             });
 
-        // PERFORMANCE FIX: Remove messages without recreating
+        // Check if validation messages should be shown
         const $container = $monerisBtn.closest('.moneris-complete-payment-container');
+        const showValidation = $container.attr('data-show-validation') !== 'false';
+
+        // PERFORMANCE FIX: Remove messages without recreating
         $container.find('.validation-requirement-message').remove();
 
-        // Show brief success message only once
-        if (!$container.find('.payment-enabled-message').length) {
+        // Show brief success message only if validation is enabled
+        if (showValidation && !$container.find('.payment-enabled-message').length) {
             $container.append(
                 '<div class="payment-enabled-message" style="color: #28a745; font-size: 14px; margin-top: 10px; text-align: center; opacity: 0;">' +
                 '✓ Payment button enabled' +
@@ -185,6 +188,17 @@ jQuery(document).ready(function ($) {
             });
 
         const $container = $monerisBtn.closest('.moneris-complete-payment-container');
+
+        // Check if validation messages should be shown
+        const showValidation = $container.attr('data-show-validation') !== 'false';
+
+        // Always remove any existing validation messages first
+        $container.find('.validation-requirement-message').remove();
+
+        // If validation messages are disabled, return early (but button styling already applied above)
+        if (!showValidation) {
+            return;
+        }
 
         // PERFORMANCE FIX: Only update message if it doesn't exist or content changed
         let $existingMessage = $container.find('.validation-requirement-message');
@@ -223,17 +237,16 @@ jQuery(document).ready(function ($) {
 
             // Build the message HTML with individual styling for each message
             let messagesHtml = messages.map(msg => {
-                const color = msg.type === 'success' ? '#139948' : '#dc3545'; // Green for success, red for error
-                return `<div style="margin: 3px 0; color: ${color};">${msg.text}</div>`;
+                const color = msg.type === 'success' ? '#28a745' : '#e74c3c';
+                return `<div style="color: ${color}; font-size: 14px; margin-top: 8px;">${msg.text}</div>`;
             }).join('');
 
-            const messageHtml = '<div class="validation-requirement-message" data-content="' +
-                newMessageContent + '" style="font-size: 14px; margin-top: 10px; text-align: center;">' +
-                messagesHtml +
-                '</div>';
+            // Append the new message with content signature
+            $container.append(
+                `<div class="validation-requirement-message" data-content="${newMessageContent}" style="text-align: center;">${messagesHtml}</div>`
+            );
 
-            $container.append(messageHtml);
-            console.log('Updated validation requirement message with colored styling');
+            console.log('Updated validation message:', newMessageContent);
         }
     }
     /**
