@@ -726,13 +726,49 @@ jQuery(document).ready(function ($) {
     }
 
     // Function to adjust container height based on active screen
+
     function adjustContainerHeight() {
         const activeScreen = $(`#screen${currentScreen}`);
-        const screenHeight = activeScreen.outerHeight(true);
-        $('.checkout-container').animate({
-            height: screenHeight
-        }, 300);
-        console.log('Adjusting container height to:', screenHeight);
+        let totalHeight = 0;
+        let cards;
+
+        // Get all cards based on the current screen
+        if (currentScreen === 1) {
+            // Screen 1: Installation cards
+            cards = activeScreen.find('.installation-row').filter(':visible');
+        } else if (currentScreen === 2) {
+            // Screen 2: Modem cards
+            cards = activeScreen.find('.modem-0, .modem-1, .modem-2, .modem-3, .modem-4').filter(':visible');
+        } else if (currentScreen === 3) {
+            // Screen 3: TV cards
+            cards = activeScreen.find('.tv-0, .tv-1, .tv-2').filter(':visible');
+        } else if (currentScreen === 4) {
+            // Screen 4: Phone cards
+            cards = activeScreen.find('.phone-0, .phone-1, .phone-2').filter(':visible');
+        }
+
+        if (cards && cards.length) {
+            // Calculate total height of all cards including their margins
+            cards.each(function () {
+                totalHeight += $(this).outerHeight(true); // includes margins
+            });
+
+            // Add buffer for navigation buttons and spacing
+            const buffer = 500;
+            const finalHeight = totalHeight + buffer;
+
+            $('.checkout-container').animate({
+                height: finalHeight
+            }, 300);
+            console.log('Adjusting container height to:', finalHeight, '(total cards height:', totalHeight, '+ buffer:', buffer, ') for screen', currentScreen);
+        } else {
+            // Fallback to current method if no cards found
+            const screenHeight = activeScreen.outerHeight(true);
+            $('.checkout-container').animate({
+                height: screenHeight
+            }, 300);
+            console.log('Fallback: Adjusting container height to:', screenHeight);
+        }
     }
 
     // Add CSS for disabled buttons
