@@ -1106,7 +1106,8 @@ function moneris_complete_payment_button_shortcode($atts) {
         'button_text' => 'Complete Payment',
         'redirect_url' => '',
         'button_class' => 'moneris-submit-btn',
-        'show_validation' => 'true' // NEW: Control validation message display
+        'show_validation' => 'true', // Control validation message display
+        'button_id' => 'moneris-complete-payment-btn' // NEW: Allow custom button ID
     ), $atts);
     
     // Convert show_validation to boolean
@@ -1115,8 +1116,8 @@ function moneris_complete_payment_button_shortcode($atts) {
     ob_start();
     ?>
     <div class="moneris-complete-payment-container" data-show-validation="<?php echo $show_validation ? 'true' : 'false'; ?>">
-        <button type="button" id="moneris-complete-payment-btn" 
-                class="<?php echo esc_attr($atts['button_class']); ?>" 
+        <button type="button" id="<?php echo esc_attr($atts['button_id']); ?>" 
+                class="<?php echo esc_attr($atts['button_class']); ?> moneris-payment-button" 
                 data-redirect-url="<?php echo esc_url($atts['redirect_url']); ?>">
             <?php echo esc_html($atts['button_text']); ?>
         </button>
@@ -1125,6 +1126,8 @@ function moneris_complete_payment_button_shortcode($atts) {
     return ob_get_clean();
 }
 add_shortcode('moneris_complete_payment_button', 'moneris_complete_payment_button_shortcode');
+
+
 /**
  * AJAX handler for processing Moneris payments
  */
