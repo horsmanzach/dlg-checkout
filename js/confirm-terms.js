@@ -105,6 +105,10 @@ jQuery(document).ready(function ($) {
     /**
      * PERFORMANCE OPTIMIZED: Update button state only when necessary
      */
+    /**
+ * PERFORMANCE OPTIMIZED: Update button state only when necessary
+ * UPDATED: Now targets all Moneris buttons by class instead of ID
+ */
     function updateButtonState() {
         const termsOk = termsConfirmed;
         const monthlyBillingOk = checkMonthlyBillingValidation();
@@ -122,17 +126,24 @@ jQuery(document).ready(function ($) {
         console.log('Button state changed from', lastButtonState, 'to', currentState);
         lastButtonState = currentState;
 
-        const $monerisBtn = $('#moneris-complete-payment-btn');
-        if ($monerisBtn.length === 0) {
+        // UPDATED: Find ALL Moneris buttons by class (supports multiple buttons on page)
+        const $monerisButtons = $('.moneris-payment-button');
+        if ($monerisButtons.length === 0) {
             console.log('Moneris button not found');
             return;
         }
 
-        if (bothValid) {
-            enableMonerisButton($monerisBtn);
-        } else {
-            disableMonerisButton($monerisBtn, termsOk, monthlyBillingOk);
-        }
+        console.log('Updating ' + $monerisButtons.length + ' Moneris button(s)');
+
+        // Update each button individually
+        $monerisButtons.each(function () {
+            const $btn = $(this);
+            if (bothValid) {
+                enableMonerisButton($btn);
+            } else {
+                disableMonerisButton($btn, termsOk, monthlyBillingOk);
+            }
+        });
     }
 
     /**
@@ -249,6 +260,7 @@ jQuery(document).ready(function ($) {
             console.log('Updated validation message:', newMessageContent);
         }
     }
+
     /**
      * Event-driven monthly billing monitoring (NO POLLING)
      */
@@ -320,7 +332,7 @@ jQuery(document).ready(function ($) {
 
             mutations.forEach(function (mutation) {
                 if (mutation.type === 'childList') {
-                    const $newMonerisBtn = $(mutation.target).find('#moneris-complete-payment-btn');
+                    const $newMonerisBtn = $(mutation.target).find('.moneris-payment-button');
                     if ($newMonerisBtn.length > 0) {
                         foundNewButton = true;
                     }
@@ -430,7 +442,7 @@ jQuery(document).ready(function ($) {
     /**
      * Handle clicks on disabled Moneris button
      */
-    $(document).on('click', '#moneris-complete-payment-btn', function (e) {
+    $(document).on('click', '.moneris-payment-button', function (e) {
         const $btn = $(this);
 
         if ($btn.prop('disabled')) {
@@ -516,8 +528,8 @@ jQuery(document).ready(function ($) {
                 confirmed: termsConfirmed,
                 monthlyBillingValidated: monthlyBillingValidated,
                 tcButtonExists: $('.tc-button').length > 0,
-                monerisButtonExists: $('#moneris-complete-payment-btn').length > 0,
-                monerisButtonEnabled: !$('#moneris-complete-payment-btn').prop('disabled')
+                monerisButtonExists: $('.moneris-payment-button').length > 0,
+                monerisButtonEnabled: !$('.moneris-payment-button').prop('disabled')
             };
         }
     };
