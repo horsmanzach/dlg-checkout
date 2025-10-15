@@ -111,6 +111,233 @@ function completely_block_hubspot_on_staging() {
 }
 add_action('init', 'completely_block_hubspot_on_staging');
 
+/*---------
+----------New Functions Created to Fetch Necessary Order Info & Populate on Thank You Page------
+-----------*/
+
+// Get customer IP address
+function dg_get_customer_ip() {
+    return $_SERVER['REMOTE_ADDR'] ?? '';
+}
+
+// Get order timestamp (formatted)
+function dg_get_order_timestamp($format = 'Y-m-d H:i:s') {
+    return current_time($format);
+}
+
+// Get customer info from WooCommerce checkout
+/**
+ * Get customer info from WooCommerce checkout and stored address data
+ */
+function dg_get_customer_info() {
+    // Get the searched address from user meta (the Google Maps address)
+    $searched_address = dg_get_user_meta("searched_address");
+    
+    // Build the service address from searched_address components
+    $service_address = '';
+    $service_city = '';
+    $service_province = '';
+    $service_postal = '';
+    
+    if ($searched_address && is_array($searched_address)) {
+        // Build full street address
+        $address_parts = array();
+        
+        if (!empty($searched_address['unitNumber'])) {
+            $address_parts[] = 'Unit ' . $searched_address['unitNumber'];
+        }
+        if (!empty($searched_address['streetNumber'])) {
+            $address_parts[] = $searched_address['streetNumber'];
+        }
+        if (!empty($searched_address['streetName'])) {
+            $address_parts[] = $searched_address['streetName'];
+        }
+        if (!empty($searched_address['street_name'])) { // Fallback key
+            $address_parts[] = $searched_address['street_name'];
+        }
+        if (!empty($searched_address['streetType'])) {
+            $address_parts[] = $searched_address['streetType'];
+        }
+        if (!empty($searched_address['street_type'])) { // Fallback key
+            $address_parts[] = $searched_address['street_type'];
+        }
+        if (!empty($searched_address['streetDirection'])) {
+            $address_parts[] = $searched_address['streetDirection'];
+        }
+        if (!empty($searched_address['street_dir'])) { // Fallback key
+            $address_parts[] = $searched_address['street_dir'];
+        }
+        
+        $service_address = implode(' ', array_filter($address_parts));
+        
+        // Get city
+        $service_city = !empty($searched_address['municipalityCity']) ? 
+            $searched_address['municipalityCity'] : 
+            (!empty($searched_address['locality']) ? $searched_address['locality'] : '');
+        
+        // Get province
+        $service_province = !empty($searched_address['provinceOrState']) ? 
+            $searched_address['provinceOrState'] : 
+            (!empty($searched_address['administrative_area_level_1']) ? $searched_address['administrative_area_level_1'] : '');
+        
+        // Get postal code
+        $service_postal = !empty($searched_address['postalCode']) ? 
+            $searched_address['postalCode'] : 
+            (!empty($searched_address['postal_code']) ? $searched_address['postal_code'] : '');
+    }
+    
+    return array(
+        'first_name' => WC()->customer->get_billing_first_name(),
+        'last_name' => WC()->customer->get_billing_last_name(),
+        'email' => WC()->customer->get_billing_email(),
+        'phone' => WC()->customer->get_billing_phone(),
+        'address' => $service_address,
+        'city' => $service_city,
+        'province' => $service_province,
+        'postal_code' => $service_postal
+    );
+}
+
+/**
+ * Get the invoice number from the Moneris payment session
+ * The invoice number is the order_id that was generated during payment
+ */
+function dg_get_invoice_number() {
+    // Check if we have the order_id stored in WooCommerce session
+    if (WC()->session) {
+        $invoice_number = WC()->session->get('payment_order_id');
+        
+        if ($invoice_number) {
+            return $invoice_number;
+        }
+    }
+    
+    // Fallback: If not in session, generate a new one (shouldn't normally happen)
+    // This uses the same format as the Moneris payment processing
+    $moneris_config = get_moneris_config();
+    $invoice_number = ($moneris_config['test_mode'] ? 'test-' : 'web-') . time() . '-' . rand(1000, 9999);
+    
+    return $invoice_number;
+}
+
+/**
+ * Get all Thank You page data in one function call
+ * Returns an array with all the information needed for the Thank You page
+ */
+function dg_get_thank_you_page_data() {
+    $data = array();
+    
+    // Invoice number
+    $data['invoice_number'] = dg_get_invoice_number();
+    
+    // Order timestamp (formatted for display)
+    $data['order_timestamp'] = dg_get_order_timestamp('F j, Y \a\t g:i A'); // e.g., "October 14, 2025 at 3:45 PM"
+    $data['order_timestamp_raw'] = dg_get_order_timestamp('Y-m-d H:i:s'); // Raw format for any other uses
+    
+    // Customer IP address
+    $data['customer_ip'] = dg_get_customer_ip();
+    
+    // Customer information
+    $customer_info = dg_get_customer_info();
+    $data['customer'] = $customer_info;
+    
+    // Get last 4 digits of credit card (if available in session)
+    $data['card_last_4'] = '';
+    if (WC()->session) {
+        $card_last_4 = WC()->session->get('payment_card_last_4');
+        if ($card_last_4) {
+            $data['card_last_4'] = $card_last_4;
+        }
+    }
+    
+    // Get payment transaction details from session
+    if (WC()->session) {
+        $data['transaction_id'] = WC()->session->get('payment_transaction_id');
+        $data['receipt_id'] = WC()->session->get('payment_receipt_id');
+        $data['payment_amount'] = WC()->session->get('payment_amount');
+        $data['payment_date'] = WC()->session->get('payment_date');
+    }
+    
+   // Get upfront fee summary from stored session data (cart was emptied after payment)
+if (WC()->session) {
+    $stored_upfront = WC()->session->get('stored_upfront_summary');
+    $data['upfront_summary'] = $stored_upfront ? $stored_upfront : array();
+} else {
+    $data['upfront_summary'] = array();
+}
+
+// Get monthly fee summary from stored session data (cart was emptied after payment)
+if (WC()->session) {
+    $stored_monthly = WC()->session->get('stored_monthly_summary');
+    $data['monthly_summary'] = $stored_monthly ? $stored_monthly : array();
+} else {
+    $data['monthly_summary'] = array();
+}
+    
+    // Get monthly payment method from user meta
+    $data['monthly_payment_method'] = dg_get_user_meta('monthly_bill_payment_option');
+    
+    // Format monthly payment method for display
+    if ($data['monthly_payment_method']) {
+        switch(strtolower($data['monthly_payment_method'])) {
+            case 'cc':
+                $data['monthly_payment_method_display'] = 'Credit Card';
+                break;
+            case 'bank':
+            case 'pad':
+                $data['monthly_payment_method_display'] = 'Pre-Authorized Debit (PAD)';
+                break;
+            default:
+                $data['monthly_payment_method_display'] = ucfirst($data['monthly_payment_method']);
+        }
+    } else {
+        $data['monthly_payment_method_display'] = 'Not specified';
+    }
+    
+    return $data;
+}
+
+/**
+ * AJAX handler to get Thank You page data
+ */
+add_action('wp_ajax_get_thank_you_data', 'ajax_get_thank_you_data');
+add_action('wp_ajax_nopriv_get_thank_you_data', 'ajax_get_thank_you_data');
+
+function ajax_get_thank_you_data() {
+    // Get all the Thank You page data
+    $data = dg_get_thank_you_page_data();
+    
+    // Return the data as JSON
+    wp_send_json_success($data);
+}
+
+/**
+ * Enqueue Thank You page JavaScript
+ */
+function enqueue_thank_you_scripts() {
+    // Only load on the Thank You page 
+    if (is_page(266785)) { // Thank You page ID
+        wp_enqueue_script(
+            'thank-you-js',
+            get_stylesheet_directory_uri() . '/js/thank-you.js',
+            array('jquery'),
+            '1.0.0',
+            true
+        );
+        
+        // Make sure ajaxurl is available
+        wp_localize_script('thank-you-js', 'thankYouData', array(
+            'ajaxurl' => admin_url('admin-ajax.php')
+        ));
+    }
+}
+add_action('wp_enqueue_scripts', 'enqueue_thank_you_scripts');
+
+
+
+/*----------*/
+
+
 function verify_card_ex($payment_info) {
 
 	$mpg_response = VerifyCard( $payment_info );
@@ -1225,7 +1452,14 @@ function ajax_process_moneris_payment() {
     $moneris_config = get_moneris_config();
     
     // Generate unique order ID
-    $order_id = ($moneris_config['test_mode'] ? 'test-' : 'web-') . time() . '-' . wp_rand(1000, 9999);
+    $timestamp = substr(time(), -6); // Last 6 digits: 455918
+    $order_id = ($moneris_config['test_mode'] ? 'test-' : 'web-') . $timestamp . '-' . wp_rand(100, 999);
+
+
+    // Store order_id in session for Thank You page
+    if (WC()->session) {
+    WC()->session->set('payment_order_id', $order_id);
+}
     
     // Get customer ID from session or generate one
     $customer_id = '';
@@ -1294,8 +1528,25 @@ function ajax_process_moneris_payment() {
                     WC()->session->set('order_complete_timestamp', time());
                     WC()->session->set('cardholder_name', $cardholder_name);
                     WC()->session->set('payment_test_mode', $moneris_config['test_mode']);
+                    WC()->session->set('payment_card_last_4', substr($clean_card_number, -4));
                 }
-                
+        
+        // **NEW: Store cart summaries BEFORE emptying cart**
+        if (function_exists('get_upfront_fee_summary_with_deposits')) {
+            WC()->session->set('stored_upfront_summary', get_upfront_fee_summary_with_deposits());
+        } elseif (function_exists('get_upfront_fee_summary')) {
+            WC()->session->set('stored_upfront_summary', get_upfront_fee_summary());
+        }
+        
+        if (function_exists('get_monthly_fee_summary')) {
+            WC()->session->set('stored_monthly_summary', get_monthly_fee_summary());
+        }
+    }
+
+                if ($payment_response && $payment_response->getResponseCode() < 50 && 
+    strcasecmp($payment_response->getComplete(), 'true') == 0) {
+    
+            
                 // Prepare order data for Diallog database
                 $order_data = prepare_diallog_order_data($payment_response, $cardholder_name, $moneris_config);
                 
