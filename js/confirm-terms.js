@@ -4,6 +4,8 @@
  * 
  * This script handles the terms and conditions confirmation flow and integrates
  * with the Moneris payment button to ensure users confirm T&C before payment.
+ * 
+ * UPDATED: Now captures and stores timestamp when terms are confirmed
  */
 
 jQuery(document).ready(function ($) {
@@ -12,6 +14,7 @@ jQuery(document).ready(function ($) {
     let termsConfirmed = false;
     let monthlyBillingValidated = false;
     let lastButtonState = null; // Track last button state to prevent unnecessary updates
+    let termsTimestamp = null; // NEW: Store the timestamp of terms confirmation
 
     // Initialize the enhanced terms and conditions functionality
     initializeTermsAndConditions();
@@ -104,11 +107,8 @@ jQuery(document).ready(function ($) {
 
     /**
      * PERFORMANCE OPTIMIZED: Update button state only when necessary
+     * UPDATED: Now targets all Moneris buttons by class instead of ID
      */
-    /**
- * PERFORMANCE OPTIMIZED: Update button state only when necessary
- * UPDATED: Now targets all Moneris buttons by class instead of ID
- */
     function updateButtonState() {
         const termsOk = termsConfirmed;
         const monthlyBillingOk = checkMonthlyBillingValidation();
@@ -374,18 +374,53 @@ jQuery(document).ready(function ($) {
 
     /**
      * Handle terms and conditions confirmation
+     * UPDATED: Now captures and stores timestamp
      */
     function confirmTermsAndConditions() {
         console.log('Processing terms confirmation...');
 
+        // NEW: Capture the current timestamp
+        termsTimestamp = new Date().toISOString();
         termsConfirmed = true;
+
         styleConfirmedTcButton();
         updateButtonState(); // Use optimized update function
 
+        // NEW: Store both confirmation status and timestamp
         sessionStorage.setItem('termsConfirmed', 'true');
+        sessionStorage.setItem('termsTimestamp', termsTimestamp);
+
+        // NEW: Store timestamp in WooCommerce session via AJAX
+        storeTermsTimestampInSession(termsTimestamp);
+
         $(document).trigger('termsConfirmed');
 
-        console.log('Terms confirmed successfully');
+        console.log('Terms confirmed successfully at:', termsTimestamp);
+    }
+
+    /**
+     * NEW: Store terms timestamp in WooCommerce session
+     */
+    function storeTermsTimestampInSession(timestamp) {
+        $.ajax({
+            url: confirmTerms.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'store_terms_timestamp',
+                nonce: confirmTerms.nonce,
+                timestamp: timestamp
+            },
+            success: function (response) {
+                if (response.success) {
+                    console.log('Terms timestamp stored in session:', timestamp);
+                } else {
+                    console.error('Failed to store terms timestamp:', response);
+                }
+            },
+            error: function (xhr, status, error) {
+                console.error('Error storing terms timestamp:', error);
+            }
+        });
     }
 
     /**
@@ -421,13 +456,16 @@ jQuery(document).ready(function ($) {
 
     /**
      * Restore terms confirmation state from session storage
+     * UPDATED: Also restores timestamp
      */
     function restoreTermsState() {
         const wasConfirmed = sessionStorage.getItem('termsConfirmed') === 'true';
+        const storedTimestamp = sessionStorage.getItem('termsTimestamp');
 
         if (wasConfirmed) {
             console.log('Restoring previously confirmed terms state');
             termsConfirmed = true;
+            termsTimestamp = storedTimestamp;
 
             setTimeout(function () {
                 const $tcButton = $('.tc-button');
@@ -478,6 +516,7 @@ jQuery(document).ready(function ($) {
         console.log('Resetting terms confirmation');
 
         termsConfirmed = false;
+        termsTimestamp = null;
         lastButtonState = null; // Reset state tracking
 
         const $tcButton = $('.tc-button');
@@ -492,6 +531,7 @@ jQuery(document).ready(function ($) {
 
         updateButtonState();
         sessionStorage.removeItem('termsConfirmed');
+        sessionStorage.removeItem('termsTimestamp');
     }
 
     /**
@@ -503,6 +543,7 @@ jQuery(document).ready(function ($) {
 
         if (termsConfirmed && currentUrl.includes('checkout')) {
             sessionStorage.setItem('termsConfirmed', 'true');
+            sessionStorage.setItem('termsTimestamp', termsTimestamp);
         }
     });
 
@@ -510,14 +551,19 @@ jQuery(document).ready(function ($) {
     const currentUrl = window.location.href;
     if (lastUrl && lastUrl !== currentUrl && !currentUrl.includes('checkout')) {
         sessionStorage.removeItem('termsConfirmed');
+        sessionStorage.removeItem('termsTimestamp');
     }
 
     /**
      * Public API for other scripts
+     * UPDATED: Added getTimestamp method
      */
     window.TermsAndConditions = {
         isConfirmed: function () {
             return termsConfirmed;
+        },
+        getTimestamp: function () {
+            return termsTimestamp;
         },
         reset: resetTermsConfirmation,
         confirm: function () {
@@ -526,6 +572,7 @@ jQuery(document).ready(function ($) {
         getState: function () {
             return {
                 confirmed: termsConfirmed,
+                timestamp: termsTimestamp,
                 monthlyBillingValidated: monthlyBillingValidated,
                 tcButtonExists: $('.tc-button').length > 0,
                 monerisButtonExists: $('.moneris-payment-button').length > 0,
@@ -538,6 +585,7 @@ jQuery(document).ready(function ($) {
     window.debugTermsAndConditions = function () {
         console.log('=== Terms & Conditions Debug Info ===');
         console.log('Terms Confirmed:', termsConfirmed);
+        console.log('Terms Timestamp:', termsTimestamp);
         console.log('Monthly Billing Validated:', monthlyBillingValidated);
         console.log('Last Button State:', lastButtonState);
         console.log('Current State Signature:', `${termsConfirmed}-${monthlyBillingValidated}-${termsConfirmed && monthlyBillingValidated}`);
