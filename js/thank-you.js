@@ -10,6 +10,36 @@ jQuery(document).ready(function ($) {
         return '$' + parseFloat(amount).toFixed(2);
     }
 
+    // NEW: Function to format timestamp for display - MATCHES ORDER DATE FORMAT
+    function formatTermsTimestamp(timestamp) {
+        if (!timestamp) {
+            return '';
+        }
+
+        try {
+            const date = new Date(timestamp);
+
+            // Format to match: "October 14, 2025 at 3:45 PM"
+            // This matches the PHP format: 'F j, Y \a\t g:i A'
+            const options = {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true
+            };
+
+            const formatted = date.toLocaleString('en-US', options);
+
+            // The toLocaleString gives us "October 14, 2025 at 3:45 PM" which matches perfectly
+            return formatted;
+        } catch (e) {
+            console.error('Error formatting timestamp:', e);
+            return timestamp; // Return raw timestamp if formatting fails
+        }
+    }
+
     // Function to load Thank You page data
     function loadThankYouData() {
         console.log('Fetching Thank You page data...');
@@ -53,6 +83,20 @@ jQuery(document).ready(function ($) {
         }
         if (data.customer_ip) {
             $('#customer-ip').text(data.customer_ip);
+        }
+
+        // NEW: Populate Terms & Conditions timestamp
+        if (data.terms_timestamp) {
+            const formattedTimestamp = formatTermsTimestamp(data.terms_timestamp);
+            $('#terms-timestamp').text(formattedTimestamp);
+            console.log('Terms timestamp populated:', formattedTimestamp);
+
+            // Show the terms timestamp row if it was hidden
+            $('#terms-timestamp-row').show();
+        } else {
+            // Hide the terms timestamp row if no timestamp available
+            $('#terms-timestamp-row').hide();
+            console.log('No terms timestamp available');
         }
 
         // Populate Customer Information
