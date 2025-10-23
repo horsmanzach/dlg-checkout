@@ -250,6 +250,16 @@ function dg_get_thank_you_page_data() {
         }
     }
     
+    // NEW: Get terms acceptance timestamp from session
+    $data['terms_timestamp'] = '';
+    if (WC()->session) {
+        $terms_timestamp = WC()->session->get('terms_timestamp');
+        if ($terms_timestamp) {
+            $data['terms_timestamp'] = $terms_timestamp;
+            error_log('Terms timestamp retrieved for thank you page: ' . $terms_timestamp);
+        }
+    }
+    
     // Get payment transaction details from session
     if (WC()->session) {
         $data['transaction_id'] = WC()->session->get('payment_transaction_id');
@@ -258,21 +268,21 @@ function dg_get_thank_you_page_data() {
         $data['payment_date'] = WC()->session->get('payment_date');
     }
     
-   // Get upfront fee summary from stored session data (cart was emptied after payment)
-if (WC()->session) {
-    $stored_upfront = WC()->session->get('stored_upfront_summary');
-    $data['upfront_summary'] = $stored_upfront ? $stored_upfront : array();
-} else {
-    $data['upfront_summary'] = array();
-}
+    // Get upfront fee summary from stored session data (cart was emptied after payment)
+    if (WC()->session) {
+        $stored_upfront = WC()->session->get('stored_upfront_summary');
+        $data['upfront_summary'] = $stored_upfront ? $stored_upfront : array();
+    } else {
+        $data['upfront_summary'] = array();
+    }
 
-// Get monthly fee summary from stored session data (cart was emptied after payment)
-if (WC()->session) {
-    $stored_monthly = WC()->session->get('stored_monthly_summary');
-    $data['monthly_summary'] = $stored_monthly ? $stored_monthly : array();
-} else {
-    $data['monthly_summary'] = array();
-}
+    // Get monthly fee summary from stored session data (cart was emptied after payment)
+    if (WC()->session) {
+        $stored_monthly = WC()->session->get('stored_monthly_summary');
+        $data['monthly_summary'] = $stored_monthly ? $stored_monthly : array();
+    } else {
+        $data['monthly_summary'] = array();
+    }
     
     // Get monthly payment method from user meta
     $data['monthly_payment_method'] = dg_get_user_meta('monthly_bill_payment_option');
@@ -295,6 +305,33 @@ if (WC()->session) {
     }
     
     return $data;
+}
+
+/**
+ * AJAX handler to store terms timestamp in WooCommerce session
+ */
+add_action('wp_ajax_store_terms_timestamp', 'ajax_store_terms_timestamp');
+add_action('wp_ajax_nopriv_store_terms_timestamp', 'ajax_store_terms_timestamp');
+
+function ajax_store_terms_timestamp() {
+    // Verify nonce
+    check_ajax_referer('checkout_nonce', 'nonce');
+    
+    if (!isset($_POST['timestamp'])) {
+        wp_send_json_error(array('message' => 'No timestamp provided'));
+        return;
+    }
+    
+    $timestamp = sanitize_text_field($_POST['timestamp']);
+    
+    // Store in WooCommerce session
+    if (WC()->session) {
+        WC()->session->set('terms_timestamp', $timestamp);
+        error_log('Terms timestamp stored in session: ' . $timestamp);
+        wp_send_json_success(array('message' => 'Timestamp stored successfully'));
+    } else {
+        wp_send_json_error(array('message' => 'WooCommerce session not available'));
+    }
 }
 
 /**
@@ -1455,11 +1492,10 @@ function ajax_process_moneris_payment() {
     $timestamp = substr(time(), -6); // Last 6 digits: 455918
     $order_id = ($moneris_config['test_mode'] ? 'test-' : 'web-') . $timestamp . '-' . wp_rand(100, 999);
 
-
     // Store order_id in session for Thank You page
     if (WC()->session) {
-    WC()->session->set('payment_order_id', $order_id);
-}
+        WC()->session->set('payment_order_id', $order_id);
+    }
     
     // Get customer ID from session or generate one
     $customer_id = '';
@@ -1531,23 +1567,30 @@ function ajax_process_moneris_payment() {
                     WC()->session->set('payment_card_last_4', substr($clean_card_number, -4));
                 }
         
-        // **NEW: Store cart summaries BEFORE emptying cart**
-        if (function_exists('get_upfront_fee_summary_with_deposits')) {
-            WC()->session->set('stored_upfront_summary', get_upfront_fee_summary_with_deposits());
-        } elseif (function_exists('get_upfront_fee_summary')) {
-            WC()->session->set('stored_upfront_summary', get_upfront_fee_summary());
-        }
-        
-        if (function_exists('get_monthly_fee_summary')) {
-            WC()->session->set('stored_monthly_summary', get_monthly_fee_summary());
-        }
-    }
-
-                if ($payment_response && $payment_response->getResponseCode() < 50 && 
-    strcasecmp($payment_response->getComplete(), 'true') == 0) {
-    
-            
+                // Store cart summaries BEFORE emptying cart
+                if (function_exists('get_upfront_fee_summary_with_deposits')) {
+                    WC()->session->set('stored_upfront_summary', get_upfront_fee_summary_with_deposits());
+                } elseif (function_exists('get_upfront_fee_summary')) {
+                    WC()->session->set('stored_upfront_summary', get_upfront_fee_summary());
+                }
+                
+                if (function_exists('get_monthly_fee_summary')) {
+                    WC()->session->set('stored_monthly_summary', get_monthly_fee_summary());
+                }
+                
+                // NEW: Get and store terms timestamp
+                $terms_timestamp = '';
+                if (WC()->session) {
+                    $terms_timestamp = WC()->session->get('terms_timestamp');
+                    if ($terms_timestamp) {
+                        error_log('Terms timestamp retrieved for order: ' . $terms_timestamp);
+                    } else {
+                        error_log('Warning: No terms timestamp found in session');
+                    }
+                }
+                
                 // Prepare order data for Diallog database
+                // Note: prepare_diallog_order_data will automatically include terms_timestamp from session
                 $order_data = prepare_diallog_order_data($payment_response, $cardholder_name, $moneris_config);
                 
                 // Send order to Diallog database (skip in test mode to avoid test data in production DB)
@@ -1609,39 +1652,47 @@ function ajax_process_moneris_payment() {
  * Prepare order data for Diallog database
  */
 function prepare_diallog_order_data($payment_response, $cardholder_name, $moneris_config) {
-    // Get cart items and customer data
+    // Get cart items before clearing
     $cart_items = array();
-    $monthly_summary = array();
-    $upfront_summary = array();
-    
-    if (function_exists('WC') && WC()->cart && !WC()->cart->is_empty()) {
-        foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
-            $product = $cart_item['data'];
-            $cart_items[] = array(
-                'product_id' => $cart_item['product_id'],
-                'product_name' => $product->get_name(),
-                'quantity' => $cart_item['quantity'],
-                'price' => $product->get_price(),
-                'variation_data' => isset($cart_item['variation']) ? $cart_item['variation'] : array()
-            );
-        }
+    foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+        $product = $cart_item['data'];
+        $cart_items[] = array(
+            'product_id' => $product->get_id(),
+            'name' => $product->get_name(),
+            'quantity' => $cart_item['quantity'],
+            'price' => $product->get_price(),
+            'total' => $cart_item['line_total']
+        );
     }
     
-    // Get fee summaries
-    if (function_exists('get_upfront_fee_summary')) {
-        $upfront_summary = get_upfront_fee_summary();
-    }
+    // Get summaries
+    $upfront_summary = function_exists('get_upfront_fee_summary_with_deposits') ? 
+        get_upfront_fee_summary_with_deposits() : 
+        (function_exists('get_upfront_fee_summary') ? get_upfront_fee_summary() : array());
     
-    if (function_exists('get_monthly_fee_summary')) {
-        $monthly_summary = get_monthly_fee_summary();
-    }
+    $monthly_summary = function_exists('get_monthly_fee_summary') ? 
+        get_monthly_fee_summary() : array();
     
-    // Get customer information from session/cart
+    // Get customer data from session
     $customer_data = array(
-        'cardholder_name' => $cardholder_name,
-        'billing_email' => WC()->session->get('customer')['email'] ?? '',
+        'first_name' => WC()->session->get('customer')['first_name'] ?? '',
+        'last_name' => WC()->session->get('customer')['last_name'] ?? '',
+        'email' => WC()->session->get('customer')['email'] ?? '',
+        'billing_address' => WC()->session->get('customer')['billing_address_1'] ?? '',
+        'billing_city' => WC()->session->get('customer')['billing_city'] ?? '',
+        'billing_state' => WC()->session->get('customer')['billing_state'] ?? '',
+        'billing_postcode' => WC()->session->get('customer')['billing_postcode'] ?? '',
         'billing_phone' => WC()->session->get('customer')['phone'] ?? '',
     );
+    
+    // NEW: Get terms acceptance timestamp from session
+    $terms_timestamp = '';
+    if (WC()->session) {
+        $terms_timestamp = WC()->session->get('terms_timestamp');
+        if ($terms_timestamp) {
+            error_log('Including terms timestamp in order data: ' . $terms_timestamp);
+        }
+    }
     
     // Build complete order data structure
     $order_data = array(
@@ -1660,7 +1711,8 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
         'upfront_summary' => $upfront_summary,
         'monthly_summary' => $monthly_summary,
         'order_timestamp' => time(),
-        'order_source' => 'website_checkout'
+        'order_source' => 'website_checkout',
+        'terms_acceptance_timestamp' => $terms_timestamp // NEW: Include timestamp
     );
     
     return $order_data;
@@ -2069,15 +2121,29 @@ add_action('wp_enqueue_scripts', 'enqueue_address_lookup_script');
 
 /*======Add Modem Details to 'I have my own Modem' product=====*/
 
-// AJAX handler to save modem details to cart
 function save_modem_details_to_cart() {
     check_ajax_referer('modem_selection_nonce', 'nonce');
     
     $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
     $modem_details = isset($_POST['modem_details']) ? sanitize_text_field($_POST['modem_details']) : '';
+    $ship_to_different = isset($_POST['ship_to_different']) ? sanitize_text_field($_POST['ship_to_different']) : '';
+    $shipping_address = isset($_POST['shipping_address']) ? sanitize_text_field($_POST['shipping_address']) : '';
     
+    // Validate modem details
     if ($product_id !== 265769 || strlen($modem_details) < 5 || strlen($modem_details) > 100) {
         wp_send_json_error(array('message' => 'Invalid modem details'));
+        return;
+    }
+    
+    // Validate shipping choice
+    if (!in_array($ship_to_different, array('yes', 'no'))) {
+        wp_send_json_error(array('message' => 'Shipping choice must be selected'));
+        return;
+    }
+    
+    // Validate shipping address if "yes" is selected
+    if ($ship_to_different === 'yes' && strlen($shipping_address) < 10) {
+        wp_send_json_error(array('message' => 'Valid shipping address is required'));
         return;
     }
     
@@ -2094,15 +2160,17 @@ function save_modem_details_to_cart() {
         }
     }
     
-    // Add to cart with custom data
+    // Add to cart with custom data including shipping information
     $cart_item_data = array(
-        'modem_details' => $modem_details
+        'modem_details' => $modem_details,
+        'ship_to_different' => $ship_to_different,
+        'shipping_address' => $shipping_address
     );
     
     $added = WC()->cart->add_to_cart($product_id, 1, 0, array(), $cart_item_data);
     
     if ($added) {
-        wp_send_json_success(array('message' => 'Own modem added to cart'));
+        wp_send_json_success(array('message' => 'Own modem added to cart with shipping details'));
     } else {
         wp_send_json_error(array('message' => 'Failed to add to cart'));
     }
@@ -2121,6 +2189,29 @@ function display_modem_details_in_cart($item_data, $cart_item) {
             'display' => '',
         );
     }
+    
+    if (isset($cart_item['ship_to_different']) && $cart_item['ship_to_different'] === 'yes') {
+        $item_data[] = array(
+            'key'     => 'Ship to Different Address',
+            'value'   => 'Yes',
+            'display' => '',
+        );
+        
+        if (isset($cart_item['shipping_address'])) {
+            $item_data[] = array(
+                'key'     => 'Shipping Address',
+                'value'   => $cart_item['shipping_address'],
+                'display' => '',
+            );
+        }
+    } elseif (isset($cart_item['ship_to_different']) && $cart_item['ship_to_different'] === 'no') {
+        $item_data[] = array(
+            'key'     => 'Ship to Different Address',
+            'value'   => 'No (ship to service address)',
+            'display' => '',
+        );
+    }
+    
     return $item_data;
 }
 add_filter('woocommerce_get_item_data', 'display_modem_details_in_cart', 10, 2);
@@ -2129,6 +2220,15 @@ add_filter('woocommerce_get_item_data', 'display_modem_details_in_cart', 10, 2);
 function save_modem_details_to_order($item, $cart_item_key, $values, $order) {
     if (isset($values['modem_details'])) {
         $item->add_meta_data('Modem Make & Model', $values['modem_details']);
+    }
+    
+    if (isset($values['ship_to_different'])) {
+        $ship_label = $values['ship_to_different'] === 'yes' ? 'Yes' : 'No (ship to service address)';
+        $item->add_meta_data('Ship to Different Address', $ship_label);
+    }
+    
+    if (isset($values['shipping_address']) && !empty($values['shipping_address'])) {
+        $item->add_meta_data('Shipping Address', $values['shipping_address']);
     }
 }
 add_action('woocommerce_checkout_create_order_line_item', 'save_modem_details_to_order', 10, 4);
@@ -2179,19 +2279,31 @@ function get_cart_items_ajax() {
     
     $items = array();
     $modem_details = '';
+    $ship_to_different = '';
+    $shipping_address = '';
     
     foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
         $items[] = $cart_item['product_id'];
         
-        // Check if this is the "I Have My Own Modem" product and get the details
-        if ($cart_item['product_id'] == 265769 && isset($cart_item['modem_details'])) {
-            $modem_details = $cart_item['modem_details'];
+        // Check if this is the "I Have My Own Modem" product and get all the details
+        if ($cart_item['product_id'] == 265769) {
+            if (isset($cart_item['modem_details'])) {
+                $modem_details = $cart_item['modem_details'];
+            }
+            if (isset($cart_item['ship_to_different'])) {
+                $ship_to_different = $cart_item['ship_to_different'];
+            }
+            if (isset($cart_item['shipping_address'])) {
+                $shipping_address = $cart_item['shipping_address'];
+            }
         }
     }
     
     wp_send_json_success(array(
         'items' => $items,
-        'modem_details' => $modem_details
+        'modem_details' => $modem_details,
+        'ship_to_different' => $ship_to_different,
+        'shipping_address' => $shipping_address
     ));
     
     wp_die();
