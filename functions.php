@@ -814,6 +814,140 @@ function ajax_add_payafter_deposit() {
     }
 }
 
+/**
+ * Enqueue shipping address JavaScript 
+ */
+function enqueue_shipping_address_scripts() {
+    // Only load on checkout page
+    if (is_checkout()) {
+        // Enqueue JavaScript
+        wp_enqueue_script(
+            'shipping-address',
+            get_stylesheet_directory_uri() . '/js/shipping-address.js',
+            array('jquery'),
+            '1.0.0',
+            true
+        );
+
+        // Pass necessary data to JavaScript
+        wp_localize_script('shipping-address', 'shippingAddressVars', array(
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('shipping_address_nonce')
+        ));
+    }
+}
+add_action('wp_enqueue_scripts', 'enqueue_shipping_address_scripts');
+
+
+/**
+ * Shipping Address Checkbox Shortcode
+ * Usage: [shipping_address_checkbox]
+ */
+function shipping_address_checkbox_shortcode() {
+    ob_start();
+    ?>
+    <div class="shipping-address-checkbox-container">
+        <label class="shipping-address-checkbox-label">
+            <input type="checkbox" id="ship-to-different-checkbox" name="ship_to_different_address">
+            <span>Ship to a Different Address?</span>
+        </label>
+        
+        <div class="shipping-address-wrapper" style="display: none;">
+            <div class="shipping-address-field">
+                <label for="shipping-address-input">Shipping Address</label>
+                <input 
+                    type="text" 
+                    id="shipping-address-input" 
+                    name="shipping_address_input"
+                    placeholder="Start typing your address..."
+                    autocomplete="off"
+                >
+            </div>
+        </div>
+    </div>
+    <?php
+    return ob_get_clean();
+}
+add_shortcode('shipping_address_checkbox', 'shipping_address_checkbox_shortcode');
+
+/**
+ * Copy billing address to shipping address if checkbox is not checked
+ * This ensures shipping address is always populated
+ */
+function sync_billing_to_shipping_address($order_id) {
+    $order = wc_get_order($order_id);
+    
+    if (!$order) {
+        return;
+    }
+
+    // Check if "ship to different address" was checked
+    $ship_to_different = isset($_POST['ship_to_different_address']) ? true : false;
+
+    if (!$ship_to_different) {
+        // Checkbox was not checked - copy billing to shipping
+        $billing_address = array(
+            'first_name' => $order->get_billing_first_name(),
+            'last_name'  => $order->get_billing_last_name(),
+            'company'    => $order->get_billing_company(),
+            'address_1'  => $order->get_billing_address_1(),
+            'address_2'  => $order->get_billing_address_2(),
+            'city'       => $order->get_billing_city(),
+            'state'      => $order->get_billing_state(),
+            'postcode'   => $order->get_billing_postcode(),
+            'country'    => $order->get_billing_country(),
+        );
+
+        // Set shipping address to billing address
+        $order->set_shipping_first_name($billing_address['first_name']);
+        $order->set_shipping_last_name($billing_address['last_name']);
+        $order->set_shipping_company($billing_address['company']);
+        $order->set_shipping_address_1($billing_address['address_1']);
+        $order->set_shipping_address_2($billing_address['address_2']);
+        $order->set_shipping_city($billing_address['city']);
+        $order->set_shipping_state($billing_address['state']);
+        $order->set_shipping_postcode($billing_address['postcode']);
+        $order->set_shipping_country($billing_address['country']);
+
+        $order->save();
+
+        error_log('Shipping address synced from billing address for order #' . $order_id);
+    } else {
+        // Checkbox was checked - shipping address populated by JavaScript via Google Maps
+        error_log('Custom shipping address used for order #' . $order_id);
+    }
+}
+add_action('woocommerce_checkout_order_processed', 'sync_billing_to_shipping_address', 10, 1);
+
+
+/**
+ * Save the shipping checkbox state to order meta
+ */
+function save_shipping_checkbox_state($order_id) {
+    if (isset($_POST['ship_to_different_address'])) {
+        update_post_meta($order_id, '_ship_to_different_address', 'yes');
+    } else {
+        update_post_meta($order_id, '_ship_to_different_address', 'no');
+    }
+}
+add_action('woocommerce_checkout_update_order_meta', 'save_shipping_checkbox_state');
+
+
+/**
+ * Display shipping address choice in order admin
+ */
+function display_shipping_choice_in_admin($order) {
+    $ship_to_different = get_post_meta($order->get_id(), '_ship_to_different_address', true);
+    
+    if ($ship_to_different === 'yes') {
+        echo '<p><strong>Ship to Different Address:</strong> Yes (Custom shipping address)</p>';
+    } else {
+        echo '<p><strong>Ship to Different Address:</strong> No (Same as billing address)</p>';
+    }
+}
+add_action('woocommerce_admin_order_data_after_shipping_address', 'display_shipping_choice_in_admin', 10, 1);
+
+
 
 // ----- 4 Updated Enqueueing Functions for monthly_billing_assets, confirm_terms_script, mneris_payment_assets and checkout_cc_copy_script
 
@@ -1398,6 +1532,7 @@ add_shortcode('moneris_complete_payment_button', 'moneris_complete_payment_butto
 add_action('wp_ajax_process_moneris_payment', 'ajax_process_moneris_payment');
 add_action('wp_ajax_nopriv_process_moneris_payment', 'ajax_process_moneris_payment');
 
+
 function ajax_process_moneris_payment() {
     // Verify nonce
     check_ajax_referer('moneris_payment_nonce', 'nonce');
@@ -1489,7 +1624,7 @@ function ajax_process_moneris_payment() {
     $moneris_config = get_moneris_config();
     
     // Generate unique order ID
-    $timestamp = substr(time(), -6); // Last 6 digits: 455918
+    $timestamp = substr(time(), -6);
     $order_id = ($moneris_config['test_mode'] ? 'test-' : 'web-') . $timestamp . '-' . wp_rand(100, 999);
 
     // Store order_id in session for Thank You page
@@ -1529,7 +1664,7 @@ function ajax_process_moneris_payment() {
         if (!$moneris_config['test_mode']) {
             // Only verify card in production mode
             $verify_data = $payment_data;
-            $verify_data['amount'] = '0.01'; // Verification amount
+            $verify_data['amount'] = '0.01';
             $verify_data['orderid'] = 'verify-' . time();
             
             if (function_exists('VerifyCard')) {
@@ -1554,7 +1689,45 @@ function ajax_process_moneris_payment() {
             if ($payment_response && $payment_response->getResponseCode() < 50 && 
                 strcasecmp($payment_response->getComplete(), 'true') == 0) {
                 
-                // Payment successful - Store payment details in session
+                // ========== CRITICAL FIX STARTS HERE ==========
+                error_log('=== PAYMENT SUCCESS - STORING ALL DATA BEFORE CART IS EMPTIED ===');
+                
+                // STEP 1: Store detailed cart items FIRST (CRITICAL - must be before cart is emptied)
+                error_log('Step 1: Storing detailed cart summaries for thank you page...');
+                
+                // Use new helper functions to get itemized cart data
+                if (function_exists('get_upfront_summary_for_thank_you')) {
+                    $stored_upfront = get_upfront_summary_for_thank_you();
+                    WC()->session->set('stored_upfront_summary', $stored_upfront);
+                    error_log('Upfront summary stored (itemized): ' . json_encode($stored_upfront));
+                } elseif (function_exists('get_upfront_fee_summary_with_deposits')) {
+                    $stored_upfront = get_upfront_fee_summary_with_deposits();
+                    WC()->session->set('stored_upfront_summary', $stored_upfront);
+                    error_log('Upfront summary stored with deposits: ' . json_encode($stored_upfront));
+                } elseif (function_exists('get_upfront_fee_summary')) {
+                    $stored_upfront = get_upfront_fee_summary();
+                    WC()->session->set('stored_upfront_summary', $stored_upfront);
+                    error_log('Upfront summary stored (fallback): ' . json_encode($stored_upfront));
+                } else {
+                    error_log('WARNING: No upfront summary function available!');
+                }
+                
+                // Store monthly summary with new helper function
+                if (function_exists('get_monthly_summary_for_thank_you')) {
+                    $stored_monthly = get_monthly_summary_for_thank_you();
+                    WC()->session->set('stored_monthly_summary', $stored_monthly);
+                    error_log('Monthly summary stored (itemized): ' . json_encode($stored_monthly));
+                } elseif (function_exists('get_monthly_fee_summary')) {
+                    $stored_monthly = get_monthly_fee_summary();
+                    WC()->session->set('stored_monthly_summary', $stored_monthly);
+                    error_log('Monthly summary stored: ' . json_encode($stored_monthly));
+                } else {
+                    error_log('WARNING: No monthly summary function available!');
+                }
+                
+                // STEP 2: Store payment details in session
+                error_log('Step 2: Storing payment details...');
+                
                 if (WC()->session) {
                     WC()->session->set('payment_status', 'completed');
                     WC()->session->set('payment_transaction_id', $payment_response->getTxnNumber());
@@ -1565,49 +1738,55 @@ function ajax_process_moneris_payment() {
                     WC()->session->set('cardholder_name', $cardholder_name);
                     WC()->session->set('payment_test_mode', $moneris_config['test_mode']);
                     WC()->session->set('payment_card_last_4', substr($clean_card_number, -4));
-                }
-        
-                // Store cart summaries BEFORE emptying cart
-                if (function_exists('get_upfront_fee_summary_with_deposits')) {
-                    WC()->session->set('stored_upfront_summary', get_upfront_fee_summary_with_deposits());
-                } elseif (function_exists('get_upfront_fee_summary')) {
-                    WC()->session->set('stored_upfront_summary', get_upfront_fee_summary());
+                    error_log('Payment details stored in session');
                 }
                 
-                if (function_exists('get_monthly_fee_summary')) {
-                    WC()->session->set('stored_monthly_summary', get_monthly_fee_summary());
-                }
+                // STEP 3: Get and store terms timestamp
+                error_log('Step 3: Getting terms timestamp...');
                 
-                // NEW: Get and store terms timestamp
                 $terms_timestamp = '';
                 if (WC()->session) {
                     $terms_timestamp = WC()->session->get('terms_timestamp');
                     if ($terms_timestamp) {
-                        error_log('Terms timestamp retrieved for order: ' . $terms_timestamp);
+                        error_log('Terms timestamp found: ' . $terms_timestamp);
                     } else {
-                        error_log('Warning: No terms timestamp found in session');
+                        error_log('WARNING: No terms timestamp in session');
                     }
                 }
                 
-                // Prepare order data for Diallog database
-                // Note: prepare_diallog_order_data will automatically include terms_timestamp from session
-                $order_data = prepare_diallog_order_data($payment_response, $cardholder_name, $moneris_config);
+                // STEP 4: Prepare order data for Diallog
+                error_log('Step 4: Preparing order data for Diallog...');
                 
-                // Send order to Diallog database (skip in test mode to avoid test data in production DB)
+                $order_data = prepare_diallog_order_data($payment_response, $cardholder_name, $moneris_config);
+                error_log('Order data prepared');
+                
+                // STEP 5: Send to Diallog database
+                error_log('Step 5: Sending to Diallog database...');
+                
                 $diallog_response = 'skipped';
                 if (!$moneris_config['test_mode']) {
                     $diallog_response = send_order_to_diallog($order_data);
+                    error_log('Order sent to Diallog: ' . $diallog_response);
                 } else {
-                    error_log('Test mode: Skipping Diallog database submission');
+                    error_log('Test mode: Skipping Diallog submission');
                 }
                 
-                // Trigger WooCommerce email notifications
-                trigger_woocommerce_emails($order_data);
+                // STEP 6: Trigger emails
+                error_log('Step 6: Triggering emails...');
                 
-                // Clear cart after successful payment and database submission
+                trigger_woocommerce_emails($order_data);
+                error_log('Emails triggered');
+                
+                // STEP 7: Empty cart ONLY AFTER all data has been captured
+                error_log('Step 7: Emptying cart...');
+                
                 if (function_exists('WC') && WC()->cart) {
                     WC()->cart->empty_cart();
+                    error_log('Cart emptied successfully');
                 }
+                
+                error_log('=== ALL DATA STORED AND CART EMPTIED SUCCESSFULLY ===');
+                // ========== CRITICAL FIX ENDS HERE ==========
                 
                 $success_msg = $success_message;
                 if ($moneris_config['test_mode']) {
@@ -2126,28 +2305,13 @@ function save_modem_details_to_cart() {
     
     $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
     $modem_details = isset($_POST['modem_details']) ? sanitize_text_field($_POST['modem_details']) : '';
-    $ship_to_different = isset($_POST['ship_to_different']) ? sanitize_text_field($_POST['ship_to_different']) : '';
-    $shipping_address = isset($_POST['shipping_address']) ? sanitize_text_field($_POST['shipping_address']) : '';
     
-    // Validate modem details
     if ($product_id !== 265769 || strlen($modem_details) < 5 || strlen($modem_details) > 100) {
         wp_send_json_error(array('message' => 'Invalid modem details'));
         return;
     }
     
-    // Validate shipping choice
-    if (!in_array($ship_to_different, array('yes', 'no'))) {
-        wp_send_json_error(array('message' => 'Shipping choice must be selected'));
-        return;
-    }
-    
-    // Validate shipping address if "yes" is selected
-    if ($ship_to_different === 'yes' && strlen($shipping_address) < 10) {
-        wp_send_json_error(array('message' => 'Valid shipping address is required'));
-        return;
-    }
-    
-    // Remove any existing modems from cart (same logic as regular modem selection)
+    // Remove any existing modems from cart
     $modem_category_id = 62; // Your modem category ID
     
     foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
@@ -2160,17 +2324,15 @@ function save_modem_details_to_cart() {
         }
     }
     
-    // Add to cart with custom data including shipping information
+    // Add to cart with custom data (MODEM DETAILS ONLY)
     $cart_item_data = array(
-        'modem_details' => $modem_details,
-        'ship_to_different' => $ship_to_different,
-        'shipping_address' => $shipping_address
+        'modem_details' => $modem_details
     );
     
     $added = WC()->cart->add_to_cart($product_id, 1, 0, array(), $cart_item_data);
     
     if ($added) {
-        wp_send_json_success(array('message' => 'Own modem added to cart with shipping details'));
+        wp_send_json_success(array('message' => 'Own modem added to cart'));
     } else {
         wp_send_json_error(array('message' => 'Failed to add to cart'));
     }
@@ -2180,7 +2342,9 @@ function save_modem_details_to_cart() {
 add_action('wp_ajax_save_modem_details', 'save_modem_details_to_cart');
 add_action('wp_ajax_nopriv_save_modem_details', 'save_modem_details_to_cart');
 
+
 // Display modem details in cart
+
 function display_modem_details_in_cart($item_data, $cart_item) {
     if (isset($cart_item['modem_details'])) {
         $item_data[] = array(
@@ -2189,46 +2353,16 @@ function display_modem_details_in_cart($item_data, $cart_item) {
             'display' => '',
         );
     }
-    
-    if (isset($cart_item['ship_to_different']) && $cart_item['ship_to_different'] === 'yes') {
-        $item_data[] = array(
-            'key'     => 'Ship to Different Address',
-            'value'   => 'Yes',
-            'display' => '',
-        );
-        
-        if (isset($cart_item['shipping_address'])) {
-            $item_data[] = array(
-                'key'     => 'Shipping Address',
-                'value'   => $cart_item['shipping_address'],
-                'display' => '',
-            );
-        }
-    } elseif (isset($cart_item['ship_to_different']) && $cart_item['ship_to_different'] === 'no') {
-        $item_data[] = array(
-            'key'     => 'Ship to Different Address',
-            'value'   => 'No (ship to service address)',
-            'display' => '',
-        );
-    }
-    
     return $item_data;
 }
 add_filter('woocommerce_get_item_data', 'display_modem_details_in_cart', 10, 2);
 
-// Save modem details to order
+
+
+// Save modem details to order (NO SHIPPING DATA)
 function save_modem_details_to_order($item, $cart_item_key, $values, $order) {
     if (isset($values['modem_details'])) {
         $item->add_meta_data('Modem Make & Model', $values['modem_details']);
-    }
-    
-    if (isset($values['ship_to_different'])) {
-        $ship_label = $values['ship_to_different'] === 'yes' ? 'Yes' : 'No (ship to service address)';
-        $item->add_meta_data('Ship to Different Address', $ship_label);
-    }
-    
-    if (isset($values['shipping_address']) && !empty($values['shipping_address'])) {
-        $item->add_meta_data('Shipping Address', $values['shipping_address']);
     }
 }
 add_action('woocommerce_checkout_create_order_line_item', 'save_modem_details_to_order', 10, 4);
@@ -2279,35 +2413,24 @@ function get_cart_items_ajax() {
     
     $items = array();
     $modem_details = '';
-    $ship_to_different = '';
-    $shipping_address = '';
     
     foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
         $items[] = $cart_item['product_id'];
         
-        // Check if this is the "I Have My Own Modem" product and get all the details
-        if ($cart_item['product_id'] == 265769) {
-            if (isset($cart_item['modem_details'])) {
-                $modem_details = $cart_item['modem_details'];
-            }
-            if (isset($cart_item['ship_to_different'])) {
-                $ship_to_different = $cart_item['ship_to_different'];
-            }
-            if (isset($cart_item['shipping_address'])) {
-                $shipping_address = $cart_item['shipping_address'];
-            }
+        // Check if this is the "I Have My Own Modem" product and get the details
+        if ($cart_item['product_id'] == 265769 && isset($cart_item['modem_details'])) {
+            $modem_details = $cart_item['modem_details'];
         }
     }
     
     wp_send_json_success(array(
         'items' => $items,
-        'modem_details' => $modem_details,
-        'ship_to_different' => $ship_to_different,
-        'shipping_address' => $shipping_address
+        'modem_details' => $modem_details
     ));
     
     wp_die();
 }
+
 add_action('wp_ajax_get_cart_items', 'get_cart_items_ajax');
 add_action('wp_ajax_nopriv_get_cart_items', 'get_cart_items_ajax');
 
@@ -6478,7 +6601,7 @@ function GetTaxRate() {
 	return $tax_rate;
 }
 
-/*
+
 function get_monthly_fee_summary() {
 
 	$summary = array(
@@ -6529,7 +6652,7 @@ function get_monthly_fee_summary() {
 			 	}
 
 			
-/*
+
 			if( $_product->get_id()==6931 ){
 				$summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
 				//$summary[$product_category][1] =  floatval($line_data['subtotal']);
@@ -6545,8 +6668,8 @@ function get_monthly_fee_summary() {
 				
 				$summary['taxes'][1] += floatval($line_data['total_tax']);
 			}
-*/
-/*
+
+
 			}
 		}
 	} 
@@ -6566,7 +6689,213 @@ function get_monthly_fee_summary() {
 
 	return $summary;	
 }
-*/
+
+/**
+ * Get detailed upfront cart items for thank you page
+ * Returns individual cart items with their prices for display
+ */
+function get_upfront_cart_items_for_thank_you() {
+    $items = array();
+    $tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 13;
+    
+    if (!WC()->cart || WC()->cart->is_empty()) {
+        return $items;
+    }
+    
+    error_log('=== GETTING UPFRONT CART ITEMS FOR THANK YOU PAGE ===');
+    
+    foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+        $product = $cart_item['data'];
+        $product_id = $product->get_id();
+        $product_name = $product->get_name();
+        $product_price = $product->get_price();
+        
+        // Get product categories
+        $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'slugs'));
+        $primary_category = !empty($product_cats) ? $product_cats[0] : 'uncategorized';
+        
+        // Skip Pay After deposit products (they're shown separately)
+        if ($product_id == 265827) {
+            continue;
+        }
+        
+        // Add main product if it has a price
+        if ($product_price > 0) {
+            $items[] = array(
+                'name' => $product_name,
+                'price' => $product_price,
+                'type' => 'product',
+                'category' => $primary_category
+            );
+            error_log("Added product: $product_name = $$product_price");
+        }
+        
+        // Check for deposit fee using ACF
+        $deposit_fee = 0;
+        if (function_exists('get_field')) {
+            $deposit_fee = get_field('deposit-fee', $product_id);
+            
+            if (empty($deposit_fee) && $deposit_fee !== '0') {
+                $deposit_fee = get_field('deposit-fee', 'product_' . $product_id);
+            }
+            
+            $deposit_fee = is_numeric($deposit_fee) ? floatval($deposit_fee) : 0;
+        }
+        
+        // Add deposit if exists
+        if ($deposit_fee > 0) {
+            $deposit_title = $product_name . ' Deposit';
+            $items[] = array(
+                'name' => $deposit_title,
+                'price' => $deposit_fee,
+                'type' => 'deposit',
+                'category' => $primary_category
+            );
+            error_log("Added deposit: $deposit_title = $$deposit_fee");
+        }
+    }
+    
+    error_log('Total items for thank you page: ' . count($items));
+    return $items;
+}
+
+/**
+ * Get detailed monthly cart items for thank you page
+ * Returns individual cart items with their monthly fees for display
+ */
+function get_monthly_cart_items_for_thank_you() {
+    $items = array();
+    
+    if (!WC()->cart || WC()->cart->is_empty()) {
+        return $items;
+    }
+    
+    error_log('=== GETTING MONTHLY CART ITEMS FOR THANK YOU PAGE ===');
+    
+    // Categories that should NOT be in monthly billing
+    $exclude_categories = array('deposit', 'installation', 'modems-new');
+    
+    foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+        $product = $cart_item['data'];
+        $product_id = $product->get_id();
+        $product_name = $product->get_name();
+        
+        // Get product categories
+        $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'slugs'));
+        $primary_category = !empty($product_cats) ? $product_cats[0] : 'uncategorized';
+        
+        // Skip excluded categories
+        if (in_array($primary_category, $exclude_categories)) {
+            continue;
+        }
+        
+        // Skip Pay After deposit
+        if ($product_id == 265827) {
+            continue;
+        }
+        
+        // Get monthly fee from ACF
+        $monthly_fee = 0;
+        if (function_exists('get_field')) {
+            $monthly_fee = get_field('monthly_fee', $product_id);
+            
+            if (empty($monthly_fee) && $monthly_fee !== '0') {
+                $monthly_fee = get_field('monthly_fee', 'product_' . $product_id);
+            }
+            
+            // Check for promotional monthly fee
+            $promo_fee = get_field('monthly_promo_fee', $product_id);
+            if (empty($promo_fee) && $promo_fee !== '0') {
+                $promo_fee = get_field('monthly_promo_fee', 'product_' . $product_id);
+            }
+            
+            // Use promo fee if available, otherwise regular fee
+            if (is_numeric($promo_fee) && floatval($promo_fee) > 0) {
+                $monthly_fee = floatval($promo_fee);
+            } else {
+                $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
+            }
+        }
+        
+        // Add to items if monthly fee exists
+        if ($monthly_fee > 0) {
+            $items[] = array(
+                'name' => $product_name,
+                'price' => $monthly_fee,
+                'category' => $primary_category
+            );
+            error_log("Added monthly item: $product_name = $$monthly_fee/month");
+        }
+    }
+    
+    error_log('Total monthly items for thank you page: ' . count($items));
+    return $items;
+}
+
+/**
+ * Get formatted upfront summary for thank you page
+ * This replaces the category-based summary with item-based summary
+ */
+function get_upfront_summary_for_thank_you() {
+    $items = get_upfront_cart_items_for_thank_you();
+    $tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 13;
+    
+    $summary = array();
+    $subtotal = 0;
+    
+    // Add each item to summary
+    foreach ($items as $item) {
+        $key = sanitize_key($item['name']);
+        $summary[$key] = array($item['name'], $item['price']);
+        $subtotal += $item['price'];
+    }
+    
+    // Calculate tax
+    $tax = 0;
+    if (wc_tax_enabled()) {
+        $tax = round(($subtotal * $tax_rate) / 100, 2);
+    }
+    
+    // Add totals
+    $summary['subtotal'] = array('Subtotal', $subtotal);
+    $summary['taxes'] = array('Tax', $tax);
+    $summary['grand_total'] = array('Total', $subtotal + $tax);
+    
+    error_log('Upfront summary for thank you: ' . json_encode($summary));
+    return $summary;
+}
+
+/**
+ * Get formatted monthly summary for thank you page
+ */
+function get_monthly_summary_for_thank_you() {
+    $items = get_monthly_cart_items_for_thank_you();
+    $tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 13;
+    
+    $summary = array();
+    $subtotal = 0;
+    
+    // Add each item to summary
+    foreach ($items as $item) {
+        $key = sanitize_key($item['name']);
+        $summary[$key] = array($item['name'], $item['price']);
+        $subtotal += $item['price'];
+    }
+    
+    // Calculate tax
+    $tax = 0;
+    if (wc_tax_enabled()) {
+        $tax = round(($subtotal * $tax_rate) / 100, 2);
+    }
+    
+    // Add totals
+    $summary['subtotal'] = array('Subtotal', $subtotal);
+    $summary['taxes'] = array('Tax', $tax);
+    $summary['grand_total'] = array('Total', $subtotal + $tax);
+    
+    error_log('Monthly summary for thank you: ' . json_encode($summary));
+    return $summary;
+}
 
 
 function get_monthly_order_summary($order) {
