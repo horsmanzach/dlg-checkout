@@ -1,7 +1,7 @@
 /**
- * Modem, Phone and TV Selection JavaScript - COMPLETE VERSION with Shipping Address
- * Modified to add shipping address option for product 265769
- * Includes ALL original functionality: modems, phones, TVs, installation dates, fee tables
+ * Modem, Phone and TV Selection JavaScript - COMPLETE VERSION
+ * Includes: modems, phones, TVs, installation dates, fee tables
+ * Note: Shipping address functionality moved to checkout (shipping-address.js)
  */
 jQuery(document).ready(function ($) {
     // Store the product IDs for each row
@@ -25,16 +25,13 @@ jQuery(document).ready(function ($) {
         'tv-2': 265476
     };
 
-    // Google Maps autocomplete object for shipping address
-    let shippingAutocomplete = null;
-
     // Get current page product ID (for internet plan)
     const currentPageProductId = $('input[name="add-to-cart"]').val() || 0;
 
     // Check if any product is already in cart and highlight that row
     checkCartAndHighlight();
 
-    // Add input fields to "own modem" row
+    // Add input field to "own modem" row
     const $ownModemRow = $('.modem-4');
     if ($ownModemRow.length) {
         const inputHtml = `
@@ -44,29 +41,6 @@ jQuery(document).ready(function ($) {
                    placeholder="Enter modem make and model (e.g., Netgear CM1000)"
                    maxlength="100">
             <div class="own-modem-error">Please enter modem make and model (5-100 characters)</div>
-            
-            <!-- Shipping Address Section -->
-            <div class="shipping-address-section">
-                <label class="shipping-question">Ship to a different address?</label>
-                <div class="shipping-checkbox-group">
-                    <label class="shipping-checkbox-label">
-                        <input type="radio" name="ship_to_different_address" value="yes" class="ship-yes-radio">
-                        <span>Yes</span>
-                    </label>
-                    <label class="shipping-checkbox-label">
-                        <input type="radio" name="ship_to_different_address" value="no" class="ship-no-radio">
-                        <span>No</span>
-                    </label>
-                </div>
-                <div class="shipping-address-input-wrapper" style="display: none;">
-                    <input type="text" 
-                           class="shipping-address-input" 
-                           id="own-modem-shipping-address"
-                           placeholder="Start typing your address..."
-                           maxlength="200">
-                    <div class="shipping-address-error">Please enter a valid shipping address</div>
-                </div>
-            </div>
         </div>
     `;
         // Try to find and append after description elements
@@ -76,73 +50,7 @@ jQuery(document).ready(function ($) {
         } else {
             $ownModemRow.append(inputHtml);
         }
-
-        // Initialize Google Maps autocomplete after adding the input
-        initializeShippingAutocomplete();
     }
-
-    
-    // Initialize Google Maps Autocomplete for shipping address
-    function initializeShippingAutocomplete() {
-        const shippingInput = document.getElementById('own-modem-shipping-address');
-        
-        if (shippingInput && typeof google !== 'undefined' && google.maps && google.maps.places) {
-            shippingAutocomplete = new google.maps.places.Autocomplete(shippingInput, {
-                types: ['address'],
-                componentRestrictions: { country: 'ca' }
-            });
-
-            shippingAutocomplete.setFields(['address_components', 'formatted_address']);
-
-            // Listen for place selection
-            shippingAutocomplete.addListener('place_changed', function() {
-                const place = shippingAutocomplete.getPlace();
-                if (place && place.formatted_address) {
-                    console.log('Shipping address selected:', place.formatted_address);
-                    // Trigger validation
-                    validateOwnModemCard();
-                }
-            });
-
-            console.log('Google Maps autocomplete initialized for shipping address');
-        } else {
-            console.warn('Google Maps API not available for autocomplete');
-        }
-    }
-
-    // Handle shipping radio button changes
-    $(document).on('change', 'input[name="ship_to_different_address"]', function() {
-        const $row = $(this).closest('.modem-4');
-        const $wrapper = $row.find('.shipping-address-input-wrapper');
-        const $input = $row.find('.shipping-address-input');
-        
-        if ($(this).val() === 'yes') {
-            $wrapper.slideDown(300);
-        } else {
-            $wrapper.slideUp(300);
-            $input.val(''); // Clear the input
-            $input.removeClass('error');
-            $row.find('.shipping-address-error').hide();
-        }
-
-        // Revalidate the card
-        validateOwnModemCard();
-        
-        // CRITICAL: Trigger button state update for navigation
-        if (typeof revalidateButtonStates === 'function') {
-            revalidateButtonStates();
-        }
-    });
-
-    // Handle shipping address input
-    $(document).on('input', '.shipping-address-input', function() {
-        validateOwnModemCard();
-        
-        // CRITICAL: Trigger button state update for navigation
-        if (typeof revalidateButtonStates === 'function') {
-            revalidateButtonStates();
-        }
-    });
 
     
     // Make modem rows clickable
@@ -198,94 +106,67 @@ jQuery(document).ready(function ($) {
     });
 
 
-    // Comprehensive validation function for own modem card
-    function validateOwnModemCard() {
-        const $row = $('.modem-4');
-        const $modemInput = $row.find('.own-modem-input');
-        const $shippingYes = $row.find('.ship-yes-radio');
-        const $shippingNo = $row.find('.ship-no-radio');
-        const $shippingAddressInput = $row.find('.shipping-address-input');
-        
-        const modemDetails = $modemInput.val().trim();
-        const shippingChoice = $row.find('input[name="ship_to_different_address"]:checked').val();
-        const shippingAddress = $shippingAddressInput.val().trim();
+    // Enhanced input validation handler for modem details
+    $(document).on('input', '.own-modem-input', function () {
+        console.log('INPUT HANDLER TRIGGERED');
 
-        console.log('=== VALIDATION CHECK ===');
-        console.log('Modem details:', modemDetails);
-        console.log('Shipping choice:', shippingChoice);
-        console.log('Shipping address:', shippingAddress);
+        const $input = $(this);
+        const $row = $input.closest('.modem-4');
+        const modemDetails = $input.val().trim();
 
-        // Only validate if card has been clicked (has pending or selected class)
-        if (!$row.hasClass('own-modem-pending') && !$row.hasClass('modem-row-selected')) {
-            console.log('Card not yet clicked - skipping validation');
-            return;
-        }
+        console.log('Input value:', modemDetails);
+        console.log('Input length:', modemDetails.length);
+        console.log('Row classes BEFORE:', $row.attr('class'));
 
-        let isValid = true;
-        
-        // Validate modem details
-        if (modemDetails.length < 5 || modemDetails.length > 100) {
-            $modemInput.addClass('error');
-            $row.find('.own-modem-error').show();
-            isValid = false;
-        } else {
-            $modemInput.removeClass('error');
+        if (modemDetails.length >= 5 && modemDetails.length <= 100) {
+            console.log('VALIDATION PASSED');
+
+            // Clear errors
+            $input.removeClass('error');
             $row.find('.own-modem-error').hide();
-        }
 
-        // Validate shipping choice
-        if (!shippingChoice) {
-            isValid = false;
-            console.log('No shipping choice selected');
-        }
+            // Convert from pending to selected if needed
+            if ($row.hasClass('own-modem-pending')) {
+                console.log('Converting from pending to selected');
+                $row.removeClass('own-modem-pending');
+                $row.addClass('modem-row-selected');
 
-        // Validate shipping address if "Yes" is selected
-        if (shippingChoice === 'yes') {
-            if (shippingAddress.length < 10) {
-                $shippingAddressInput.addClass('error');
-                $row.find('.shipping-address-error').show();
-                isValid = false;
-            } else {
-                $shippingAddressInput.removeClass('error');
-                $row.find('.shipping-address-error').hide();
+                // Add to cart
+                const productId = 265769;
+                addOwnModemToCart(productId, modemDetails);
             }
-        }
-
-        console.log('Validation result:', isValid);
-
-        // Update card state
-        if (isValid) {
-            $row.removeClass('own-modem-pending');
-            $row.addClass('modem-row-selected');
-            
-            // Add to cart with all details
-            const cartData = {
-                modem_details: modemDetails,
-                ship_to_different: shippingChoice,
-                shipping_address: shippingChoice === 'yes' ? shippingAddress : ''
-            };
-            addOwnModemToCart(265769, cartData);
         } else {
-            // Keep in pending state (red highlight)
+            console.log('VALIDATION FAILED');
+
+            // If card was previously selected (green), revert to pending (red)
             if ($row.hasClass('modem-row-selected')) {
+                console.log('Converting from selected back to pending');
                 $row.removeClass('modem-row-selected');
                 $row.addClass('own-modem-pending');
-                removeFromCart(265769);
+
+                // Remove from cart
+                const productId = 265769;
+                removeFromCart(productId);
+            }
+
+            // Show error styling if card is in pending state
+            if ($row.hasClass('own-modem-pending')) {
+                $input.addClass('error');
+                $row.find('.own-modem-error').show();
             }
         }
 
-        // Trigger button state update
+        // Trigger button state update after changes
         setTimeout(function () {
+            console.log('Row classes AFTER:', $row.attr('class'));
+            console.log('Pending count:', $('.own-modem-pending').length);
+            console.log('Selected count:', $('.modem-row-selected').length);
+
+            // Trigger validation update
             if (typeof revalidateButtonStates === 'function') {
                 revalidateButtonStates();
             }
         }, 50);
-    }
-
-
-    // Enhanced input validation handler for modem details
-    $(document).on('input', '.own-modem-input', function () {
-        validateOwnModemCard();
     });
 
 
@@ -410,26 +291,15 @@ jQuery(document).ready(function ($) {
                 if (response.success && response.data.items.length > 0) {
                     const cartItems = response.data.items;
                     const modemDetails = response.data.modem_details || '';
-                    const shipToDifferent = response.data.ship_to_different || '';
-                    const shippingAddress = response.data.shipping_address || '';
 
                     // Find which modem rows have products in cart and highlight them
                     for (const [rowClass, productId] of Object.entries(modemRows)) {
                         if (cartItems.includes(productId)) {
                             $(`.${rowClass}`).addClass('modem-row-selected');
 
-                            // If this is the "I Have My Own Modem" product (265769), populate all fields
-                            if (productId === 265769) {
-                                if (modemDetails) {
-                                    $(`.${rowClass} .own-modem-input`).val(modemDetails);
-                                }
-                                if (shipToDifferent) {
-                                    $(`.${rowClass} input[name="ship_to_different_address"][value="${shipToDifferent}"]`).prop('checked', true);
-                                    if (shipToDifferent === 'yes' && shippingAddress) {
-                                        $(`.${rowClass} .shipping-address-input-wrapper`).show();
-                                        $(`.${rowClass} .shipping-address-input`).val(shippingAddress);
-                                    }
-                                }
+                            // If this is the "I Have My Own Modem" product (265769), populate the input field
+                            if (productId === 265769 && modemDetails) {
+                                $(`.${rowClass} .own-modem-input`).val(modemDetails);
                             }
                         }
                     }
@@ -453,21 +323,19 @@ jQuery(document).ready(function ($) {
     }
 
     // Function to add own modem to cart with details
-    function addOwnModemToCart(productId, cartData) {
+    function addOwnModemToCart(productId, modemDetails) {
         $.ajax({
             type: 'POST',
             url: modem_selection_vars.ajax_url,
             data: {
                 action: 'save_modem_details',
                 product_id: productId,
-                modem_details: cartData.modem_details,
-                ship_to_different: cartData.ship_to_different,
-                shipping_address: cartData.shipping_address,
+                modem_details: modemDetails,
                 nonce: modem_selection_vars.nonce
             },
             success: function (response) {
                 if (response.success) {
-                    console.log('Own modem added to cart with all details');
+                    console.log('Own modem added to cart with details');
                     $(document.body).trigger('wc_fragment_refresh');
                     updateFeeTables();
                 } else {
