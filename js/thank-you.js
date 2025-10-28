@@ -145,29 +145,54 @@ jQuery(document).ready(function ($) {
 
         // Populate monthly payment method
         if (data.monthly_payment_method_display) {
-            $('#monthly-payment-method').text(data.monthly_payment_method_display);
+            var monthlyPaymentText = data.monthly_payment_method_display;
+
+            // If credit card and we have last 4 digits, add them
+            if (data.monthly_payment_method_display === 'Credit Card' && data.monthly_card_last_4) {
+                monthlyPaymentText += ' ending in ' + data.monthly_card_last_4;
+            }
+
+            $('#monthly-payment-method').text(monthlyPaymentText);
         }
 
         console.log('Thank You page populated successfully');
     }
 
     // Function to populate upfront summary table (2 columns)
+    // SIMPLE VERSION: Appends everything to tbody in order
     function populateUpfrontSummary(summary) {
         console.log('Populating upfront summary:', summary);
 
         var $tbody = $('#upfront-items');
         $tbody.empty(); // Clear any existing rows
 
-        // Add line items (skip subtotal, taxes, grand_total, and deposit as they go in footer)
-        var skipKeys = ['subtotal', 'taxes', 'grand_total', 'deposit', 'ModemPurchaseOption'];
+        // Keys to handle specially
+        var skipKeys = ['subtotal', 'taxes', 'grand_total', 'ModemPurchaseOption'];
 
+        // Step 1: Add regular products (not deposits, not totals)
         $.each(summary, function (key, value) {
             if (skipKeys.indexOf(key) === -1 && value && value[1] > 0) {
                 var itemName = value[0] || key;
+
+                // Skip deposits for now
+                if (itemName.toLowerCase().includes('deposit')) {
+                    return true; // continue to next iteration
+                }
+
                 var itemAmount = formatCurrency(value[1]);
+                var itemDates = value[2] || '';
 
                 var row = '<tr>' +
-                    '<td>' + itemName + '</td>' +
+                    '<td>' + itemName;
+
+                // If this is Installation Fee and has dates, add them in italics
+                if (itemDates) {
+                    row += '<br><em style="font-style: italic; font-size: 0.9em; color: #666;">' +
+                        itemDates +
+                        '</em>';
+                }
+
+                row += '</td>' +
                     '<td>' + itemAmount + '</td>' +
                     '</tr>';
 
@@ -175,13 +200,44 @@ jQuery(document).ready(function ($) {
             }
         });
 
-        // Populate footer totals
+        // Step 2: Add Subtotal row
         if (summary.subtotal) {
-            $('#upfront-subtotal').text(formatCurrency(summary.subtotal[1]));
+            var subtotalRow = '<tr class="subtotal-row">' +
+                '<td><strong>Subtotal</strong></td>' +
+                '<td><strong>' + formatCurrency(summary.subtotal[1]) + '</strong></td>' +
+                '</tr>';
+            $tbody.append(subtotalRow);
         }
+
+        // Step 3: Add Tax row
         if (summary.taxes) {
-            $('#upfront-tax').text(formatCurrency(summary.taxes[1]));
+            var taxRow = '<tr class="tax-row">' +
+                '<td><strong>Tax</strong></td>' +
+                '<td><strong>' + formatCurrency(summary.taxes[1]) + '</strong></td>' +
+                '</tr>';
+            $tbody.append(taxRow);
         }
+
+        // Step 4: Add deposits AFTER subtotal and tax
+        $.each(summary, function (key, value) {
+            if (skipKeys.indexOf(key) === -1 && value && value[1] > 0) {
+                var itemName = value[0] || key;
+
+                // Only process deposits
+                if (itemName.toLowerCase().includes('deposit')) {
+                    var itemAmount = formatCurrency(value[1]);
+
+                    var row = '<tr>' +
+                        '<td>' + itemName + '</td>' +
+                        '<td>' + itemAmount + '</td>' +
+                        '</tr>';
+
+                    $tbody.append(row);
+                }
+            }
+        });
+
+        // Step 5: Populate the grand total in tfoot (existing element)
         if (summary.grand_total) {
             $('#upfront-total').text(formatCurrency(summary.grand_total[1]));
         }
