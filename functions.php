@@ -130,71 +130,126 @@ function dg_get_order_timestamp($format = 'Y-m-d H:i:s') {
  * Get customer info from WooCommerce checkout and stored address data
  */
 function dg_get_customer_info() {
-    // Get the searched address from user meta (the Google Maps address)
+    // Get the searched address from user meta (the Google Maps address - this is the SERVICE address)
     $searched_address = dg_get_user_meta("searched_address");
     
     // Build the service address from searched_address components
-    $service_address = '';
-    $service_city = '';
-    $service_province = '';
-    $service_postal = '';
+    $service_address_full = ''; // Full address with all parts on one line
     
     if ($searched_address && is_array($searched_address)) {
         // Build full street address
         $address_parts = array();
         
-        if (!empty($searched_address['unitNumber'])) {
+        // Unit number - check both formats
+        if (!empty($searched_address['unit_number'])) {
+            $address_parts[] = 'Unit ' . $searched_address['unit_number'];
+        } elseif (!empty($searched_address['unitNumber'])) {
             $address_parts[] = 'Unit ' . $searched_address['unitNumber'];
         }
-        if (!empty($searched_address['streetNumber'])) {
+        
+        // Street number - PRIMARY key is 'street_number' (from Google Maps)
+        if (!empty($searched_address['street_number'])) {
+            $address_parts[] = $searched_address['street_number'];
+        } elseif (!empty($searched_address['streetNumber'])) {
             $address_parts[] = $searched_address['streetNumber'];
         }
-        if (!empty($searched_address['streetName'])) {
+        
+        // Street name - check both formats
+        if (!empty($searched_address['street_name'])) {
+            $address_parts[] = $searched_address['street_name'];
+        } elseif (!empty($searched_address['streetName'])) {
             $address_parts[] = $searched_address['streetName'];
         }
-        if (!empty($searched_address['street_name'])) { // Fallback key
-            $address_parts[] = $searched_address['street_name'];
-        }
-        if (!empty($searched_address['streetType'])) {
+        
+        // Street type - check both formats
+        if (!empty($searched_address['street_type'])) {
+            $address_parts[] = $searched_address['street_type'];
+        } elseif (!empty($searched_address['streetType'])) {
             $address_parts[] = $searched_address['streetType'];
         }
-        if (!empty($searched_address['street_type'])) { // Fallback key
-            $address_parts[] = $searched_address['street_type'];
-        }
-        if (!empty($searched_address['streetDirection'])) {
+        
+        // Street direction - check both formats
+        if (!empty($searched_address['street_dir'])) {
+            $address_parts[] = $searched_address['street_dir'];
+        } elseif (!empty($searched_address['streetDirection'])) {
             $address_parts[] = $searched_address['streetDirection'];
         }
-        if (!empty($searched_address['street_dir'])) { // Fallback key
-            $address_parts[] = $searched_address['street_dir'];
+        
+        $street_address = implode(' ', array_filter($address_parts));
+        
+        // Get city - PRIMARY keys are 'locality' and 'municipalityCity'
+        $service_city = '';
+        if (!empty($searched_address['locality'])) {
+            $service_city = $searched_address['locality'];
+        } elseif (!empty($searched_address['municipalityCity'])) {
+            $service_city = $searched_address['municipalityCity'];
         }
         
-        $service_address = implode(' ', array_filter($address_parts));
+        // Get province - PRIMARY key is 'administrative_area_level_1'
+        $service_province = '';
+        if (!empty($searched_address['administrative_area_level_1'])) {
+            $service_province = $searched_address['administrative_area_level_1'];
+        } elseif (!empty($searched_address['provinceOrState'])) {
+            $service_province = $searched_address['provinceOrState'];
+        }
         
-        // Get city
-        $service_city = !empty($searched_address['municipalityCity']) ? 
-            $searched_address['municipalityCity'] : 
-            (!empty($searched_address['locality']) ? $searched_address['locality'] : '');
+        // Get postal code - PRIMARY key is 'postal_code'
+        $service_postal = '';
+        if (!empty($searched_address['postal_code'])) {
+            $service_postal = $searched_address['postal_code'];
+        } elseif (!empty($searched_address['postalCode'])) {
+            $service_postal = $searched_address['postalCode'];
+        }
         
-        // Get province
-        $service_province = !empty($searched_address['provinceOrState']) ? 
-            $searched_address['provinceOrState'] : 
-            (!empty($searched_address['administrative_area_level_1']) ? $searched_address['administrative_area_level_1'] : '');
-        
-        // Get postal code
-        $service_postal = !empty($searched_address['postalCode']) ? 
-            $searched_address['postalCode'] : 
-            (!empty($searched_address['postal_code']) ? $searched_address['postal_code'] : '');
+        // Combine all address parts on one line with commas
+        $address_components = array_filter(array($street_address, $service_city, $service_province, $service_postal));
+        $service_address_full = implode(', ', $address_components);
     }
     
+    // Get shipping address from WooCommerce SESSION (not customer)
+    // By default, shipping address is same as service address
+    $shipping_address_full = $service_address_full;
+    
+    // Check if customer used "Ship to Different Address" checkbox
+    if (WC()->session) {
+        // Check if shipping address was set to something different
+        $ship_to_different = WC()->session->get('ship_to_different_address');
+        
+        // Get the custom shipping address we stored during checkout
+        $custom_shipping = WC()->session->get('custom_shipping_address_full');
+        
+        error_log('=== RETRIEVING SHIPPING ADDRESS ===');
+        error_log('ship_to_different: ' . ($ship_to_different ? 'true' : 'false'));
+        error_log('custom_shipping from session: ' . $custom_shipping);
+        
+        if ($ship_to_different && !empty($custom_shipping)) {
+            $shipping_address_full = $custom_shipping;
+            error_log('Using custom shipping address: ' . $shipping_address_full);
+        } else {
+            error_log('Using service address for shipping: ' . $shipping_address_full);
+        }
+    }
+    
+    // Get first and last name
+    $first_name = WC()->customer->get_billing_first_name();
+    $last_name = WC()->customer->get_billing_last_name();
+    
+    // Combine first and last name
+    $full_name = trim($first_name . ' ' . $last_name);
+    
     return array(
-        'first_name' => WC()->customer->get_billing_first_name(),
-        'last_name' => WC()->customer->get_billing_last_name(),
+        'first_name' => $first_name,
+        'last_name' => $last_name,
+        'full_name' => $full_name, // NEW: Combined name
         'email' => WC()->customer->get_billing_email(),
         'phone' => WC()->customer->get_billing_phone(),
-        'address' => $service_address,
-        'city' => $service_city,
-        'province' => $service_province,
-        'postal_code' => $service_postal
+        'service_address_full' => $service_address_full, // NEW: Full service address on one line
+        'shipping_address_full' => $shipping_address_full, // NEW: Full shipping address on one line
+        // Keep legacy fields for backward compatibility (in case they're used elsewhere)
+        'address' => $service_address_full,
+        'city' => '',
+        'province' => '',
+        'postal_code' => ''
     );
 }
 
@@ -240,6 +295,7 @@ function dg_get_thank_you_page_data() {
     // Customer information
     $customer_info = dg_get_customer_info();
     $data['customer'] = $customer_info;
+
     
     // Get last 4 digits of credit card (if available in session)
     $data['card_last_4'] = '';
@@ -264,6 +320,8 @@ function dg_get_thank_you_page_data() {
     if (WC()->session) {
         $data['transaction_id'] = WC()->session->get('payment_transaction_id');
         $data['receipt_id'] = WC()->session->get('payment_receipt_id');
+        $data['auth_code'] = WC()->session->get('payment_auth_code');       
+        $data['reference_num'] = WC()->session->get('payment_reference_num');  
         $data['payment_amount'] = WC()->session->get('payment_amount');
         $data['payment_date'] = WC()->session->get('payment_date');
     }
@@ -933,6 +991,7 @@ function save_shipping_checkbox_state($order_id) {
 add_action('woocommerce_checkout_update_order_meta', 'save_shipping_checkbox_state');
 
 
+
 /**
  * Display shipping address choice in order admin
  */
@@ -947,6 +1006,71 @@ function display_shipping_choice_in_admin($order) {
 }
 add_action('woocommerce_admin_order_data_after_shipping_address', 'display_shipping_choice_in_admin', 10, 1);
 
+
+/**
+ * Save shipping address to session during checkout
+ * This captures the shipping address BEFORE WC()->customer is cleared
+ */
+function save_shipping_address_to_session($order_id) {
+    // Get the order object
+    $order = wc_get_order($order_id);
+    
+    if (!$order || !WC()->session) {
+        return;
+    }
+    
+    // Build the full shipping address from the order
+    $shipping_parts = array();
+    
+    $shipping_address_1 = $order->get_shipping_address_1();
+    $shipping_city = $order->get_shipping_city();
+    $shipping_state = $order->get_shipping_state();
+    $shipping_postcode = $order->get_shipping_postcode();
+    
+    if (!empty($shipping_address_1)) {
+        $shipping_parts[] = $shipping_address_1;
+    }
+    if (!empty($shipping_city)) {
+        $shipping_parts[] = $shipping_city;
+    }
+    if (!empty($shipping_state)) {
+        $shipping_parts[] = $shipping_state;
+    }
+    if (!empty($shipping_postcode)) {
+        $shipping_parts[] = $shipping_postcode;
+    }
+    
+    $shipping_address_full = implode(', ', $shipping_parts);
+    
+    // Store in session for Thank You page
+    WC()->session->set('custom_shipping_address_full', $shipping_address_full);
+    
+    error_log('=== SHIPPING ADDRESS SAVED TO SESSION ===');
+    error_log('Shipping address full: ' . $shipping_address_full);
+    error_log('Order ID: ' . $order_id);
+}
+// IMPORTANT: Priority 5 runs BEFORE save_shipping_checkbox_to_session (priority 5) but AFTER shipping address is set
+add_action('woocommerce_checkout_update_order_meta', 'save_shipping_address_to_session', 6, 1);
+
+/**
+ * NEW: Save shipping checkbox state to WooCommerce session
+ * This works alongside save_shipping_checkbox_state() to also store in session
+ * So the Thank You page can access it via dg_get_customer_info()
+ */
+function save_shipping_checkbox_to_session() {
+    if (isset($_POST['ship_to_different_address'])) {
+        if (WC()->session) {
+            WC()->session->set('ship_to_different_address', true);
+            error_log('Shipping checkbox state saved to session: true');
+        }
+    } else {
+        if (WC()->session) {
+            WC()->session->set('ship_to_different_address', false);
+            error_log('Shipping checkbox state saved to session: false');
+        }
+    }
+}
+add_action('woocommerce_checkout_update_order_meta', 'save_shipping_checkbox_to_session', 5, 1);
 
 
 // ----- 4 Updated Enqueueing Functions for monthly_billing_assets, confirm_terms_script, mneris_payment_assets and checkout_cc_copy_script
@@ -1731,6 +1855,8 @@ function ajax_process_moneris_payment() {
                 if (WC()->session) {
                     WC()->session->set('payment_status', 'completed');
                     WC()->session->set('payment_transaction_id', $payment_response->getTxnNumber());
+                    WC()->session->set('payment_auth_code', $payment_response->getAuthCode());
+                    WC()->session->set('payment_reference_num', $payment_response->getReferenceNum());
                     WC()->session->set('payment_receipt_id', $payment_response->getReceiptId());
                     WC()->session->set('payment_amount', $payment_response->getTransAmount());
                     WC()->session->set('payment_date', $payment_response->getTransDate());
