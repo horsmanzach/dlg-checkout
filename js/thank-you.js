@@ -68,7 +68,8 @@ jQuery(document).ready(function ($) {
         });
     }
 
-    // Function to populate all Thank You page data
+    // UPDATED: Function to populate all Thank You page data
+    // Modified to handle combined name and full address display
     function populateThankYouPage(data) {
         console.log('Populating Thank You page with data');
 
@@ -85,30 +86,38 @@ jQuery(document).ready(function ($) {
             $('#customer-ip').text(data.customer_ip);
         }
 
-        // NEW: Populate Terms & Conditions timestamp
+        // Populate Terms & Conditions timestamp
         if (data.terms_timestamp) {
             const formattedTimestamp = formatTermsTimestamp(data.terms_timestamp);
             $('#terms-timestamp').text(formattedTimestamp);
             console.log('Terms timestamp populated:', formattedTimestamp);
-
-            // Show the terms timestamp row if it was hidden
             $('#terms-timestamp-row').show();
         } else {
-            // Hide the terms timestamp row if no timestamp available
             $('#terms-timestamp-row').hide();
             console.log('No terms timestamp available');
         }
 
-        // Populate Customer Information
+        // UPDATED: Populate Customer Information with new structure
         if (data.customer) {
-            $('#customer-first-name').text(data.customer.first_name || '');
-            $('#customer-last-name').text(data.customer.last_name || '');
+            // NEW: Combined Name (replaces separate first/last name rows)
+            $('#customer-name').text(data.customer.full_name || '');
+
+            // Email and Phone remain the same
             $('#customer-email').text(data.customer.email || '');
             $('#customer-phone').text(data.customer.phone || '');
-            $('#customer-address').text(data.customer.address || '');
-            $('#customer-city').text(data.customer.city || '');
-            $('#customer-province').text(data.customer.province || '');
-            $('#customer-postal-code').text(data.customer.postal_code || '');
+
+            // NEW: Service Address (full address on one line)
+            $('#customer-service-address').text(data.customer.service_address_full || '');
+
+            // NEW: Shipping Address (full address on one line)
+            $('#customer-shipping-address').text(data.customer.shipping_address_full || '');
+
+            // Log for debugging
+            console.log('Customer info populated:', {
+                name: data.customer.full_name,
+                service_address: data.customer.service_address_full,
+                shipping_address: data.customer.shipping_address_full
+            });
         }
 
         // Populate Upfront Payment Summary
@@ -119,6 +128,14 @@ jQuery(document).ready(function ($) {
         // Populate card last 4 digits
         if (data.card_last_4) {
             $('#card-last-4').text(data.card_last_4);
+        }
+
+        // Populate Authorization Code and Reference Number
+        if (data.auth_code) {
+            $('#auth-code').text(data.auth_code);
+        }
+        if (data.reference_num) {
+            $('#reference-num').text(data.reference_num);
         }
 
         // Populate Monthly Billing Summary
