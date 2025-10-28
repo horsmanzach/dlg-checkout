@@ -279,6 +279,11 @@ function dg_get_invoice_number() {
  * Get all Thank You page data in one function call
  * Returns an array with all the information needed for the Thank You page
  */
+/**
+ * Get all Thank You page data in one function call
+ * Returns an array with all the information needed for the Thank You page
+ * UPDATED: Added monthly card last 4 digits
+ */
 function dg_get_thank_you_page_data() {
     $data = array();
     
@@ -286,8 +291,8 @@ function dg_get_thank_you_page_data() {
     $data['invoice_number'] = dg_get_invoice_number();
     
     // Order timestamp (formatted for display)
-    $data['order_timestamp'] = dg_get_order_timestamp('F j, Y \a\t g:i A'); // e.g., "October 14, 2025 at 3:45 PM"
-    $data['order_timestamp_raw'] = dg_get_order_timestamp('Y-m-d H:i:s'); // Raw format for any other uses
+    $data['order_timestamp'] = dg_get_order_timestamp('F j, Y \a\t g:i A');
+    $data['order_timestamp_raw'] = dg_get_order_timestamp('Y-m-d H:i:s');
     
     // Customer IP address
     $data['customer_ip'] = dg_get_customer_ip();
@@ -297,7 +302,7 @@ function dg_get_thank_you_page_data() {
     $data['customer'] = $customer_info;
 
     
-    // Get last 4 digits of credit card (if available in session)
+    // Get last 4 digits of UPFRONT credit card (if available in session)
     $data['card_last_4'] = '';
     if (WC()->session) {
         $card_last_4 = WC()->session->get('payment_card_last_4');
@@ -344,6 +349,25 @@ function dg_get_thank_you_page_data() {
     
     // Get monthly payment method from user meta
     $data['monthly_payment_method'] = dg_get_user_meta('monthly_bill_payment_option');
+    
+    // ============================================================
+    // UPDATED FIX: Get last 4 digits of MONTHLY billing credit card from SESSION
+    // We retrieve from session instead of user meta because base64 encoding + 
+    // sanitize_text_field() corrupts the card number when stored in user meta
+    // The last 4 digits are captured during validation (ajax_validate_credit_card)
+    // and stored in session, just like the upfront card does
+    // ============================================================
+    $data['monthly_card_last_4'] = '';
+    if ($data['monthly_payment_method'] && strtolower($data['monthly_payment_method']) == 'cc') {
+        if (WC()->session) {
+            $monthly_card_last_4 = WC()->session->get('monthly_payment_card_last_4');
+            if ($monthly_card_last_4) {
+                $data['monthly_card_last_4'] = $monthly_card_last_4;
+                error_log('Monthly card last 4 retrieved from session: ' . $monthly_card_last_4);
+            }
+        }
+    }
+    // ============================================================
     
     // Format monthly payment method for display
     if ($data['monthly_payment_method']) {
@@ -784,6 +808,20 @@ function ajax_validate_credit_card() {
     
     $card_data = $_POST['card_data'];
     
+    // ============================================================
+    // NEW FIX: Store last 4 digits in session BEFORE encoding
+    // This prevents the base64 + sanitize_text_field corruption issue
+    // ============================================================
+    $clean_card_number = preg_replace('/\s+/', '', $card_data['card_number']);
+    if (strlen($clean_card_number) >= 4) {
+        $monthly_card_last_4 = substr($clean_card_number, -4);
+        if (WC()->session) {
+            WC()->session->set('monthly_payment_card_last_4', $monthly_card_last_4);
+            error_log('Monthly card last 4 stored in session: ' . $monthly_card_last_4);
+        }
+    }
+    // ============================================================
+    
     // Basic postal code validation
     if (empty($card_data['postal_code'])) {
         wp_send_json_error(array('message' => 'Billing postal code is required'));
@@ -920,6 +958,7 @@ function shipping_address_checkbox_shortcode() {
                     placeholder="Start typing your address..."
                     autocomplete="off"
                 >
+                 <input type="hidden" id="shipping-address-full" name="shipping_address_full">
             </div>
         </div>
     </div>
@@ -928,54 +967,44 @@ function shipping_address_checkbox_shortcode() {
 }
 add_shortcode('shipping_address_checkbox', 'shipping_address_checkbox_shortcode');
 
+
 /**
- * Copy billing address to shipping address if checkbox is not checked
- * This ensures shipping address is always populated
+ * Save shipping address data to order meta
+ * This runs when the order is created
  */
-function sync_billing_to_shipping_address($order_id) {
-    $order = wc_get_order($order_id);
+function save_custom_shipping_address($order_id) {
+    error_log('=== SAVE CUSTOM SHIPPING ADDRESS ===');
+    error_log('Order ID: ' . $order_id);
     
-    if (!$order) {
-        return;
-    }
-
-    // Check if "ship to different address" was checked
+    // Check if "ship to different address" checkbox was checked
     $ship_to_different = isset($_POST['ship_to_different_address']) ? true : false;
-
-    if (!$ship_to_different) {
-        // Checkbox was not checked - copy billing to shipping
-        $billing_address = array(
-            'first_name' => $order->get_billing_first_name(),
-            'last_name'  => $order->get_billing_last_name(),
-            'company'    => $order->get_billing_company(),
-            'address_1'  => $order->get_billing_address_1(),
-            'address_2'  => $order->get_billing_address_2(),
-            'city'       => $order->get_billing_city(),
-            'state'      => $order->get_billing_state(),
-            'postcode'   => $order->get_billing_postcode(),
-            'country'    => $order->get_billing_country(),
-        );
-
-        // Set shipping address to billing address
-        $order->set_shipping_first_name($billing_address['first_name']);
-        $order->set_shipping_last_name($billing_address['last_name']);
-        $order->set_shipping_company($billing_address['company']);
-        $order->set_shipping_address_1($billing_address['address_1']);
-        $order->set_shipping_address_2($billing_address['address_2']);
-        $order->set_shipping_city($billing_address['city']);
-        $order->set_shipping_state($billing_address['state']);
-        $order->set_shipping_postcode($billing_address['postcode']);
-        $order->set_shipping_country($billing_address['country']);
-
-        $order->save();
-
-        error_log('Shipping address synced from billing address for order #' . $order_id);
+    
+    error_log('Ship to different checkbox: ' . ($ship_to_different ? 'YES' : 'NO'));
+    
+    // Save checkbox state
+    update_post_meta($order_id, '_ship_to_different_address', $ship_to_different ? 'yes' : 'no');
+    
+    if ($ship_to_different) {
+        // Get the full shipping address from POST
+        $shipping_address_full = isset($_POST['shipping_address_full']) ? sanitize_text_field($_POST['shipping_address_full']) : '';
+        
+        error_log('Shipping address from POST: ' . $shipping_address_full);
+        
+        if (!empty($shipping_address_full)) {
+            // Save to order meta
+            update_post_meta($order_id, '_custom_shipping_address', $shipping_address_full);
+            
+            error_log('✓ Custom shipping address saved to order meta');
+        } else {
+            error_log('⚠ WARNING: Checkbox checked but no shipping address in POST');
+        }
     } else {
-        // Checkbox was checked - shipping address populated by JavaScript via Google Maps
-        error_log('Custom shipping address used for order #' . $order_id);
+        // No different shipping address - use service/billing address
+        error_log('✓ Using service/billing address (no custom shipping)');
     }
 }
-add_action('woocommerce_checkout_order_processed', 'sync_billing_to_shipping_address', 10, 1);
+add_action('woocommerce_checkout_update_order_meta', 'save_custom_shipping_address', 10, 1);
+
 
 
 /**
@@ -1011,46 +1040,35 @@ add_action('woocommerce_admin_order_data_after_shipping_address', 'display_shipp
  * Save shipping address to session during checkout
  * This captures the shipping address BEFORE WC()->customer is cleared
  */
+/**
+ * Save shipping address to session so Thank You page can access it
+ */
 function save_shipping_address_to_session($order_id) {
-    // Get the order object
-    $order = wc_get_order($order_id);
-    
-    if (!$order || !WC()->session) {
+    if (!WC()->session) {
         return;
     }
     
-    // Build the full shipping address from the order
-    $shipping_parts = array();
+    error_log('=== SAVE TO SESSION ===');
     
-    $shipping_address_1 = $order->get_shipping_address_1();
-    $shipping_city = $order->get_shipping_city();
-    $shipping_state = $order->get_shipping_state();
-    $shipping_postcode = $order->get_shipping_postcode();
+    // Check if different shipping address was used
+    $ship_to_different = get_post_meta($order_id, '_ship_to_different_address', true);
+    $custom_shipping = get_post_meta($order_id, '_custom_shipping_address', true);
     
-    if (!empty($shipping_address_1)) {
-        $shipping_parts[] = $shipping_address_1;
+    error_log('Ship to different: ' . $ship_to_different);
+    error_log('Custom shipping address: ' . $custom_shipping);
+    
+    // Save to session
+    WC()->session->set('ship_to_different_address', $ship_to_different === 'yes');
+    
+    if ($ship_to_different === 'yes' && !empty($custom_shipping)) {
+        WC()->session->set('custom_shipping_address_full', $custom_shipping);
+        error_log('✓ Custom shipping address saved to session: ' . $custom_shipping);
+    } else {
+        WC()->session->set('custom_shipping_address_full', '');
+        error_log('✓ No custom shipping address (using service address)');
     }
-    if (!empty($shipping_city)) {
-        $shipping_parts[] = $shipping_city;
-    }
-    if (!empty($shipping_state)) {
-        $shipping_parts[] = $shipping_state;
-    }
-    if (!empty($shipping_postcode)) {
-        $shipping_parts[] = $shipping_postcode;
-    }
-    
-    $shipping_address_full = implode(', ', $shipping_parts);
-    
-    // Store in session for Thank You page
-    WC()->session->set('custom_shipping_address_full', $shipping_address_full);
-    
-    error_log('=== SHIPPING ADDRESS SAVED TO SESSION ===');
-    error_log('Shipping address full: ' . $shipping_address_full);
-    error_log('Order ID: ' . $order_id);
 }
-// IMPORTANT: Priority 5 runs BEFORE save_shipping_checkbox_to_session (priority 5) but AFTER shipping address is set
-add_action('woocommerce_checkout_update_order_meta', 'save_shipping_address_to_session', 6, 1);
+add_action('woocommerce_checkout_update_order_meta', 'save_shipping_address_to_session', 20, 1);
 
 /**
  * NEW: Save shipping checkbox state to WooCommerce session
@@ -6820,6 +6838,11 @@ function get_monthly_fee_summary() {
  * Get detailed upfront cart items for thank you page
  * Returns individual cart items with their prices for display
  */
+/**
+ * Get detailed upfront cart items for thank you page
+ * Returns individual cart items with their prices for display
+ * UPDATED: Handles deposits with category-based naming only, Install Dates special handling
+ */
 function get_upfront_cart_items_for_thank_you() {
     $items = array();
     $tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 13;
@@ -6833,6 +6856,7 @@ function get_upfront_cart_items_for_thank_you() {
     foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
         $product = $cart_item['data'];
         $product_id = $product->get_id();
+        $parent_id = $product->get_parent_id();
         $product_name = $product->get_name();
         $product_price = $product->get_price();
         
@@ -6843,6 +6867,39 @@ function get_upfront_cart_items_for_thank_you() {
         // Skip Pay After deposit products (they're shown separately)
         if ($product_id == 265827) {
             continue;
+        }
+        
+        // SPECIAL HANDLING: Install Dates product (265084)
+        if ($product_id == 265084 || $parent_id == 265084) {
+            // Get the installation dates from variation attributes
+            $installation_dates = '';
+            if (isset($cart_item['variation']) && is_array($cart_item['variation'])) {
+                $preferred = isset($cart_item['variation']['attribute_preferred-date']) ? 
+                    $cart_item['variation']['attribute_preferred-date'] : '';
+                $secondary = isset($cart_item['variation']['attribute_secondary-date']) ? 
+                    $cart_item['variation']['attribute_secondary-date'] : '';
+                
+                if (!empty($preferred) && !empty($secondary)) {
+                    $installation_dates = $preferred . ', ' . $secondary;
+                } elseif (!empty($preferred)) {
+                    $installation_dates = $preferred;
+                } elseif (!empty($secondary)) {
+                    $installation_dates = $secondary;
+                }
+            }
+            
+            // Add with custom title and dates
+            if ($product_price > 0) {
+                $items[] = array(
+                    'name' => 'Installation Fee',
+                    'price' => $product_price,
+                    'type' => 'installation',
+                    'category' => $primary_category,
+                    'dates' => $installation_dates // Store dates for display
+                );
+                error_log("Added installation: Installation Fee = $$product_price with dates: $installation_dates");
+            }
+            continue; // Skip to next item
         }
         
         // Add main product if it has a price
@@ -6868,16 +6925,26 @@ function get_upfront_cart_items_for_thank_you() {
             $deposit_fee = is_numeric($deposit_fee) ? floatval($deposit_fee) : 0;
         }
         
-        // Add deposit if exists
+        // Add deposit if exists - USE CATEGORY-BASED NAMING ONLY
         if ($deposit_fee > 0) {
-            $deposit_title = $product_name . ' Deposit';
+            // Determine deposit title based on category only (no dynamic product name)
+            $deposit_title = 'Deposit'; // Default
+            
+            if (in_array('modems', $product_cats) || in_array('modems-new', $product_cats)) {
+                $deposit_title = 'Modem Deposit';
+            } elseif (in_array('tv-plan', $product_cats)) {
+                $deposit_title = 'TV Deposit';
+            } elseif (in_array('phone-plan', $product_cats)) {
+                $deposit_title = 'Phone Deposit';
+            }
+            
             $items[] = array(
                 'name' => $deposit_title,
                 'price' => $deposit_fee,
                 'type' => 'deposit',
                 'category' => $primary_category
             );
-            error_log("Added deposit: $deposit_title = $$deposit_fee");
+            error_log("Added deposit: $deposit_title = $$deposit_fee (category: $primary_category)");
         }
     }
     
@@ -6962,30 +7029,56 @@ function get_monthly_cart_items_for_thank_you() {
  * Get formatted upfront summary for thank you page
  * This replaces the category-based summary with item-based summary
  */
+/**
+ * Get formatted upfront summary for thank you page
+ * This replaces the category-based summary with item-based summary
+ * UPDATED: Separates deposits to appear after subtotal and tax
+ */
 function get_upfront_summary_for_thank_you() {
     $items = get_upfront_cart_items_for_thank_you();
     $tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 13;
     
     $summary = array();
     $subtotal = 0;
+    $deposits_total = 0;
+    $deposits = array(); // Store deposits separately
     
-    // Add each item to summary
+    // Separate products/installation from deposits
     foreach ($items as $item) {
-        $key = sanitize_key($item['name']);
-        $summary[$key] = array($item['name'], $item['price']);
-        $subtotal += $item['price'];
+        if ($item['type'] === 'deposit') {
+            // Store deposits separately
+            $deposits[] = $item;
+            $deposits_total += $item['price'];
+        } else {
+            // Add products and installation to summary
+            $key = sanitize_key($item['name']);
+            $summary[$key] = array(
+                $item['name'], 
+                $item['price'],
+                isset($item['dates']) ? $item['dates'] : '' // Pass dates if present
+            );
+            $subtotal += $item['price'];
+        }
     }
     
-    // Calculate tax
+    // Calculate tax on subtotal (not including deposits)
     $tax = 0;
     if (wc_tax_enabled()) {
         $tax = round(($subtotal * $tax_rate) / 100, 2);
     }
     
-    // Add totals
-    $summary['subtotal'] = array('Subtotal', $subtotal);
-    $summary['taxes'] = array('Tax', $tax);
-    $summary['grand_total'] = array('Total', $subtotal + $tax);
+    // Add subtotal and tax BEFORE deposits
+    $summary['subtotal'] = array('Subtotal', $subtotal, '');
+    $summary['taxes'] = array('Tax', $tax, '');
+    
+    // NOW add deposits after subtotal and tax
+    foreach ($deposits as $deposit) {
+        $key = sanitize_key($deposit['name']);
+        $summary[$key] = array($deposit['name'], $deposit['price'], '');
+    }
+    
+    // Finally add grand total (includes deposits)
+    $summary['grand_total'] = array('Total Paid Today', $subtotal + $tax + $deposits_total, '');
     
     error_log('Upfront summary for thank you: ' . json_encode($summary));
     return $summary;
