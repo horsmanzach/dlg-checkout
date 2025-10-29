@@ -146,12 +146,12 @@ jQuery(document).ready(function ($) {
         // Populate monthly payment method
         if (data.monthly_payment_method_display) {
             var monthlyPaymentText = data.monthly_payment_method_display;
-
+            
             // If credit card and we have last 4 digits, add them
             if (data.monthly_payment_method_display === 'Credit Card' && data.monthly_card_last_4) {
                 monthlyPaymentText += ' ending in ' + data.monthly_card_last_4;
             }
-
+            
             $('#monthly-payment-method').text(monthlyPaymentText);
         }
 
