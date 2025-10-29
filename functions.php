@@ -370,7 +370,7 @@ function dg_get_thank_you_page_data() {
     }
     
     // ============================================================
-    // NEW: Get CCD (Coupon Code) value from user meta
+    // Get CCD (Coupon Code) value from user meta
     // ============================================================
     $data['ccd'] = '';
     $ccd_encoded = dg_get_user_meta("ccd");
@@ -414,59 +414,34 @@ function dg_get_thank_you_page_data() {
     }
     
     // ============================================================
-    // FIXED: Get monthly payment method from SESSION (not user meta)
+    // CORRECTED: Get monthly payment method from USER META (not session)
+    // The payment method itself doesn't have encoding issues - only the card number does
     // ============================================================
-    $data['monthly_payment_method'] = '';
-    if (WC()->session) {
-        $monthly_method = WC()->session->get('monthly_payment_method');
-        if ($monthly_method) {
-            $data['monthly_payment_method'] = $monthly_method;
-            error_log('Monthly payment method retrieved from session: ' . $monthly_method);
-        } else {
-            error_log('No monthly payment method found in session');
-        }
+    $data['monthly_payment_method'] = dg_get_user_meta('monthly_bill_payment_option');
+    
+    if ($data['monthly_payment_method']) {
+        error_log('Monthly payment method retrieved from user meta: ' . $data['monthly_payment_method']);
+    } else {
+        error_log('No monthly payment method found in user meta');
     }
     // ============================================================
     
     // ============================================================
-    // Get last 4 digits of MONTHLY credit card (if CC payment method)
+    // FIXED: Get last 4 digits of MONTHLY credit card from SESSION (not user meta)
+    // The card number IS base64 encoded and corrupted, so we use session instead
     // ============================================================
     $data['monthly_card_last_4'] = '';
     
-    if ($data['monthly_payment_method'] === 'cc') {
-        // Try to get from session first
+    if ($data['monthly_payment_method'] && strtolower($data['monthly_payment_method']) === 'cc') {
+        // Get from session (stored during validation)
         if (WC()->session) {
-            $monthly_card_last_4 = WC()->session->get('monthly_card_last_4');
+            $monthly_card_last_4 = WC()->session->get('monthly_payment_card_last_4');
             if ($monthly_card_last_4) {
                 $data['monthly_card_last_4'] = $monthly_card_last_4;
+                error_log('Monthly card last 4 retrieved from session: ' . $monthly_card_last_4);
+            } else {
+                error_log('Warning: Monthly payment is CC but no card last 4 in session');
             }
-        }
-        
-        // If not in session, try to extract from user meta
-        if (empty($data['monthly_card_last_4'])) {
-            $monthly_card_encrypted = dg_get_user_meta("cc_monthly_billing_card_number");
-            
-            if (!empty($monthly_card_encrypted)) {
-                $monthly_card_decrypted = base64_decode($monthly_card_encrypted);
-                
-                if ($monthly_card_decrypted !== false && strlen($monthly_card_decrypted) >= 4) {
-                    $data['monthly_card_last_4'] = substr($monthly_card_decrypted, -4);
-                    
-                    // Store in session for future use
-                    if (WC()->session) {
-                        WC()->session->set('monthly_card_last_4', $data['monthly_card_last_4']);
-                    }
-                    
-                    error_log('Monthly card last 4 extracted: ' . $data['monthly_card_last_4']);
-                }
-            }
-        }
-        
-        // Log for debugging
-        if (empty($data['monthly_card_last_4'])) {
-            error_log('Warning: Monthly payment is CC but no card last 4 found');
-        } else {
-            error_log('Monthly card last 4 available: ' . $data['monthly_card_last_4']);
         }
     }
     // ============================================================
