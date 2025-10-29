@@ -5086,38 +5086,36 @@ function ajax_find_address_signup( $ccd = false ) {
 
 add_action( 'wp_ajax_nopriv_find_address_with_redirect', 'ajax_find_address_with_redirect_client_geocoded' );
 add_action( 'wp_ajax_find_address_with_redirect', 'ajax_find_address_with_redirect_client_geocoded' );
+
 function ajax_find_address_with_redirect_client_geocoded() {
     error_log("=== CLIENT GEOCODED: ajax_find_address_with_redirect called ===");
     error_log("POST data: " . print_r($_POST, true));
     
     $ccd = "";
     
-    // getting the ccd parameters (referral to our website);
-    if( isset( $_POST["ccd_param"] ) ) {
+    // Handle CCD parameter
+    if (isset($_POST["ccd_param"])) {
         $ccd = $_POST["ccd_param"];
-        if( strlen( $ccd ) > 0 ) {
-            dg_set_user_meta( "ccd", $ccd );
+        if (strlen($ccd) > 0) {
+            dg_set_user_meta("ccd", $ccd);
         }
     }
     
     // Check if this is a redirect request
-    $should_redirect = isset($_POST["redirect_to_plans"]) && $_POST["redirect_to_plans"] === 'true';
+    $redirect_to_plans = isset($_POST['redirect_to_plans']) && $_POST['redirect_to_plans'] === 'true';
+    error_log("Redirect to plans: " . ($redirect_to_plans ? 'yes' : 'no'));
     
-    error_log("Should redirect: " . ($should_redirect ? 'yes' : 'no'));
-    
-    if ($should_redirect) {
+    if ($redirect_to_plans) {
         error_log("Processing redirect request...");
         
-        // Get the address data
+        // CRITICAL: Get the address data from the AJAX request
         $street_address = isset($_POST['streetAddress']) ? sanitize_text_field($_POST['streetAddress']) : '';
         $unit_number = isset($_POST['unitNumber']) ? sanitize_text_field($_POST['unitNumber']) : '';
         $buzzer_code = isset($_POST['buzzerCode']) ? sanitize_text_field($_POST['buzzerCode']) : '';
-        
-        // Get the geocoded address components from the client
         $geocoded_address = isset($_POST['geocoded_address']) ? $_POST['geocoded_address'] : null;
         
-        error_log("Received street address: " . $street_address);
-        error_log("Received geocoded address: " . print_r($geocoded_address, true));
+        error_log("Street Address: " . $street_address);
+        error_log("Geocoded Address: " . print_r($geocoded_address, true));
         
         if (empty($street_address)) {
             wp_send_json_error(array(
@@ -5149,7 +5147,7 @@ function ajax_find_address_with_redirect_client_geocoded() {
             'manual_search' => 0
         ), $geocoded_address);
         
-        // Parse the route into street components if needed (same as availability_check.php does)
+        // Parse the route into street components if needed
         if (!empty($searched_address['route']) && empty($searched_address['street_name'])) {
             if (function_exists('parse_street_components')) {
                 $route_components = parse_street_components($searched_address['route']);
@@ -5175,99 +5173,52 @@ function ajax_find_address_with_redirect_client_geocoded() {
             'onboarding_stage' => 'address_search'
         );
         
-        // Set up POST data exactly like the main page does
+        // CRITICAL: Set up POST data that ppget_internet_plans expects
         $_POST['streetAddress'] = $street_address;
-        $_POST['unitNumber'] = $unit_number ?: '';
-        $_POST['buzzerCode'] = $buzzer_code ?: '';
-        $_POST['unitType'] = ''; // Required to prevent undefined index in availability_check.php
+        $_POST['unitNumber'] = $unit_number;
+        $_POST['buzzerCode'] = $buzzer_code;
+        $_POST['unitType'] = ''; // Required to prevent undefined index
         $_POST['searched_address'] = $searched_address;
         $_POST['user_data'] = $user_data;
         
-        error_log("Set up POST data with client-geocoded address components");
+        error_log("POST data set up, now calling ppget_internet_plans...");
         
-        // Suppress PHP notices from availability_check.php temporarily
+        // Suppress WordPress errors for cleaner JSON response
         $original_error_reporting = error_reporting();
         error_reporting(E_ERROR | E_PARSE);
         
         try {
-            error_log("Calling ppget_internet_plans with client-geocoded data...");
+            // Call the main internet plans function
             $response = ppget_internet_plans(1, $ccd);
-            error_log("ppget_internet_plans returned, length: " . strlen($response));
+            error_log("ppget_internet_plans response length: " . strlen($response));
+            error_log("Response preview: " . substr($response, 0, 200));
             
             // Restore error reporting
             error_reporting($original_error_reporting);
             
-            // Check the API response stored in user meta
+            // Log address data after the function runs
+            AddressCheckLog(0);
+            
+            // Get the API response to check if service is available
             $apiResponse = dg_get_user_meta("_api_response");
-            error_log("API Response from user meta: " . print_r($apiResponse, true));
+            error_log("API Response after ppget_internet_plans: " . print_r($apiResponse, true));
             
-            // Send the data to the server for logging
-            AddressCheckLog( 0 );
+            // Check if we found plans - the response contains product HTML if successful
+            $no_service_found = (strpos($response, 'Check Service Availability in Your Area') !== false);
+            $is_not_available = (strpos($response, 'not available') !== false || 
+                                 strpos($response, 'No service') !== false);
             
-            // Determine success/failure
-            $success_found = false;
-            
-            // Check the stored API response for service availability
-            if ($apiResponse && is_array($apiResponse)) {
-                if (isset($apiResponse['error']) && $apiResponse['error'] === false && 
-                    isset($apiResponse['success']) && $apiResponse['success'] === true) {
-                    
-                    // Check if any service provider is available
-                    $providers = array('bell', 'telus', 'shaw', 'rogers', 'cogeco');
-                    foreach ($providers as $provider) {
-                        if (isset($apiResponse[$provider]) && $apiResponse[$provider] === true) {
-                            $success_found = true;
-                            error_log("SUCCESS: Found service provider: $provider");
-                            break;
-                        }
-                    }
-                }
-            }
-            
-            // Fallback: Check HTML response for plan elements
-            if (!$success_found) {
-                $plan_indicators = array(
-                    'plan_buy_now_btn',
-                    'Select Plan',
-                    'internet_plan_selector',
-                    'radio_box_wrapper',
-                    'InternetPlan'
-                );
-                
-                foreach ($plan_indicators as $indicator) {
-                    if (stripos($response, $indicator) !== false) {
-                        $success_found = true;
-                        error_log("SUCCESS: Found plan indicator in HTML response: $indicator");
-                        break;
-                    }
-                }
-            }
-            
-            // Check for explicit failure indicators
-            $is_not_available = false;
-            $not_available_indicators = array(
-                "Check Service Availability in Your Area",
-                "plan_check_availability_btn"
-            );
-            
-            foreach ($not_available_indicators as $indicator) {
-                if (stripos($response, $indicator) !== false) {
-                    $is_not_available = true;
-                    error_log("FAILURE: Found not available indicator: $indicator");
-                    break;
-                }
-            }
-            
-            error_log("Final analysis: success_found=" . ($success_found ? 'true' : 'false') . 
+            error_log("Response analysis: no_service_found=" . 
+                      ($no_service_found ? 'true' : 'false') . 
                       ", is_not_available=" . ($is_not_available ? 'true' : 'false'));
             
-            if ($success_found && !$is_not_available) {
+            if (!$no_service_found && !$is_not_available) {
                 // Success - service is available at this address
                 error_log("SUCCESS: Internet service available, sending redirect response");
                 
                 wp_send_json_success(array(
                     'redirect' => true,
-                    'redirect_url' => home_url('/internet#internet-plan-section'),
+                    'redirect_url' => home_url('/residential/internet#panel-showinternetplans'),
                     'message' => 'Address updated successfully'
                 ));
             } else {
@@ -5296,7 +5247,7 @@ function ajax_find_address_with_redirect_client_geocoded() {
         // Original behavior for the main internet page
         error_log("Non-redirect request, using original behavior");
         $response = ppget_internet_plans(1, $ccd);
-        AddressCheckLog( 0 );
+        AddressCheckLog(0);
         wp_die($response);
     }
 }
