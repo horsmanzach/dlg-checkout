@@ -5,7 +5,7 @@
  * This script handles the terms and conditions confirmation flow and integrates
  * with the Moneris payment button to ensure users confirm T&C before payment.
  * 
- * UPDATED: Now captures and stores timestamp when terms are confirmed
+ * FIXED: Now properly integrates with shipping address validation without removing it
  */
 
 jQuery(document).ready(function ($) {
@@ -14,7 +14,7 @@ jQuery(document).ready(function ($) {
     let termsConfirmed = false;
     let monthlyBillingValidated = false;
     let lastButtonState = null; // Track last button state to prevent unnecessary updates
-    let termsTimestamp = null; // NEW: Store the timestamp of terms confirmation
+    let termsTimestamp = null; // Store the timestamp of terms confirmation
 
     // Initialize the enhanced terms and conditions functionality
     initializeTermsAndConditions();
@@ -107,15 +107,20 @@ jQuery(document).ready(function ($) {
 
     /**
      * PERFORMANCE OPTIMIZED: Update button state only when necessary
-     * UPDATED: Now targets all Moneris buttons by class instead of ID
+     * FIXED: Now properly integrates with shipping validation
      */
     function updateButtonState() {
         const termsOk = termsConfirmed;
         const monthlyBillingOk = checkMonthlyBillingValidation();
-        const bothValid = termsOk && monthlyBillingOk;
+
+        // FIX: Check shipping validation state
+        const shippingOk = checkShippingValidation();
+
+        // FIX: All three validations must pass
+        const allValid = termsOk && monthlyBillingOk && shippingOk;
 
         // Create state signature to avoid unnecessary DOM updates
-        const currentState = `${termsOk}-${monthlyBillingOk}-${bothValid}`;
+        const currentState = `${termsOk}-${monthlyBillingOk}-${shippingOk}-${allValid}`;
 
         // PERFORMANCE FIX: Only update DOM if state actually changed
         if (lastButtonState === currentState) {
@@ -126,7 +131,7 @@ jQuery(document).ready(function ($) {
         console.log('Button state changed from', lastButtonState, 'to', currentState);
         lastButtonState = currentState;
 
-        // UPDATED: Find ALL Moneris buttons by class (supports multiple buttons on page)
+        // Find ALL Moneris buttons by class (supports multiple buttons on page)
         const $monerisButtons = $('.moneris-payment-button');
         if ($monerisButtons.length === 0) {
             console.log('Moneris button not found');
@@ -138,19 +143,39 @@ jQuery(document).ready(function ($) {
         // Update each button individually
         $monerisButtons.each(function () {
             const $btn = $(this);
-            if (bothValid) {
+            if (allValid) {
                 enableMonerisButton($btn);
             } else {
-                disableMonerisButton($btn, termsOk, monthlyBillingOk);
+                disableMonerisButton($btn, termsOk, monthlyBillingOk, shippingOk);
             }
         });
+    }
+
+    /**
+     * FIX: Check shipping validation state
+     */
+    function checkShippingValidation() {
+        const $checkbox = $('#ship-to-different-checkbox');
+
+        // If checkbox doesn't exist or is unchecked, validation passes
+        if ($checkbox.length === 0 || !$checkbox.is(':checked')) {
+            return true;
+        }
+
+        // If checkbox is checked, verify address is populated
+        const $addressInput = $('#shipping-address-input');
+        const address = $addressInput.val().trim();
+        const isValid = address.length >= 10;
+
+        console.log('Shipping validation check from confirm-terms:', isValid);
+        return isValid;
     }
 
     /**
      * Enable the Moneris payment button (OPTIMIZED - only updates when needed)
      */
     function enableMonerisButton($monerisBtn) {
-        console.log('Enabling Moneris payment button - both validations passed');
+        console.log('Enabling Moneris payment button - all validations passed');
 
         $monerisBtn
             .prop('disabled', false)
@@ -183,10 +208,10 @@ jQuery(document).ready(function ($) {
     }
 
     /**
-   * Disable the Moneris payment button (OPTIMIZED - only updates when needed)
-   * UPDATED: Added different styling for success vs error messages
-   */
-    function disableMonerisButton($monerisBtn, termsOk, monthlyBillingOk) {
+     * Disable the Moneris payment button (OPTIMIZED - only updates when needed)
+     * FIXED: Now includes shipping validation in messages
+     */
+    function disableMonerisButton($monerisBtn, termsOk, monthlyBillingOk, shippingOk) {
         console.log('Disabling Moneris payment button - requirements not met');
 
         $monerisBtn
@@ -203,7 +228,14 @@ jQuery(document).ready(function ($) {
         // Check if validation messages should be shown
         const showValidation = $container.attr('data-show-validation') !== 'false';
 
-        // Always remove any existing validation messages first
+        // FIX: Find and preserve existing shipping validation message
+        const $existingShippingValidation = $container.find('.shipping-address-validation');
+        let shippingValidationHtml = '';
+        if ($existingShippingValidation.length > 0) {
+            shippingValidationHtml = $existingShippingValidation[0].outerHTML;
+        }
+
+        // Remove existing validation messages
         $container.find('.validation-requirement-message').remove();
 
         // If validation messages are disabled, return early (but button styling already applied above)
@@ -211,10 +243,9 @@ jQuery(document).ready(function ($) {
             return;
         }
 
-        // PERFORMANCE FIX: Only update message if it doesn't exist or content changed
-        let $existingMessage = $container.find('.validation-requirement-message');
-
+        // Build validation messages array
         let messages = [];
+
         if (!monthlyBillingOk) {
             messages.push({
                 text: '✗ Select and validate a monthly billing method (Credit Card, Bank Account, or Pay After)',
@@ -239,26 +270,54 @@ jQuery(document).ready(function ($) {
             });
         }
 
-        // Create content signature for comparison (just the text)
+        // FIX: Check if shipping validation is required
+        const $checkbox = $('#ship-to-different-checkbox');
+        if ($checkbox.length > 0 && $checkbox.is(':checked')) {
+            if (!shippingOk) {
+                messages.push({
+                    text: '✗ Shipping address must be populated',
+                    type: 'error'
+                });
+            } else {
+                messages.push({
+                    text: '✓ Shipping address validated',
+                    type: 'success'
+                });
+            }
+        }
+
+        // Create content signature for comparison
         const newMessageContent = messages.map(msg => msg.text).join('');
 
-        // Only update if message doesn't exist or content is different
-        if ($existingMessage.length === 0 || $existingMessage.data('content') !== newMessageContent) {
-            $existingMessage.remove(); // Remove old message
+        // Build the message HTML
+        let messagesHtml = messages.map(msg => {
+            const color = msg.type === 'success' ? '#28a745' : '#e74c3c';
+            return `<div style="color: ${color}; font-size: 14px; margin-top: 8px;">${msg.text}</div>`;
+        }).join('');
 
-            // Build the message HTML with individual styling for each message
-            let messagesHtml = messages.map(msg => {
-                const color = msg.type === 'success' ? '#28a745' : '#e74c3c';
-                return `<div style="color: ${color}; font-size: 14px; margin-top: 8px;">${msg.text}</div>`;
-            }).join('');
+        // Append the new message container
+        $container.append(
+            `<div class="validation-requirement-message" data-content="${newMessageContent}" style="text-align: center;">${messagesHtml}</div>`
+        );
 
-            // Append the new message with content signature
-            $container.append(
-                `<div class="validation-requirement-message" data-content="${newMessageContent}" style="text-align: center;">${messagesHtml}</div>`
-            );
-
-            console.log('Updated validation message:', newMessageContent);
+        // FIX: If there was a shipping validation element with special styling, preserve it
+        if (shippingValidationHtml && $checkbox.is(':checked')) {
+            const $validationMessage = $container.find('.validation-requirement-message');
+            // Check if we need to add the shipping-address-validation class styling
+            if ($validationMessage.length > 0 && !$validationMessage.find('.shipping-address-validation').length) {
+                // Recreate the shipping validation item inside the container if shipping checkbox is checked
+                const shippingValid = checkShippingValidation();
+                const shippingValidationItem = `
+                    <div class="validation-item shipping-address-validation ${shippingValid ? 'valid' : 'invalid'}">
+                        <span class="validation-icon">${shippingValid ? '✓' : '✗'}</span>
+                        <span class="validation-text">Shipping address must be populated</span>
+                    </div>
+                `;
+                $validationMessage.append(shippingValidationItem);
+            }
         }
+
+        console.log('Updated validation message:', newMessageContent);
     }
 
     /**
@@ -279,7 +338,7 @@ jQuery(document).ready(function ($) {
 
                 if (previousState !== currentState) {
                     console.log('Monthly billing validation state changed:', currentState);
-                    updateButtonState(); // This now prevents unnecessary DOM updates
+                    updateButtonState();
                 }
             }, 500);
         });
@@ -294,125 +353,129 @@ jQuery(document).ready(function ($) {
                     if ($target.hasClass('validate-card-btn') ||
                         $target.hasClass('validate-bank-btn') ||
                         $target.hasClass('confirm-payafter-btn')) {
+
+                        console.log('Validation button class changed');
                         shouldUpdate = true;
                     }
                 }
             });
 
             if (shouldUpdate) {
-                console.log('Monthly billing button class changed');
+                console.log('Monthly billing state detected, updating button');
                 setTimeout(function () {
-                    const previousState = monthlyBillingValidated;
-                    const currentState = checkMonthlyBillingValidation();
-
-                    if (previousState !== currentState) {
-                        console.log('Monthly billing validation state changed via mutation:', currentState);
-                        updateButtonState();
-                    }
-                }, 100);
+                    updateButtonState();
+                }, 300);
             }
         });
 
-        observer.observe(document.body, {
-            attributes: true,
-            attributeFilter: ['class'],
-            subtree: true
+        // Observe all validation buttons
+        $('.validate-card-btn, .validate-bank-btn, .confirm-payafter-btn').each(function () {
+            observer.observe(this, {
+                attributes: true,
+                attributeFilter: ['class']
+            });
         });
 
         console.log('Monthly billing event listeners configured');
     }
 
     /**
-     * PERFORMANCE OPTIMIZED: Setup Moneris button monitoring (NO CONTINUOUS POLLING)
+     * Setup monitoring for Moneris button appearance
      */
     function setupMonerisButtonMonitoring() {
-        // ONE-TIME mutation observer for new Moneris buttons
-        const buttonObserver = new MutationObserver(function (mutations) {
-            let foundNewButton = false;
+        console.log('Setting up Moneris button monitoring...');
 
+        const checkForMonerisButton = function () {
+            const $monerisButtons = $('.moneris-payment-button');
+            if ($monerisButtons.length > 0) {
+                console.log('Moneris button(s) detected, applying initial state');
+                updateButtonState();
+            }
+        };
+
+        // Check immediately
+        checkForMonerisButton();
+
+        // Check after a delay (for dynamically loaded content)
+        setTimeout(checkForMonerisButton, 500);
+        setTimeout(checkForMonerisButton, 1500);
+
+        // Set up MutationObserver to watch for new Moneris buttons
+        const bodyObserver = new MutationObserver(function (mutations) {
             mutations.forEach(function (mutation) {
-                if (mutation.type === 'childList') {
-                    const $newMonerisBtn = $(mutation.target).find('.moneris-payment-button');
-                    if ($newMonerisBtn.length > 0) {
-                        foundNewButton = true;
-                    }
+                if (mutation.addedNodes.length > 0) {
+                    mutation.addedNodes.forEach(function (node) {
+                        if (node.nodeType === 1) { // Element node
+                            if ($(node).hasClass('moneris-payment-button') || $(node).find('.moneris-payment-button').length > 0) {
+                                console.log('New Moneris button detected');
+                                setTimeout(updateButtonState, 100);
+                            }
+                        }
+                    });
                 }
             });
-
-            if (foundNewButton) {
-                console.log('New Moneris button detected');
-                setTimeout(function () {
-                    updateButtonState(); // Check state once for new button
-                }, 100);
-            }
         });
 
-        buttonObserver.observe(document.body, {
+        bodyObserver.observe(document.body, {
             childList: true,
             subtree: true
         });
     }
 
     /**
-     * Enhanced popup close function
+     * Close popup helper
      */
-    function closePopup($trigger) {
-        $('.popup-is-visible').removeClass('popup-is-visible');
+    function closePopup($element) {
+        $element.closest('.dl-popup-wrapper').removeClass('popup-is-visible');
+        $element.closest('.et_builder_inner_content').removeClass('popup-is-visible');
         $('body').removeClass('dl-noscroll');
-
-        var PopupVideoIframe = $trigger.closest('.dl-popup-content').find('.et_pb_video_box iframe');
-        var PopupVideoSrc = PopupVideoIframe.attr("src");
-        if (PopupVideoSrc) {
-            PopupVideoIframe.attr("src", PopupVideoSrc);
-        }
-
-        var PopupVideoHTML = $trigger.closest('.dl-popup-content').find('.et_pb_video_box video');
-        if (PopupVideoHTML.length) {
-            PopupVideoHTML.trigger('pause');
-        }
     }
 
     /**
-     * Handle terms and conditions confirmation
-     * UPDATED: Now captures and stores timestamp
+     * Confirm terms and conditions
      */
     function confirmTermsAndConditions() {
-        console.log('Processing terms confirmation...');
+        console.log('Terms & Conditions confirmed');
 
-        // NEW: Capture the current timestamp
-        termsTimestamp = new Date().toISOString();
         termsConfirmed = true;
+        termsTimestamp = new Date().toISOString();
 
-        styleConfirmedTcButton();
-        updateButtonState(); // Use optimized update function
-
-        // NEW: Store both confirmation status and timestamp
+        // Store in session storage
         sessionStorage.setItem('termsConfirmed', 'true');
         sessionStorage.setItem('termsTimestamp', termsTimestamp);
 
-        // NEW: Store timestamp in WooCommerce session via AJAX
-        storeTermsTimestampInSession(termsTimestamp);
+        // Style the tc-button
+        styleConfirmedTcButton();
 
-        $(document).trigger('termsConfirmed');
+        // Update button state
+        updateButtonState();
 
-        console.log('Terms confirmed successfully at:', termsTimestamp);
+        // Store timestamp in database via AJAX
+        storeTermsTimestamp();
+
+        console.log('Terms confirmation complete at:', termsTimestamp);
     }
 
     /**
-     * NEW: Store terms timestamp in WooCommerce session
+     * Store terms timestamp via AJAX
      */
-    function storeTermsTimestampInSession(timestamp) {
+    function storeTermsTimestamp() {
+        if (typeof confirmTerms === 'undefined') {
+            console.warn('confirmTerms object not found');
+            return;
+        }
+
         $.ajax({
             url: confirmTerms.ajaxUrl,
             type: 'POST',
             data: {
                 action: 'store_terms_timestamp',
-                nonce: confirmTerms.nonce,
-                timestamp: timestamp
+                timestamp: termsTimestamp,
+                nonce: confirmTerms.nonce
             },
             success: function (response) {
                 if (response.success) {
-                    console.log('Terms timestamp stored in session:', timestamp);
+                    console.log('Terms timestamp stored successfully');
                 } else {
                     console.error('Failed to store terms timestamp:', response);
                 }
@@ -456,7 +519,6 @@ jQuery(document).ready(function ($) {
 
     /**
      * Restore terms confirmation state from session storage
-     * UPDATED: Also restores timestamp
      */
     function restoreTermsState() {
         const wasConfirmed = sessionStorage.getItem('termsConfirmed') === 'true';
@@ -517,7 +579,7 @@ jQuery(document).ready(function ($) {
 
         termsConfirmed = false;
         termsTimestamp = null;
-        lastButtonState = null; // Reset state tracking
+        lastButtonState = null;
 
         const $tcButton = $('.tc-button');
         $tcButton
@@ -554,9 +616,14 @@ jQuery(document).ready(function ($) {
         sessionStorage.removeItem('termsTimestamp');
     }
 
+    // FIX: Listen for shipping validation changes
+    $(document).on('shippingValidationChanged', function () {
+        console.log('Shipping validation changed - updating button state');
+        updateButtonState();
+    });
+
     /**
      * Public API for other scripts
-     * UPDATED: Added getTimestamp method
      */
     window.TermsAndConditions = {
         isConfirmed: function () {
@@ -569,11 +636,15 @@ jQuery(document).ready(function ($) {
         confirm: function () {
             confirmTermsAndConditions();
         },
+        updateButton: function () {
+            updateButtonState();
+        },
         getState: function () {
             return {
                 confirmed: termsConfirmed,
                 timestamp: termsTimestamp,
                 monthlyBillingValidated: monthlyBillingValidated,
+                shippingValidated: checkShippingValidation(),
                 tcButtonExists: $('.tc-button').length > 0,
                 monerisButtonExists: $('.moneris-payment-button').length > 0,
                 monerisButtonEnabled: !$('.moneris-payment-button').prop('disabled')
@@ -587,8 +658,9 @@ jQuery(document).ready(function ($) {
         console.log('Terms Confirmed:', termsConfirmed);
         console.log('Terms Timestamp:', termsTimestamp);
         console.log('Monthly Billing Validated:', monthlyBillingValidated);
+        console.log('Shipping Validated:', checkShippingValidation());
         console.log('Last Button State:', lastButtonState);
-        console.log('Current State Signature:', `${termsConfirmed}-${monthlyBillingValidated}-${termsConfirmed && monthlyBillingValidated}`);
+        console.log('Current State Signature:', `${termsConfirmed}-${monthlyBillingValidated}-${checkShippingValidation()}`);
         console.log('===============================');
 
         return window.TermsAndConditions.getState();
