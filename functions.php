@@ -275,6 +275,54 @@ function dg_get_invoice_number() {
     return $invoice_number;
 }
 
+
+/*Save Monthly Billing Method to Woocommerce session so it can be displayed on Thank You page*/
+
+
+/*Save Monthly Billing Method to Woocommerce session so it can be displayed on Thank You page*/
+
+function save_monthly_payment_method_to_session($order_id) {
+    error_log('=== Saving monthly payment method to session ===');
+    
+    // Check if monthly payment method was submitted (check both possible POST structures)
+    if (isset($_POST['checkout']['monthly_bill_payment_option']) || isset($_POST['monthly_bill_payment_option'])) {
+        $monthly_method = isset($_POST['checkout']['monthly_bill_payment_option']) 
+            ? sanitize_text_field($_POST['checkout']['monthly_bill_payment_option'])
+            : sanitize_text_field($_POST['monthly_bill_payment_option']);
+        
+        if (WC()->session) {
+            WC()->session->set('monthly_payment_method', $monthly_method);
+            error_log('✓ Monthly payment method saved to session: ' . $monthly_method);
+            
+            // If using credit card for monthly billing, save the card details
+            if ($monthly_method === 'cc') {
+                // Check if they're using the same card as upfront
+                if (isset($_POST['use_same_card_for_monthly']) && $_POST['use_same_card_for_monthly'] === 'yes') {
+                    // Copy the upfront card last 4 to monthly
+                    $upfront_card_last_4 = WC()->session->get('payment_card_last_4');
+                    if ($upfront_card_last_4) {
+                        WC()->session->set('monthly_card_last_4', $upfront_card_last_4);
+                        error_log('✓ Copied upfront card last 4 to monthly: ' . $upfront_card_last_4);
+                    }
+                } else {
+                    // Using different card - should have been saved separately
+                    // Check if monthly card last 4 was saved
+                    if (isset($_POST['monthly_card_last_4'])) {
+                        $monthly_card_last_4 = sanitize_text_field($_POST['monthly_card_last_4']);
+                        WC()->session->set('monthly_card_last_4', $monthly_card_last_4);
+                        error_log('✓ Monthly card last 4 saved: ' . $monthly_card_last_4);
+                    }
+                }
+            }
+        } else {
+            error_log('✗ WooCommerce session not available');
+        }
+    } else {
+        error_log('✗ No monthly payment method in POST data');
+    }
+}
+add_action('woocommerce_checkout_update_order_meta', 'save_monthly_payment_method_to_session', 10, 1);
+
 /**
  * Get all Thank You page data in one function call
  * Returns an array with all the information needed for the Thank You page
@@ -311,7 +359,7 @@ function dg_get_thank_you_page_data() {
         }
     }
     
-    // NEW: Get terms acceptance timestamp from session
+    // Get terms acceptance timestamp from session
     $data['terms_timestamp'] = '';
     if (WC()->session) {
         $terms_timestamp = WC()->session->get('terms_timestamp');
@@ -320,6 +368,24 @@ function dg_get_thank_you_page_data() {
             error_log('Terms timestamp retrieved for thank you page: ' . $terms_timestamp);
         }
     }
+    
+    // ============================================================
+    // NEW: Get CCD (Coupon Code) value from user meta
+    // ============================================================
+    $data['ccd'] = '';
+    $ccd_encoded = dg_get_user_meta("ccd");
+    
+    if (!empty($ccd_encoded)) {
+        // The CCD is stored base64 encoded, so decode it for display
+        $ccd_decoded = base64_decode($ccd_encoded);
+        
+        // Additional safety check - only set if decode was successful
+        if ($ccd_decoded !== false && !empty($ccd_decoded)) {
+            $data['ccd'] = strtoupper(trim($ccd_decoded)); // Convert to uppercase for display
+            error_log('CCD retrieved for thank you page: ' . $data['ccd']);
+        }
+    }
+    // ============================================================
     
     // Get payment transaction details from session
     if (WC()->session) {
@@ -347,24 +413,60 @@ function dg_get_thank_you_page_data() {
         $data['monthly_summary'] = array();
     }
     
-    // Get monthly payment method from user meta
-    $data['monthly_payment_method'] = dg_get_user_meta('monthly_bill_payment_option');
+    // ============================================================
+    // FIXED: Get monthly payment method from SESSION (not user meta)
+    // ============================================================
+    $data['monthly_payment_method'] = '';
+    if (WC()->session) {
+        $monthly_method = WC()->session->get('monthly_payment_method');
+        if ($monthly_method) {
+            $data['monthly_payment_method'] = $monthly_method;
+            error_log('Monthly payment method retrieved from session: ' . $monthly_method);
+        } else {
+            error_log('No monthly payment method found in session');
+        }
+    }
+    // ============================================================
     
     // ============================================================
-    // UPDATED FIX: Get last 4 digits of MONTHLY billing credit card from SESSION
-    // We retrieve from session instead of user meta because base64 encoding + 
-    // sanitize_text_field() corrupts the card number when stored in user meta
-    // The last 4 digits are captured during validation (ajax_validate_credit_card)
-    // and stored in session, just like the upfront card does
+    // Get last 4 digits of MONTHLY credit card (if CC payment method)
     // ============================================================
     $data['monthly_card_last_4'] = '';
-    if ($data['monthly_payment_method'] && strtolower($data['monthly_payment_method']) == 'cc') {
+    
+    if ($data['monthly_payment_method'] === 'cc') {
+        // Try to get from session first
         if (WC()->session) {
-            $monthly_card_last_4 = WC()->session->get('monthly_payment_card_last_4');
+            $monthly_card_last_4 = WC()->session->get('monthly_card_last_4');
             if ($monthly_card_last_4) {
                 $data['monthly_card_last_4'] = $monthly_card_last_4;
-                error_log('Monthly card last 4 retrieved from session: ' . $monthly_card_last_4);
             }
+        }
+        
+        // If not in session, try to extract from user meta
+        if (empty($data['monthly_card_last_4'])) {
+            $monthly_card_encrypted = dg_get_user_meta("cc_monthly_billing_card_number");
+            
+            if (!empty($monthly_card_encrypted)) {
+                $monthly_card_decrypted = base64_decode($monthly_card_encrypted);
+                
+                if ($monthly_card_decrypted !== false && strlen($monthly_card_decrypted) >= 4) {
+                    $data['monthly_card_last_4'] = substr($monthly_card_decrypted, -4);
+                    
+                    // Store in session for future use
+                    if (WC()->session) {
+                        WC()->session->set('monthly_card_last_4', $data['monthly_card_last_4']);
+                    }
+                    
+                    error_log('Monthly card last 4 extracted: ' . $data['monthly_card_last_4']);
+                }
+            }
+        }
+        
+        // Log for debugging
+        if (empty($data['monthly_card_last_4'])) {
+            error_log('Warning: Monthly payment is CC but no card last 4 found');
+        } else {
+            error_log('Monthly card last 4 available: ' . $data['monthly_card_last_4']);
         }
     }
     // ============================================================
@@ -6835,7 +6937,7 @@ function get_monthly_fee_summary() {
 }
 
 /**
- * Get detailed upfront cart items for thank you page
+ * Get detailed upfront cart items for thank you pagefront_cart_items_
  * Returns individual cart items with their prices for display
  */
 /**
@@ -7029,11 +7131,7 @@ function get_monthly_cart_items_for_thank_you() {
  * Get formatted upfront summary for thank you page
  * This replaces the category-based summary with item-based summary
  */
-/**
- * Get formatted upfront summary for thank you page
- * This replaces the category-based summary with item-based summary
- * UPDATED: Separates deposits to appear after subtotal and tax
- */
+
 function get_upfront_summary_for_thank_you() {
     $items = get_upfront_cart_items_for_thank_you();
     $tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 13;
@@ -7077,12 +7175,14 @@ function get_upfront_summary_for_thank_you() {
         $summary[$key] = array($deposit['name'], $deposit['price'], '');
     }
     
-    // Finally add grand total (includes deposits)
+    // Add grand_total - JavaScript needs this to populate the #upfront-total in tfoot
+    // It's in skipKeys so it won't be rendered in tbody, only used for the total
     $summary['grand_total'] = array('Total Paid Today', $subtotal + $tax + $deposits_total, '');
     
     error_log('Upfront summary for thank you: ' . json_encode($summary));
     return $summary;
 }
+
 
 /**
  * Get formatted monthly summary for thank you page
