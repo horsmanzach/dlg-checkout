@@ -1,7 +1,9 @@
 /**
- * Shipping Address Functionality for Checkout
+ * Shipping Address Functionality for Checkout - INTEGRATED VERSION
  * Handles "Ship to Different Address?" checkbox and Google Maps integration
  * File: /js/shipping-address.js
+ * 
+ * FIXED: Now properly communicates with confirm-terms.js for coordinated validation
  */
 
 jQuery(document).ready(function ($) {
@@ -33,27 +35,30 @@ jQuery(document).ready(function ($) {
             if ($(this).is(':checked')) {
                 console.log('Ship to different address: CHECKED');
                 $addressWrapper.slideDown(300);
-                updateValidationMessage(true);
-                updateCompletePaymentButton();
+
+                // Notify other scripts that shipping validation is now required
+                notifyShippingValidationChanged();
             } else {
                 console.log('Ship to different address: UNCHECKED');
                 $addressWrapper.slideUp(300);
                 $addressInput.val('');
                 clearShippingFields();
-                updateValidationMessage(false);
-                updateCompletePaymentButton();
+
+                // Notify other scripts that shipping validation is no longer required
+                notifyShippingValidationChanged();
             }
         });
 
         // Handle address input
         $addressInput.on('input', function () {
             console.log('Address input changed:', $(this).val());
-            updateCompletePaymentButton();
+
+            // Notify other scripts about the validation state change
+            notifyShippingValidationChanged();
         });
 
         // Initial state
-        updateValidationMessage($checkbox.is(':checked'));
-        updateCompletePaymentButton();
+        notifyShippingValidationChanged();
     }
 
     /**
@@ -67,36 +72,53 @@ jQuery(document).ready(function ($) {
             return;
         }
 
-        if (typeof google !== 'undefined' && google.maps && google.maps.places) {
-            shippingAutocomplete = new google.maps.places.Autocomplete(addressInput, {
-                types: ['address'],
-                componentRestrictions: { country: 'ca' }
-            });
+        if (typeof google === 'undefined' || typeof google.maps === 'undefined') {
+            console.warn('Google Maps API not loaded');
+            return;
+        }
 
-            shippingAutocomplete.setFields(['address_components', 'formatted_address']);
+        console.log('Initializing Google Maps Autocomplete for shipping address');
 
-            // Listen for place selection
+        // Restrict to Canada
+        const options = {
+            componentRestrictions: { country: 'ca' },
+            fields: ['address_components', 'formatted_address', 'geometry']
+        };
+
+        try {
+            shippingAutocomplete = new google.maps.places.Autocomplete(addressInput, options);
+
             shippingAutocomplete.addListener('place_changed', function () {
                 const place = shippingAutocomplete.getPlace();
-                console.log('Address selected from Google Maps:', place);
+                console.log('Google place selected:', place);
 
-                if (place && place.address_components) {
-                    parseAndPopulateShippingFields(place);
-                    updateCompletePaymentButton();
+                if (!place.address_components) {
+                    console.warn('No address components available');
+                    return;
                 }
+
+                // Store full address
+                const fullAddress = place.formatted_address || '';
+                $('#shipping-address-full').val(fullAddress);
+                $('#shipping-address-input').val(fullAddress);
+
+                // Parse and populate WooCommerce fields
+                parseAndPopulateAddress(place.address_components);
+
+                // Notify other scripts about the validation state change
+                notifyShippingValidationChanged();
             });
 
-            console.log('Google Maps autocomplete initialized for shipping address');
-        } else {
-            console.warn('Google Maps API not available');
+            console.log('Google Maps Autocomplete initialized successfully');
+        } catch (error) {
+            console.error('Error initializing Google Maps Autocomplete:', error);
         }
     }
 
     /**
-     * Parse Google Maps address and populate WooCommerce shipping fields
+     * Parse Google address components and populate WooCommerce fields
      */
-    function parseAndPopulateShippingFields(place) {
-        const addressComponents = place.address_components;
+    function parseAndPopulateAddress(addressComponents) {
         let streetNumber = '';
         let route = '';
         let city = '';
@@ -104,18 +126,17 @@ jQuery(document).ready(function ($) {
         let postalCode = '';
         let country = '';
 
-        // Extract address components
         addressComponents.forEach(function (component) {
             const types = component.types;
 
             if (types.includes('street_number')) {
-                streetNumber = component.long_name;
+                streetNumber = component.short_name;
             }
             if (types.includes('route')) {
-                route = component.long_name;
+                route = component.short_name;
             }
             if (types.includes('locality')) {
-                city = component.long_name;
+                city = component.short_name;
             }
             if (types.includes('administrative_area_level_1')) {
                 state = component.short_name;
@@ -162,60 +183,8 @@ jQuery(document).ready(function ($) {
     }
 
     /**
-     * Update validation message display
-     */
-    function updateValidationMessage(isCheckboxChecked) {
-        const $validationContainer = $('.validation-requirement-message');
-        let $shippingValidation = $validationContainer.find('.shipping-address-validation');
-
-        if (isCheckboxChecked) {
-            // Show validation message
-            if ($shippingValidation.length === 0) {
-                // Create validation message if it doesn't exist
-                const validationHtml = `
-                    <div class="validation-item shipping-address-validation">
-                        <span class="validation-icon">✗</span>
-                        <span class="validation-text">Shipping address must be populated</span>
-                    </div>
-                `;
-                $validationContainer.append(validationHtml);
-                $shippingValidation = $validationContainer.find('.shipping-address-validation');
-            }
-            $shippingValidation.show();
-        } else {
-            // Hide validation message
-            if ($shippingValidation.length > 0) {
-                $shippingValidation.hide();
-            }
-        }
-    }
-
-    /**
-     * Update validation message state (red X or green checkmark)
-     */
-    function updateValidationState() {
-        const $checkbox = $('#ship-to-different-checkbox');
-        const $addressInput = $('#shipping-address-input');
-        const $shippingValidation = $('.shipping-address-validation');
-
-        if ($checkbox.is(':checked')) {
-            const address = $addressInput.val().trim();
-            const isValid = address.length >= 10; // Minimum valid address length
-
-            if (isValid) {
-                // Valid - green checkmark
-                $shippingValidation.removeClass('invalid').addClass('valid');
-                $shippingValidation.find('.validation-icon').text('✓');
-            } else {
-                // Invalid - red X
-                $shippingValidation.removeClass('valid').addClass('invalid');
-                $shippingValidation.find('.validation-icon').text('✗');
-            }
-        }
-    }
-
-    /**
      * Check if shipping address is valid
+     * This is the authoritative check that other scripts will use
      */
     function isShippingAddressValid() {
         const $checkbox = $('#ship-to-different-checkbox');
@@ -223,80 +192,76 @@ jQuery(document).ready(function ($) {
 
         // If checkbox is unchecked, shipping validation not required
         if (!$checkbox.is(':checked')) {
+            console.log('Shipping validation: PASSED (checkbox not checked)');
             return true;
         }
 
         // If checkbox is checked, address must be populated
         const address = $addressInput.val().trim();
-        return address.length >= 10;
+        const isValid = address.length >= 10;
+
+        console.log('Shipping validation:', isValid ? 'PASSED' : 'FAILED', '- Address length:', address.length);
+        return isValid;
     }
 
     /**
-     * Update Complete Payment button state
+     * FIX: Notify other scripts (especially confirm-terms.js) when shipping validation changes
      */
-    function updateCompletePaymentButton() {
-        const $completeButton = $('#place_order, .complete-payment-btn');
+    function notifyShippingValidationChanged() {
+        const isValid = isShippingAddressValid();
 
-        // Check all three validations
-        const monthlyBillingValid = checkMonthlyBillingValid();
-        const termsChecked = checkTermsChecked();
-        const shippingValid = isShippingAddressValid();
+        console.log('Notifying other scripts - Shipping validation:', isValid);
 
-        console.log('Validation states:', {
-            monthlyBilling: monthlyBillingValid,
-            terms: termsChecked,
-            shipping: shippingValid
-        });
+        // Trigger custom event that confirm-terms.js listens for
+        $(document).trigger('shippingValidationChanged', { isValid: isValid });
 
-        // Update validation state visual
-        updateValidationState();
-
-        // Enable button only if all validations pass
-        if (monthlyBillingValid && termsChecked && shippingValid) {
-            $completeButton.removeClass('disabled').prop('disabled', false);
-            console.log('Complete Payment button ENABLED');
-        } else {
-            $completeButton.addClass('disabled').prop('disabled', true);
-            console.log('Complete Payment button DISABLED');
-        }
-    }
-
-    /**
-     * Check if monthly billing is validated
-     * This checks the existing monthly billing validation
-     */
-    function checkMonthlyBillingValid() {
-        // Check if monthly billing has been confirmed
-        const confirmed = $('input[name="monthly_billing_confirmed"]').val();
-        return confirmed === '1';
-    }
-
-    /**
-     * Check if terms checkbox is checked
-     */
-    function checkTermsChecked() {
-        return $('#terms').is(':checked');
+        // Also trigger the generic validation changed event
+        $(document).trigger('monthly_billing_validated'); // This will cause button state to update
     }
 
     /**
      * Listen for changes to other validation requirements
      */
     $(document).on('change', 'input[name="monthly_billing_confirmed"], #terms', function () {
-        console.log('Other validation changed');
-        updateCompletePaymentButton();
+        console.log('Other validation changed - shipping checking if update needed');
+        // Don't need to do anything here - confirm-terms.js will handle button updates
     });
 
     // Listen for monthly billing validation events
     $(document).on('monthly_billing_validated', function () {
-        console.log('Monthly billing validated event received');
-        updateCompletePaymentButton();
+        console.log('Monthly billing validated event received in shipping-address.js');
+        // Don't need to do anything here - confirm-terms.js will handle button updates
     });
 
     // Also listen for checkout update events
     $(document.body).on('updated_checkout', function () {
-        console.log('Checkout updated');
-        updateCompletePaymentButton();
+        console.log('Checkout updated in shipping-address.js');
+        notifyShippingValidationChanged();
     });
+
+    // Listen for when monthly billing state changes
+    $(document).on('monthlyBillingStateChanged', function () {
+        console.log('Monthly billing state changed in shipping-address.js');
+        // Don't need to do anything here - confirm-terms.js will handle button updates
+    });
+
+    /**
+     * Public API for other scripts to check shipping validation
+     */
+    window.ShippingAddressValidation = {
+        isValid: function () {
+            return isShippingAddressValid();
+        },
+        isRequired: function () {
+            return $('#ship-to-different-checkbox').is(':checked');
+        },
+        getAddress: function () {
+            return $('#shipping-address-input').val().trim();
+        },
+        refresh: function () {
+            notifyShippingValidationChanged();
+        }
+    };
 
     console.log('Shipping address functionality initialized');
 });
