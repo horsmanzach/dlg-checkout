@@ -120,6 +120,16 @@ jQuery(document).ready(function ($) {
             });
         }
 
+        // NEW: Populate CCD row if value exists
+        if (data.ccd && data.ccd.trim() !== '') {
+            $('#customer-ccd').text(data.ccd);
+            $('#customer-ccd-row').show();
+            console.log('CCD populated:', data.ccd);
+        } else {
+            $('#customer-ccd-row').hide();
+            console.log('No CCD value to display');
+        }
+
         // Populate Upfront Payment Summary
         if (data.upfront_summary) {
             populateUpfrontSummary(data.upfront_summary);
@@ -146,12 +156,12 @@ jQuery(document).ready(function ($) {
         // Populate monthly payment method
         if (data.monthly_payment_method_display) {
             var monthlyPaymentText = data.monthly_payment_method_display;
-            
+
             // If credit card and we have last 4 digits, add them
             if (data.monthly_payment_method_display === 'Credit Card' && data.monthly_card_last_4) {
                 monthlyPaymentText += ' ending in ' + data.monthly_card_last_4;
             }
-            
+
             $('#monthly-payment-method').text(monthlyPaymentText);
         }
 
@@ -183,7 +193,7 @@ jQuery(document).ready(function ($) {
                 var itemDates = value[2] || '';
 
                 var row = '<tr>' +
-                    '<td>' + itemName;
+                    '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">' + itemName;
 
                 // If this is Installation Fee and has dates, add them in italics
                 if (itemDates) {
@@ -193,7 +203,7 @@ jQuery(document).ready(function ($) {
                 }
 
                 row += '</td>' +
-                    '<td>' + itemAmount + '</td>' +
+                    '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">' + itemAmount + '</td>' +
                     '</tr>';
 
                 $tbody.append(row);
@@ -203,8 +213,8 @@ jQuery(document).ready(function ($) {
         // Step 2: Add Subtotal row
         if (summary.subtotal) {
             var subtotalRow = '<tr class="subtotal-row">' +
-                '<td><strong>Subtotal</strong></td>' +
-                '<td><strong>' + formatCurrency(summary.subtotal[1]) + '</strong></td>' +
+                '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Subtotal</strong></td>' +
+                '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>' + formatCurrency(summary.subtotal[1]) + '</strong></td>' +
                 '</tr>';
             $tbody.append(subtotalRow);
         }
@@ -212,8 +222,8 @@ jQuery(document).ready(function ($) {
         // Step 3: Add Tax row
         if (summary.taxes) {
             var taxRow = '<tr class="tax-row">' +
-                '<td><strong>Tax</strong></td>' +
-                '<td><strong>' + formatCurrency(summary.taxes[1]) + '</strong></td>' +
+                '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Tax</strong></td>' +
+                '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>' + formatCurrency(summary.taxes[1]) + '</strong></td>' +
                 '</tr>';
             $tbody.append(taxRow);
         }
@@ -228,8 +238,8 @@ jQuery(document).ready(function ($) {
                     var itemAmount = formatCurrency(value[1]);
 
                     var row = '<tr>' +
-                        '<td>' + itemName + '</td>' +
-                        '<td>' + itemAmount + '</td>' +
+                        '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">' + itemName + '</td>' +
+                        '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">' + itemAmount + '</td>' +
                         '</tr>';
 
                     $tbody.append(row);
@@ -259,8 +269,8 @@ jQuery(document).ready(function ($) {
                 var itemAmount = formatCurrency(value[1]);
 
                 var row = '<tr>' +
-                    '<td>' + itemName + '</td>' +
-                    '<td>' + itemAmount + '</td>' +
+                    '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">' + itemName + '</td>' +
+                    '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">' + itemAmount + '</td>' +
                     '</tr>';
 
                 $tbody.append(row);
