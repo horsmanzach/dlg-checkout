@@ -1045,128 +1045,6 @@ function shipping_address_checkbox_shortcode() {
 add_shortcode('shipping_address_checkbox', 'shipping_address_checkbox_shortcode');
 
 
-/**
- * Save shipping address data to order meta
- * This runs when the order is created
- */
-function save_custom_shipping_address($order_id) {
-    error_log('=== SAVE CUSTOM SHIPPING ADDRESS ===');
-    error_log('Order ID: ' . $order_id);
-    
-    // Check if "ship to different address" checkbox was checked
-    $ship_to_different = isset($_POST['ship_to_different_address']) ? true : false;
-    
-    error_log('Ship to different checkbox: ' . ($ship_to_different ? 'YES' : 'NO'));
-    
-    // Save checkbox state
-    update_post_meta($order_id, '_ship_to_different_address', $ship_to_different ? 'yes' : 'no');
-    
-    if ($ship_to_different) {
-        // Get the full shipping address from POST
-        $shipping_address_full = isset($_POST['shipping_address_full']) ? sanitize_text_field($_POST['shipping_address_full']) : '';
-        
-        error_log('Shipping address from POST: ' . $shipping_address_full);
-        
-        if (!empty($shipping_address_full)) {
-            // Save to order meta
-            update_post_meta($order_id, '_custom_shipping_address', $shipping_address_full);
-            
-            error_log('✓ Custom shipping address saved to order meta');
-        } else {
-            error_log('⚠ WARNING: Checkbox checked but no shipping address in POST');
-        }
-    } else {
-        // No different shipping address - use service/billing address
-        error_log('✓ Using service/billing address (no custom shipping)');
-    }
-}
-add_action('woocommerce_checkout_update_order_meta', 'save_custom_shipping_address', 10, 1);
-
-
-
-/**
- * Save the shipping checkbox state to order meta
- */
-function save_shipping_checkbox_state($order_id) {
-    if (isset($_POST['ship_to_different_address'])) {
-        update_post_meta($order_id, '_ship_to_different_address', 'yes');
-    } else {
-        update_post_meta($order_id, '_ship_to_different_address', 'no');
-    }
-}
-add_action('woocommerce_checkout_update_order_meta', 'save_shipping_checkbox_state');
-
-
-
-/**
- * Display shipping address choice in order admin
- */
-function display_shipping_choice_in_admin($order) {
-    $ship_to_different = get_post_meta($order->get_id(), '_ship_to_different_address', true);
-    
-    if ($ship_to_different === 'yes') {
-        echo '<p><strong>Ship to Different Address:</strong> Yes (Custom shipping address)</p>';
-    } else {
-        echo '<p><strong>Ship to Different Address:</strong> No (Same as billing address)</p>';
-    }
-}
-add_action('woocommerce_admin_order_data_after_shipping_address', 'display_shipping_choice_in_admin', 10, 1);
-
-
-/**
- * Save shipping address to session during checkout
- * This captures the shipping address BEFORE WC()->customer is cleared
- */
-/**
- * Save shipping address to session so Thank You page can access it
- */
-function save_shipping_address_to_session($order_id) {
-    if (!WC()->session) {
-        return;
-    }
-    
-    error_log('=== SAVE TO SESSION ===');
-    
-    // Check if different shipping address was used
-    $ship_to_different = get_post_meta($order_id, '_ship_to_different_address', true);
-    $custom_shipping = get_post_meta($order_id, '_custom_shipping_address', true);
-    
-    error_log('Ship to different: ' . $ship_to_different);
-    error_log('Custom shipping address: ' . $custom_shipping);
-    
-    // Save to session
-    WC()->session->set('ship_to_different_address', $ship_to_different === 'yes');
-    
-    if ($ship_to_different === 'yes' && !empty($custom_shipping)) {
-        WC()->session->set('custom_shipping_address_full', $custom_shipping);
-        error_log('✓ Custom shipping address saved to session: ' . $custom_shipping);
-    } else {
-        WC()->session->set('custom_shipping_address_full', '');
-        error_log('✓ No custom shipping address (using service address)');
-    }
-}
-add_action('woocommerce_checkout_update_order_meta', 'save_shipping_address_to_session', 20, 1);
-
-/**
- * NEW: Save shipping checkbox state to WooCommerce session
- * This works alongside save_shipping_checkbox_state() to also store in session
- * So the Thank You page can access it via dg_get_customer_info()
- */
-function save_shipping_checkbox_to_session() {
-    if (isset($_POST['ship_to_different_address'])) {
-        if (WC()->session) {
-            WC()->session->set('ship_to_different_address', true);
-            error_log('Shipping checkbox state saved to session: true');
-        }
-    } else {
-        if (WC()->session) {
-            WC()->session->set('ship_to_different_address', false);
-            error_log('Shipping checkbox state saved to session: false');
-        }
-    }
-}
-add_action('woocommerce_checkout_update_order_meta', 'save_shipping_checkbox_to_session', 5, 1);
-
 
 // ----- 4 Updated Enqueueing Functions for monthly_billing_assets, confirm_terms_script, mneris_payment_assets and checkout_cc_copy_script
 
@@ -1359,6 +1237,76 @@ function ajax_get_provider_terms_class() {
 }
 add_action('wp_ajax_get_provider_terms_class', 'ajax_get_provider_terms_class');
 add_action('wp_ajax_nopriv_get_provider_terms_class', 'ajax_get_provider_terms_class');
+
+
+/**
+ * AJAX HANDLER - Save shipping address to session BEFORE payment
+ * This saves the shipping address to the session when the user submits checkout,
+ * BEFORE the payment is processed, so it's available on the Thank You page.
+ */
+
+// AJAX handler for saving shipping address to session
+add_action('wp_ajax_save_shipping_to_session', 'ajax_save_shipping_to_session');
+add_action('wp_ajax_nopriv_save_shipping_to_session', 'ajax_save_shipping_to_session');
+
+function ajax_save_shipping_to_session() {
+    error_log('');
+    error_log('========================================');
+    error_log('=== AJAX: SAVE SHIPPING TO SESSION ===');
+    error_log('========================================');
+    error_log('Time: ' . date('Y-m-d H:i:s'));
+    
+    // Check nonce for security
+    if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'shipping_address_nonce')) {
+        error_log('✗ Security check failed');
+        wp_send_json_error(array('message' => 'Security check failed'));
+        return;
+    }
+    
+    if (!WC()->session) {
+        error_log('✗ WooCommerce session not available');
+        wp_send_json_error(array('message' => 'Session not available'));
+        return;
+    }
+    
+    // Get data from AJAX request
+    $ship_to_different = isset($_POST['ship_to_different']) && $_POST['ship_to_different'] === 'true';
+    $shipping_address = isset($_POST['shipping_address']) ? sanitize_text_field($_POST['shipping_address']) : '';
+    
+    error_log('Ship to different: ' . ($ship_to_different ? 'TRUE' : 'FALSE'));
+    error_log('Shipping address: "' . $shipping_address . '"');
+    
+    // Save to session
+    WC()->session->set('ship_to_different_address', $ship_to_different);
+    
+    if ($ship_to_different && !empty($shipping_address)) {
+        WC()->session->set('custom_shipping_address_full', $shipping_address);
+        error_log('✓ Saved custom shipping to session: "' . $shipping_address . '"');
+    } else {
+        WC()->session->set('custom_shipping_address_full', '');
+        error_log('✓ Cleared custom shipping (using service address)');
+    }
+    
+    // Verify it was saved
+    $saved_checkbox = WC()->session->get('ship_to_different_address');
+    $saved_address = WC()->session->get('custom_shipping_address_full');
+    
+    error_log('');
+    error_log('--- VERIFICATION ---');
+    error_log('Retrieved ship_to_different: ' . ($saved_checkbox ? 'TRUE' : 'FALSE'));
+    error_log('Retrieved custom_shipping: "' . $saved_address . '"');
+    
+    error_log('========================================');
+    error_log('=== END AJAX SAVE ===');
+    error_log('========================================');
+    error_log('');
+    
+    wp_send_json_success(array(
+        'message' => 'Shipping address saved to session',
+        'ship_to_different' => $saved_checkbox,
+        'address' => $saved_address
+    ));
+}
 
 
 // Add Filter to Exclude Pay Later Product From Being Added to Monthly Summary
