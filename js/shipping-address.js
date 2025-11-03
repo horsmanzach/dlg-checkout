@@ -1,9 +1,8 @@
 /**
- * Shipping Address Functionality for Checkout - INTEGRATED VERSION
+ * Shipping Address Functionality for Checkout - AJAX VERSION
  * Handles "Ship to Different Address?" checkbox and Google Maps integration
- * File: /js/shipping-address.js
  * 
- * FIXED: Now properly communicates with confirm-terms.js for coordinated validation
+ * FIXED: Saves to session via AJAX before payment (doesn't rely on WooCommerce order creation)
  */
 
 jQuery(document).ready(function ($) {
@@ -42,68 +41,68 @@ jQuery(document).ready(function ($) {
                 console.log('Ship to different address: UNCHECKED');
                 $addressWrapper.slideUp(300);
                 $addressInput.val('');
-                clearShippingFields();
+                $('#shipping-address-full').val(''); // Clear hidden field
+
+                // ADDED: Save empty state to session when unchecked
+                saveShippingToSession();
 
                 // Notify other scripts that shipping validation is no longer required
                 notifyShippingValidationChanged();
             }
         });
 
-        // Handle address input
+        // Handle address input changes for validation
         $addressInput.on('input', function () {
-            console.log('Address input changed:', $(this).val());
-
-            // Notify other scripts about the validation state change
             notifyShippingValidationChanged();
         });
-
-        // Initial state
-        notifyShippingValidationChanged();
     }
 
     /**
-     * Initialize Google Maps Autocomplete
+     * Initialize Google Maps Autocomplete for the shipping address field
      */
     function initializeGoogleMapsAutocomplete() {
         const addressInput = document.getElementById('shipping-address-input');
 
         if (!addressInput) {
-            console.warn('Shipping address input not found');
+            console.warn('Shipping address input field not found');
             return;
         }
 
+        // Check if Google Maps API is loaded
         if (typeof google === 'undefined' || typeof google.maps === 'undefined') {
-            console.warn('Google Maps API not loaded');
+            console.error('Google Maps API not loaded');
             return;
         }
-
-        console.log('Initializing Google Maps Autocomplete for shipping address');
-
-        // Restrict to Canada
-        const options = {
-            componentRestrictions: { country: 'ca' },
-            fields: ['address_components', 'formatted_address', 'geometry']
-        };
 
         try {
-            shippingAutocomplete = new google.maps.places.Autocomplete(addressInput, options);
+            // Initialize autocomplete with Canadian addresses restriction
+            shippingAutocomplete = new google.maps.places.Autocomplete(addressInput, {
+                types: ['address'],
+                componentRestrictions: { country: 'ca' }
+            });
 
+            // Listen for place selection
             shippingAutocomplete.addListener('place_changed', function () {
                 const place = shippingAutocomplete.getPlace();
-                console.log('Google place selected:', place);
 
-                if (!place.address_components) {
-                    console.warn('No address components available');
+                if (!place.geometry) {
+                    console.log('No geometry for selected place');
                     return;
                 }
 
-                // Store full address
-                const fullAddress = place.formatted_address || '';
-                $('#shipping-address-full').val(fullAddress);
+                // Get the formatted address from Google
+                const fullAddress = place.formatted_address;
+
+                // Store in visible input
                 $('#shipping-address-input').val(fullAddress);
 
-                // Parse and populate WooCommerce fields
-                parseAndPopulateAddress(place.address_components);
+                // CRITICAL: Store in hidden field that gets submitted with checkout
+                $('#shipping-address-full').val(fullAddress);
+
+                console.log('Shipping address selected:', fullAddress);
+
+                // ADDED: Save to session immediately via AJAX
+                saveShippingToSession();
 
                 // Notify other scripts about the validation state change
                 notifyShippingValidationChanged();
@@ -116,70 +115,42 @@ jQuery(document).ready(function ($) {
     }
 
     /**
-     * Parse Google address components and populate WooCommerce fields
+     * NEW FUNCTION: Save shipping address to WooCommerce session via AJAX
+     * This ensures the data is available on the Thank You page
      */
-    function parseAndPopulateAddress(addressComponents) {
-        let streetNumber = '';
-        let route = '';
-        let city = '';
-        let state = '';
-        let postalCode = '';
-        let country = '';
+    function saveShippingToSession() {
+        const $checkbox = $('#ship-to-different-checkbox');
+        const $addressInput = $('#shipping-address-input');
 
-        addressComponents.forEach(function (component) {
-            const types = component.types;
+        const shipToDifferent = $checkbox.is(':checked');
+        const shippingAddress = $addressInput.val().trim();
 
-            if (types.includes('street_number')) {
-                streetNumber = component.short_name;
-            }
-            if (types.includes('route')) {
-                route = component.short_name;
-            }
-            if (types.includes('locality')) {
-                city = component.short_name;
-            }
-            if (types.includes('administrative_area_level_1')) {
-                state = component.short_name;
-            }
-            if (types.includes('postal_code')) {
-                postalCode = component.short_name;
-            }
-            if (types.includes('country')) {
-                country = component.short_name;
-            }
+        console.log('💾 Saving to session via AJAX:', {
+            shipToDifferent: shipToDifferent,
+            address: shippingAddress
         });
 
-        // Construct full street address
-        const streetAddress = (streetNumber + ' ' + route).trim();
-
-        console.log('Parsed address:', {
-            street: streetAddress,
-            city: city,
-            state: state,
-            postal: postalCode,
-            country: country
+        // Make AJAX call to save to session
+        $.ajax({
+            url: shippingAddressVars.ajax_url,
+            type: 'POST',
+            data: {
+                action: 'save_shipping_to_session',
+                nonce: shippingAddressVars.nonce,
+                ship_to_different: shipToDifferent,
+                shipping_address: shippingAddress
+            },
+            success: function (response) {
+                if (response.success) {
+                    console.log('✓ Shipping saved to session:', response.data);
+                } else {
+                    console.error('✗ Failed to save shipping:', response.data);
+                }
+            },
+            error: function (xhr, status, error) {
+                console.error('✗ AJAX error saving shipping:', error);
+            }
         });
-
-        // Populate WooCommerce shipping fields
-        $('#shipping_address_1').val(streetAddress);
-        $('#shipping_city').val(city);
-        $('#shipping_state').val(state).trigger('change');
-        $('#shipping_postcode').val(postalCode);
-        $('#shipping_country').val(country).trigger('change');
-
-        console.log('WooCommerce shipping fields populated');
-    }
-
-    /**
-     * Clear all shipping fields
-     */
-    function clearShippingFields() {
-        $('#shipping_address_1').val('');
-        $('#shipping_city').val('');
-        $('#shipping_state').val('').trigger('change');
-        $('#shipping_postcode').val('');
-        $('#shipping_country').val('CA').trigger('change'); // Default to Canada
-        console.log('Shipping fields cleared');
     }
 
     /**
@@ -205,7 +176,7 @@ jQuery(document).ready(function ($) {
     }
 
     /**
-     * FIX: Notify other scripts (especially confirm-terms.js) when shipping validation changes
+     * Notify other scripts (especially confirm-terms.js) when shipping validation changes
      */
     function notifyShippingValidationChanged() {
         const isValid = isShippingAddressValid();
@@ -216,8 +187,42 @@ jQuery(document).ready(function ($) {
         $(document).trigger('shippingValidationChanged', { isValid: isValid });
 
         // Also trigger the generic validation changed event
-        $(document).trigger('monthly_billing_validated'); // This will cause button state to update
+        $(document).trigger('monthly_billing_validated');
     }
+
+    /**
+     * NEW: Save to session before form submission (backup method)
+     * This ensures data is saved even if the Google autocomplete save didn't fire
+     */
+    $(document).on('submit', 'form.checkout, form#moneris-payment-form', function (e) {
+        console.log('📤 Form submission detected - ensuring shipping is saved...');
+
+        const $checkbox = $('#ship-to-different-checkbox');
+
+        if ($checkbox.is(':checked')) {
+            const $addressInput = $('#shipping-address-input');
+            const address = $addressInput.val().trim();
+
+            // Make synchronous AJAX call to ensure data is saved before payment
+            $.ajax({
+                url: shippingAddressVars.ajax_url,
+                type: 'POST',
+                async: false, // CRITICAL: Wait for this to complete
+                data: {
+                    action: 'save_shipping_to_session',
+                    nonce: shippingAddressVars.nonce,
+                    ship_to_different: true,
+                    shipping_address: address
+                },
+                success: function (response) {
+                    console.log('✓ Final save before payment:', response);
+                },
+                error: function (xhr, status, error) {
+                    console.error('✗ Failed final save before payment:', error);
+                }
+            });
+        }
+    });
 
     /**
      * Listen for changes to other validation requirements
@@ -260,6 +265,10 @@ jQuery(document).ready(function ($) {
         },
         refresh: function () {
             notifyShippingValidationChanged();
+        },
+        // ADDED: Allow manual save trigger
+        saveToSession: function () {
+            saveShippingToSession();
         }
     };
 
