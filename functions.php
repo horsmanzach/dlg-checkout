@@ -1695,6 +1695,229 @@ add_shortcode('moneris_complete_payment_button', 'moneris_complete_payment_butto
 
 
 /**
+ * Prepare order data for Diallog database
+ */
+function prepare_diallog_order_data($payment_response, $cardholder_name, $moneris_config) {
+    // Get cart items before clearing
+    $cart_items = array();
+    foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+        $product = $cart_item['data'];
+        $cart_items[] = array(
+            'product_id' => $product->get_id(),
+            'name' => $product->get_name(),
+            'quantity' => $cart_item['quantity'],
+            'price' => $product->get_price(),
+            'total' => $cart_item['line_total']
+        );
+    }
+    
+    // Get summaries
+    $upfront_summary = function_exists('get_upfront_fee_summary_with_deposits') ? 
+        get_upfront_fee_summary_with_deposits() : 
+        (function_exists('get_upfront_fee_summary') ? get_upfront_fee_summary() : array());
+    
+    $monthly_summary = function_exists('get_monthly_fee_summary') ? 
+        get_monthly_fee_summary() : array();
+    
+    // Get customer data from session
+    $customer_data = array(
+        'first_name' => WC()->session->get('customer')['first_name'] ?? '',
+        'last_name' => WC()->session->get('customer')['last_name'] ?? '',
+        'email' => WC()->session->get('customer')['email'] ?? '',
+        'billing_address' => WC()->session->get('customer')['billing_address_1'] ?? '',
+        'billing_city' => WC()->session->get('customer')['billing_city'] ?? '',
+        'billing_state' => WC()->session->get('customer')['billing_state'] ?? '',
+        'billing_postcode' => WC()->session->get('customer')['billing_postcode'] ?? '',
+        'billing_phone' => WC()->session->get('customer')['phone'] ?? '',
+    );
+    
+    // NEW: Get terms acceptance timestamp from session
+    $terms_timestamp = '';
+    if (WC()->session) {
+        $terms_timestamp = WC()->session->get('terms_timestamp');
+        if ($terms_timestamp) {
+            error_log('Including terms timestamp in order data: ' . $terms_timestamp);
+        }
+    }
+    
+    // Build complete order data structure
+    $order_data = array(
+        'payment_info' => array(
+            'transaction_id' => $payment_response->getTxnNumber(),
+            'receipt_id' => $payment_response->getReceiptId(),
+            'amount' => $payment_response->getTransAmount(),
+            'date' => $payment_response->getTransDate(),
+            'time' => $payment_response->getTransTime(),
+            'card_type' => $payment_response->getCardType(),
+            'auth_code' => $payment_response->getAuthCode(),
+            'test_mode' => $moneris_config['test_mode']
+        ),
+        'customer_data' => $customer_data,
+        'cart_items' => $cart_items,
+        'upfront_summary' => $upfront_summary,
+        'monthly_summary' => $monthly_summary,
+        'order_timestamp' => time(),
+        'order_source' => 'website_checkout',
+        'terms_acceptance_timestamp' => $terms_timestamp // NEW: Include timestamp
+    );
+    
+    return $order_data;
+}
+
+
+
+// =====Transform order data to flat keys rather than nested objects specifically for email templates
+
+function transform_order_data_for_email($diallog_order_data) {
+    
+    // Get customer data from WooCommerce
+    $customer_info = dg_get_customer_info_for_thank_you();
+    
+    // Get CCD from session
+    $ccd = '';
+    if (WC()->session) {
+        $ccd = WC()->session->get('ccd');
+    }
+    
+    // Get customer IP
+    $customer_ip = $_SERVER['REMOTE_ADDR'] ?? '';
+    
+    // Transform upfront summary to email format
+    $upfront_items_for_email = array();
+    $upfront_subtotal = 0;
+    $upfront_tax = 0;
+    $upfront_total = 0;
+    
+    if (isset($diallog_order_data['upfront_summary']) && is_array($diallog_order_data['upfront_summary'])) {
+        $upfront = $diallog_order_data['upfront_summary'];
+        
+        // Process each item in upfront summary
+        foreach ($upfront as $key => $item) {
+            if (is_array($item) && isset($item[0], $item[1])) {
+                $name = $item[0];
+                $amount = $item[1];
+                
+                // Skip subtotal, tax, and grand_total - we'll handle those separately
+                if ($key === 'subtotal') {
+                    $upfront_subtotal = $amount;
+                } elseif ($key === 'taxes') {
+                    $upfront_tax = $amount;
+                } elseif ($key === 'grand_total') {
+                    $upfront_total = $amount;
+                } else {
+                    // This is an actual item (installation, deposit, etc.)
+                    $upfront_items_for_email[] = array(
+                        'name' => $name,
+                        'total' => $amount
+                    );
+                }
+            }
+        }
+    }
+    
+    // Transform monthly summary to email format
+    $monthly_items_for_email = array();
+    $monthly_subtotal = 0;
+    $monthly_tax = 0;
+    $monthly_total = 0;
+    
+    if (isset($diallog_order_data['monthly_summary']) && is_array($diallog_order_data['monthly_summary'])) {
+        $monthly = $diallog_order_data['monthly_summary'];
+        
+        // Process each item in monthly summary
+        foreach ($monthly as $key => $item) {
+            if (is_array($item) && isset($item[0], $item[1])) {
+                $name = $item[0];
+                $amount = $item[1];
+                
+                // Skip subtotal, tax, and grand_total - we'll handle those separately
+                if ($key === 'subtotal') {
+                    $monthly_subtotal = $amount;
+                } elseif ($key === 'taxes') {
+                    $monthly_tax = $amount;
+                } elseif ($key === 'grand_total') {
+                    $monthly_total = $amount;
+                } else {
+                    // This is an actual item (internet, tv, phone)
+                    $monthly_items_for_email[] = array(
+                        'name' => $name,
+                        'total' => $amount
+                    );
+                }
+            }
+        }
+    }
+    
+    // Get monthly payment method
+    $monthly_payment_method = 'Not specified';
+    if (WC()->session) {
+        $monthly_method_code = WC()->session->get('monthly_payment_method');
+        $card_last_4 = WC()->session->get('monthly_card_last_4');
+        
+        if ($monthly_method_code === 'cc' && $card_last_4) {
+            $monthly_payment_method = 'Credit Card ending in ' . $card_last_4;
+        } elseif ($monthly_method_code === 'bank') {
+            $monthly_payment_method = 'Pre-Authorized Debit (PAD)';
+        }
+    }
+    
+    // Get payment details from session
+    $auth_code = '';
+    $transaction_number = '';
+    $card_last_4 = '';
+    
+    if (WC()->session) {
+        $auth_code = WC()->session->get('payment_auth_code');
+        $transaction_number = WC()->session->get('payment_transaction_id');
+        $card_last_4 = WC()->session->get('payment_card_last_4');
+    }
+    
+    // Build the transformed order data for email
+    $email_order_data = array(
+        // Customer information
+        'customer_name' => $customer_info['full_name'],
+        'customer_email' => $customer_info['email'],
+        'customer_phone' => $customer_info['phone'],
+        'service_address' => $customer_info['service_address_full'],
+        'shipping_address' => $customer_info['shipping_address_full'],
+        'customer_ip' => $customer_ip,
+        'ccd' => $ccd,
+        
+        // Order timestamps
+        'order_timestamp' => isset($diallog_order_data['order_timestamp']) ? 
+            date('Y-m-d H:i:s', $diallog_order_data['order_timestamp']) : 
+            date('Y-m-d H:i:s'),
+        'terms_timestamp' => isset($diallog_order_data['terms_acceptance_timestamp']) ? 
+            $diallog_order_data['terms_acceptance_timestamp'] : '',
+        
+        // Payment information
+        'authorization_code' => $auth_code,
+        'transaction_number' => $transaction_number,
+        'card_last_4' => $card_last_4,
+        
+        // Upfront payment summary
+        'upfront_summary' => array(
+            'items' => $upfront_items_for_email,
+            'subtotal' => $upfront_subtotal,
+            'tax' => $upfront_tax,
+            'total' => $upfront_total
+        ),
+        
+        // Monthly billing summary
+        'monthly_summary' => array(
+            'items' => $monthly_items_for_email,
+            'subtotal' => $monthly_subtotal,
+            'tax' => $monthly_tax,
+            'total' => $monthly_total,
+            'payment_method' => $monthly_payment_method
+        )
+    );
+    
+    return $email_order_data;
+}
+
+
+/**
  * AJAX handler for processing Moneris payments
  */
 add_action('wp_ajax_process_moneris_payment', 'ajax_process_moneris_payment');
@@ -1941,44 +2164,46 @@ function ajax_process_moneris_payment() {
                     error_log('Test mode: Skipping Diallog submission');
                 }
                 
-                 // STEP 6: Send custom order confirmation email
-                error_log('Step 6: Sending customer order confirmation email...');
-                
-                // Extract customer email from order data
-                $customer_email = isset($order_data['customer_email']) ? $order_data['customer_email'] : '';
+               // STEP 6: Send custom order confirmation email
+error_log('Step 6: Sending customer order confirmation email...');
 
-                // Override email address in test mode for development
-                if ($moneris_config['test_mode']) {
-                    $original_customer_email = $customer_email;
-                    
-                    // OPTION A: Send to a single test email
-                    // $customer_email = 'your-test-email@example.com';
-                    
-                    // OPTION B: Send to multiple test emails (comma-separated)
-                    $customer_email = 'zachary.horsman@gmail.com';
-                    
-                    error_log('TEST MODE: Redirecting email from ' . $original_customer_email . ' to ' . $customer_email);
-                }
-                
-                if (!empty($customer_email)) {
-                // Handle multiple emails (comma-separated) or single email
-                $email_addresses = array_map('trim', explode(',', $customer_email));
-                $valid_emails = array_filter($email_addresses, 'is_email');
+// Transform the order data to the format expected by email template
+$email_order_data = transform_order_data_for_email($order_data);
+
+// Extract customer email
+$customer_email = isset($email_order_data['customer_email']) ? $email_order_data['customer_email'] : '';
+
+// Override email address in test mode for development
+if ($moneris_config['test_mode']) {
+    $original_customer_email = $customer_email;
     
-                if (!empty($valid_emails)) {
-                    // Rejoin valid emails back into comma-separated string for wp_mail
-                    $customer_email = implode(',', $valid_emails);
+    // OPTION A: Send to a single test email
+    // $customer_email = 'your-test-email@example.com';
+    
+    // OPTION B: Send to multiple test emails (comma-separated)
+    $customer_email = 'zachary.horsman@gmail.com';  // UPDATE THIS WITH YOUR EMAILS
+    
+    error_log('TEST MODE: Redirecting email from ' . $original_customer_email . ' to ' . $customer_email);
+}
+
+if (!empty($customer_email)) {
+    // Handle multiple emails (comma-separated) or single email
+    $email_addresses = array_map('trim', explode(',', $customer_email));
+    $valid_emails = array_filter($email_addresses, 'is_email');
+    
+    if (!empty($valid_emails)) {
+        // Rejoin valid emails back into comma-separated string for wp_mail
+        $customer_email = implode(',', $valid_emails);
         
-                    // Send the order confirmation email using our custom template
-                    $email_sent = send_customer_order_confirmation_email($customer_email, $order_data);
+        // Send the order confirmation email using our custom template
+        $email_sent = send_customer_order_confirmation_email($customer_email, $email_order_data);
         
-                    if ($email_sent) {
-                        error_log('Order confirmation email sent successfully to: ' . $customer_email);
-                    } else {
-                        error_log('Failed to send order confirmation email to: ' . $customer_email);
-                    }
-                }   
-                else {
+        if ($email_sent) {
+            error_log('Order confirmation email sent successfully to: ' . $customer_email);
+        } else {
+            error_log('Failed to send order confirmation email to: ' . $customer_email);
+        }
+    } else {
         error_log('No valid email addresses found. Cannot send confirmation email.');
     }
 } else {
@@ -2035,75 +2260,6 @@ function ajax_process_moneris_payment() {
     wp_die();
 }
 
-/**
- * Prepare order data for Diallog database
- */
-function prepare_diallog_order_data($payment_response, $cardholder_name, $moneris_config) {
-    // Get cart items before clearing
-    $cart_items = array();
-    foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
-        $product = $cart_item['data'];
-        $cart_items[] = array(
-            'product_id' => $product->get_id(),
-            'name' => $product->get_name(),
-            'quantity' => $cart_item['quantity'],
-            'price' => $product->get_price(),
-            'total' => $cart_item['line_total']
-        );
-    }
-    
-    // Get summaries
-    $upfront_summary = function_exists('get_upfront_fee_summary_with_deposits') ? 
-        get_upfront_fee_summary_with_deposits() : 
-        (function_exists('get_upfront_fee_summary') ? get_upfront_fee_summary() : array());
-    
-    $monthly_summary = function_exists('get_monthly_fee_summary') ? 
-        get_monthly_fee_summary() : array();
-    
-    // Get customer data from session
-    $customer_data = array(
-        'first_name' => WC()->session->get('customer')['first_name'] ?? '',
-        'last_name' => WC()->session->get('customer')['last_name'] ?? '',
-        'email' => WC()->session->get('customer')['email'] ?? '',
-        'billing_address' => WC()->session->get('customer')['billing_address_1'] ?? '',
-        'billing_city' => WC()->session->get('customer')['billing_city'] ?? '',
-        'billing_state' => WC()->session->get('customer')['billing_state'] ?? '',
-        'billing_postcode' => WC()->session->get('customer')['billing_postcode'] ?? '',
-        'billing_phone' => WC()->session->get('customer')['phone'] ?? '',
-    );
-    
-    // NEW: Get terms acceptance timestamp from session
-    $terms_timestamp = '';
-    if (WC()->session) {
-        $terms_timestamp = WC()->session->get('terms_timestamp');
-        if ($terms_timestamp) {
-            error_log('Including terms timestamp in order data: ' . $terms_timestamp);
-        }
-    }
-    
-    // Build complete order data structure
-    $order_data = array(
-        'payment_info' => array(
-            'transaction_id' => $payment_response->getTxnNumber(),
-            'receipt_id' => $payment_response->getReceiptId(),
-            'amount' => $payment_response->getTransAmount(),
-            'date' => $payment_response->getTransDate(),
-            'time' => $payment_response->getTransTime(),
-            'card_type' => $payment_response->getCardType(),
-            'auth_code' => $payment_response->getAuthCode(),
-            'test_mode' => $moneris_config['test_mode']
-        ),
-        'customer_data' => $customer_data,
-        'cart_items' => $cart_items,
-        'upfront_summary' => $upfront_summary,
-        'monthly_summary' => $monthly_summary,
-        'order_timestamp' => time(),
-        'order_source' => 'website_checkout',
-        'terms_acceptance_timestamp' => $terms_timestamp // NEW: Include timestamp
-    );
-    
-    return $order_data;
-}
 
 /**
  * Send order data to Diallog database
