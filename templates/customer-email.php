@@ -371,7 +371,14 @@ function send_customer_order_confirmation_email($customer_email, $order_data) {
     // Set up email headers
     $headers = array();
     $headers[] = 'From: Diallog Orders <residential.orders@diallog.com>';
-    $headers[] = 'BCC: residential.orders@diallog.com'; // BCC to company for record keeping
+    
+    // Only BCC company email in live/production mode, not during testing
+    // Check if we're in test mode by looking at order data or using config
+    $moneris_config = get_moneris_config();
+    if (!$moneris_config['test_mode']) {
+        $headers[] = 'BCC: residential.orders@diallog.com'; // BCC to company for record keeping (LIVE MODE ONLY)
+    }
+    
     $headers[] = 'Reply-To: residential.orders@diallog.com';
     $headers[] = 'Content-Type: text/html; charset=UTF-8';
     $headers[] = 'MIME-Version: 1.0';
