@@ -5,6 +5,7 @@ include_once("includes/hubspot.php");
 include_once("includes/availability_check.php");
 include_once("mpgClasses.php");
 include_once("includes/ProcessPayment.php");
+require_once(get_stylesheet_directory() . '/templates/customer-email.php');
 
 /* add_action( 'wp_enqueue_scripts', 'add_step8_script' );
 function add_step8_script() {
@@ -1940,11 +1941,49 @@ function ajax_process_moneris_payment() {
                     error_log('Test mode: Skipping Diallog submission');
                 }
                 
-                // STEP 6: Trigger emails
-                error_log('Step 6: Triggering emails...');
+                 // STEP 6: Send custom order confirmation email
+                error_log('Step 6: Sending customer order confirmation email...');
                 
-                trigger_woocommerce_emails($order_data);
-                error_log('Emails triggered');
+                // Extract customer email from order data
+                $customer_email = isset($order_data['customer_email']) ? $order_data['customer_email'] : '';
+
+                // Override email address in test mode for development
+                if ($moneris_config['test_mode']) {
+                    $original_customer_email = $customer_email;
+                    
+                    // OPTION A: Send to a single test email
+                    // $customer_email = 'your-test-email@example.com';
+                    
+                    // OPTION B: Send to multiple test emails (comma-separated)
+                    $customer_email = 'zachary.horsman@gmail.com';
+                    
+                    error_log('TEST MODE: Redirecting email from ' . $original_customer_email . ' to ' . $customer_email);
+                }
+                
+                if (!empty($customer_email)) {
+                // Handle multiple emails (comma-separated) or single email
+                $email_addresses = array_map('trim', explode(',', $customer_email));
+                $valid_emails = array_filter($email_addresses, 'is_email');
+    
+                if (!empty($valid_emails)) {
+                    // Rejoin valid emails back into comma-separated string for wp_mail
+                    $customer_email = implode(',', $valid_emails);
+        
+                    // Send the order confirmation email using our custom template
+                    $email_sent = send_customer_order_confirmation_email($customer_email, $order_data);
+        
+                    if ($email_sent) {
+                        error_log('Order confirmation email sent successfully to: ' . $customer_email);
+                    } else {
+                        error_log('Failed to send order confirmation email to: ' . $customer_email);
+                    }
+                }   
+                else {
+        error_log('No valid email addresses found. Cannot send confirmation email.');
+    }
+} else {
+    error_log('Invalid or missing customer email. Cannot send confirmation email.');
+}
                 
                 // STEP 7: Empty cart ONLY AFTER all data has been captured
                 error_log('Step 7: Emptying cart...');
@@ -2108,6 +2147,8 @@ function send_order_to_diallog($order_data) {
 /**
  * Trigger WooCommerce email notifications using existing WooCommerce email system
  */
+/*  -------------------DELETE SOON
+
 function trigger_woocommerce_emails($order_data) {
     // Store order data in session for WooCommerce email templates to access
     if (WC()->session) {
@@ -2120,7 +2161,8 @@ function trigger_woocommerce_emails($order_data) {
     // You can now customize your existing WooCommerce email templates to use:
     // $order_data = WC()->session->get('moneris_order_data');
     // to access all the payment and order information
-}
+} */
+
 
 /**
  * Helper function to validate credit card number using Luhn algorithm
