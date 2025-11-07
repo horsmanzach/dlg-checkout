@@ -76,7 +76,7 @@ function generate_order_confirmation_email_html($order_data) {
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         .email-header {
-            background-color: #0066cc;
+            background-color: #139948;
             color: #ffffff;
             padding: 30px 20px;
             text-align: center;
@@ -99,7 +99,7 @@ function generate_order_confirmation_email_html($order_data) {
             margin: 20px 0;
         }
         .info-table th {
-            background-color: #0066cc;
+            background-color: #139948;
             color: #ffffff;
             padding: 12px;
             text-align: left;
@@ -137,7 +137,7 @@ function generate_order_confirmation_email_html($order_data) {
         }
         .total-row td {
             padding: 12px;
-            border-top: 2px solid #0066cc;
+            border-top: 2px solid #139948;
         }
         .email-footer {
             background-color: #333333;
@@ -161,10 +161,10 @@ function generate_order_confirmation_email_html($order_data) {
         .section-title {
             font-size: 18px;
             font-weight: bold;
-            color: #0066cc;
+            color: #139948;
             margin: 25px 0 10px 0;
             padding-bottom: 5px;
-            border-bottom: 2px solid #0066cc;
+            border-bottom: 2px solid #139948;
         }
     </style>
 </head>
@@ -175,7 +175,7 @@ function generate_order_confirmation_email_html($order_data) {
             <!-- Email Header -->
             <div class="email-header">
                 <!-- Company Logo - Update with your actual logo URL -->
-                <img src="<?php echo esc_url(get_stylesheet_directory_uri() . '/images/diallog-logo-white.png'); ?>" 
+                <img src="<?php echo esc_url(get_stylesheet_directory_uri() . '/wp-content/uploads/2022/02/Diallog-Logo-tall-110.jpg'); ?>" 
                      alt="Diallog Logo" class="logo">
                 <h1>Thank You for Your Order!</h1>
             </div>
@@ -184,7 +184,7 @@ function generate_order_confirmation_email_html($order_data) {
             <div class="email-body">
                 <p>Dear <?php echo esc_html($customer_name); ?>,</p>
                 
-                <p>Thank you for submitting your order and trusting us with your Internet needs. Our customer onboarding team will review your order and reach out with the next steps.</p>
+                <p>Thank you for submitting your order and trusting us with your Internet needs. Your order has been logged in our system, and your installation will be scheduled shortly. Our customer onboarding team will contact you as soon as the installation date is confirmed and provide the next steps.</p>
                 
                 <p>Below are your complete order details for your reference:</p>
                 
@@ -331,13 +331,9 @@ function generate_order_confirmation_email_html($order_data) {
             
             <!-- Email Footer -->
             <div class="email-footer">
-                <p><strong>Diallog Communications</strong></p>
-                <p>Email: <a href="mailto:residential.orders@diallog.com">residential.orders@diallog.com</a></p>
+                <p><strong>Diallog Telecommunications Corp.</strong></p>
                 <p>Phone: <a href="tel:+18884433876">1-888-443-3876</a></p>
-                <p>Website: <a href="https://www.diallog.com">www.diallog.com</a></p>
-                <p style="margin-top: 15px; font-size: 12px; color: #999999;">
-                    This is an automated email. Please do not reply directly to this message.
-                </p>
+                <p>Website: <a href="https://diallog.com">https://diallog.com</a></p>
             </div>
             
         </div>
@@ -384,7 +380,7 @@ function send_customer_order_confirmation_email($customer_email, $order_data) {
     $headers[] = 'MIME-Version: 1.0';
     
     // Email subject
-    $subject = 'Your Diallog Order Confirmation - Order #' . (isset($order_data['transaction_number']) ? $order_data['transaction_number'] : date('YmdHis'));
+    $subject = 'Your Diallog Order Confirmation';
     
     // Log the email attempt
     error_log('Attempting to send order confirmation email to: ' . $customer_email);
