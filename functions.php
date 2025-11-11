@@ -1771,7 +1771,7 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
 function transform_order_data_for_email($diallog_order_data) {
     
     // Get customer data from WooCommerce
-    $customer_info = dg_get_customer_info_for_thank_you();
+    $customer_info = dg_get_customer_info();
     
     // Get CCD from session
     $ccd = '';
@@ -2085,6 +2085,10 @@ function ajax_process_moneris_payment() {
                 
                 // STEP 1: Store detailed cart items FIRST (CRITICAL - must be before cart is emptied)
                 error_log('Step 1: Storing detailed cart summaries for thank you page...');
+
+                // Initialize variables that will be used later
+                $stored_upfront = array();
+                $stored_monthly = array();
                 
                 // Use new helper functions to get itemized cart data
                 if (function_exists('get_upfront_summary_for_thank_you')) {
@@ -2167,8 +2171,16 @@ function ajax_process_moneris_payment() {
                // STEP 6: Send custom order confirmation email
 error_log('Step 6: Sending customer order confirmation email...');
 
+// Build the order data structure that transform_order_data_for_email expects
+$diallog_order_data = array(
+    'upfront_summary' => isset($stored_upfront) ? $stored_upfront : array(),
+    'monthly_summary' => isset($stored_monthly) ? $stored_monthly : array(),
+    'order_timestamp' => time(),
+    'terms_acceptance_timestamp' => $terms_timestamp
+);
+
 // Transform the order data to the format expected by email template
-$email_order_data = transform_order_data_for_email($order_data);
+$email_order_data = transform_order_data_for_email($diallog_order_data);
 
 // Extract customer email
 $customer_email = isset($email_order_data['customer_email']) ? $email_order_data['customer_email'] : '';
