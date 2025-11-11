@@ -157,6 +157,7 @@ function generate_order_confirmation_email_html($order_data) {
             max-width: 200px;
             height: auto;
             margin-bottom: 10px;
+            border-radius: 10px;
         }
         .section-title {
             font-size: 18px;
@@ -175,7 +176,7 @@ function generate_order_confirmation_email_html($order_data) {
             <!-- Email Header -->
             <div class="email-header">
                 <!-- Company Logo - Update with your actual logo URL -->
-                <img src="<?php echo esc_url(get_stylesheet_directory_uri() . '/wp-content/uploads/2022/02/Diallog-Logo-tall-110.jpg'); ?>" 
+                <img src="<?php echo esc_url(home_url('/wp-content/uploads/2022/02/Diallog-Logo-tall-110.jpg')); ?>" 
                      alt="Diallog Logo" class="logo">
                 <h1>Thank You for Your Order!</h1>
             </div>
@@ -458,9 +459,25 @@ function ajax_send_test_order_email() {
     // Get test email from POST or use default
     $test_email = isset($_POST['test_email']) ? sanitize_email($_POST['test_email']) : 'your-test-email@example.com';
     
-    // Try to get order data from Thank You page session
+    // Get the thank you page data
     if (function_exists('dg_get_thank_you_page_data')) {
-        $order_data = dg_get_thank_you_page_data();
+        $thank_you_data = dg_get_thank_you_page_data();
+        
+        // Transform it for email using the same function that the real checkout uses
+        if (function_exists('transform_order_data_for_email')) {
+            // Build the diallog order data structure that transform function expects
+            $diallog_order_data = array(
+                'upfront_summary' => isset($thank_you_data['upfront_summary']) ? $thank_you_data['upfront_summary'] : array(),
+                'monthly_summary' => isset($thank_you_data['monthly_summary']) ? $thank_you_data['monthly_summary'] : array(),
+                'order_timestamp' => isset($thank_you_data['order_timestamp_raw']) ? strtotime($thank_you_data['order_timestamp_raw']) : time(),
+                'terms_acceptance_timestamp' => isset($thank_you_data['terms_timestamp']) ? $thank_you_data['terms_timestamp'] : ''
+            );
+            
+            // Transform to email format
+            $order_data = transform_order_data_for_email($diallog_order_data);
+        } else {
+            $order_data = null;
+        }
     } else {
         $order_data = null; // Will use sample data
     }
