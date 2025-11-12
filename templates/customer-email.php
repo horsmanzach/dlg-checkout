@@ -243,32 +243,46 @@ function generate_order_confirmation_email_html($order_data) {
                     </tbody>
                 </table>
                 
-                <!-- Upfront Payment Summary Section -->
-                <div class="section-title">Upfront Payment Summary</div>
-                <table class="items-table">
-                    <tbody>
-                        <?php if (!empty($upfront_items)): ?>
-                            <?php foreach ($upfront_items as $item): ?>
-                            <tr>
-                                <td><?php echo esc_html($item['name']); ?></td>
-                                <td>$<?php echo esc_html(number_format($item['total'], 2)); ?></td>
-                            </tr>
-                            <?php endforeach; ?>
-                            <tr>
-                                <td>Subtotal:</td>
-                                <td>$<?php echo esc_html(number_format($upfront_subtotal, 2)); ?></td>
-                            </tr>
-                            <tr>
-                                <td>Tax:</td>
-                                <td>$<?php echo esc_html(number_format($upfront_tax, 2)); ?></td>
-                            </tr>
-                        <?php endif; ?>
-                        <tr class="total-row">
-                            <td>Total Paid Today:</td>
-                            <td>$<?php echo esc_html(number_format($upfront_total, 2)); ?></td>
-                        </tr>
-                    </tbody>
-                </table>
+            
+           <!-- Upfront Payment Summary Section -->
+            <div class="section-title">Upfront Payment Summary</div>
+            <table class="items-table">
+    <tbody>
+        <?php if (!empty($upfront_items)): ?>
+            <?php foreach ($upfront_items as $item): ?>
+            <tr>
+                <td><?php echo esc_html($item['name']); ?></td>
+                <td>$<?php echo esc_html(number_format($item['total'], 2)); ?></td>
+            </tr>
+            <?php endforeach; ?>
+            <tr>
+                <td>Subtotal:</td>
+                <td>$<?php echo esc_html(number_format($upfront_subtotal, 2)); ?></td>
+            </tr>
+            <tr>
+                <td>Tax:</td>
+                <td>$<?php echo esc_html(number_format($upfront_tax, 2)); ?></td>
+            </tr>
+            <?php 
+            // NEW: Add deposits after tax
+            $upfront_deposits = isset($order_data['upfront_summary']['deposits']) ? $order_data['upfront_summary']['deposits'] : array();
+            if (!empty($upfront_deposits)): 
+                foreach ($upfront_deposits as $deposit): ?>
+            <tr>
+                <td><?php echo esc_html($deposit['name']); ?></td>
+                <td>$<?php echo esc_html(number_format($deposit['total'], 2)); ?></td>
+            </tr>
+            <?php 
+                endforeach;
+            endif; 
+            ?>
+        <?php endif; ?>
+        <tr class="total-row">
+            <td>Total Paid Today:</td>
+            <td>$<?php echo esc_html(number_format($upfront_total, 2)); ?></td>
+        </tr>
+    </tbody>
+</table>
                 
                 <!-- Payment Details -->
                 <table class="info-table" style="margin-top: 10px;">
