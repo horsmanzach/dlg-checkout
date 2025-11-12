@@ -10,7 +10,8 @@ jQuery(document).ready(function ($) {
         return '$' + parseFloat(amount).toFixed(2);
     }
 
-    // NEW: Function to format timestamp for display - MATCHES ORDER DATE FORMAT
+
+    // NEW: Function to format timestamp for display with timezone - MATCHES ORDER DATE FORMAT
     function formatTermsTimestamp(timestamp) {
         if (!timestamp) {
             return '';
@@ -19,20 +20,21 @@ jQuery(document).ready(function ($) {
         try {
             const date = new Date(timestamp);
 
-            // Format to match: "October 14, 2025 at 3:45 PM"
-            // This matches the PHP format: 'F j, Y \a\t g:i A'
+            // Format to match: "October 14, 2025 at 3:45 PM EST"
+            // This matches the PHP format: 'F j, Y \a\t g:i A T'
             const options = {
                 year: 'numeric',
                 month: 'long',
                 day: 'numeric',
                 hour: 'numeric',
                 minute: '2-digit',
-                hour12: true
+                hour12: true,
+                timeZoneName: 'short' // This adds the timezone abbreviation (EST, PST, etc.)
             };
 
             const formatted = date.toLocaleString('en-US', options);
 
-            // The toLocaleString gives us "October 14, 2025 at 3:45 PM" which matches perfectly
+            // The toLocaleString gives us "October 14, 2025 at 3:45 PM EST" which matches perfectly
             return formatted;
         } catch (e) {
             console.error('Error formatting timestamp:', e);
@@ -160,6 +162,10 @@ jQuery(document).ready(function ($) {
             // If credit card and we have last 4 digits, add them
             if (data.monthly_payment_method_display === 'Credit Card' && data.monthly_card_last_4) {
                 monthlyPaymentText += ' ending in ' + data.monthly_card_last_4;
+            } else if (monthlyPaymentText === 'bank' || monthlyPaymentText === 'pad') {
+                monthlyPaymentText = 'Bank Account - Pre-Authorized Debit (PAD)';
+            } else if (monthlyPaymentText === 'payafter') {
+                monthlyPaymentText = 'Pay After (Non Pre-Authorized)';
             }
 
             $('#monthly-payment-method').text(monthlyPaymentText);
@@ -230,15 +236,21 @@ jQuery(document).ready(function ($) {
 
         // Step 4: Add deposits AFTER subtotal and tax
         $.each(summary, function (key, value) {
-            if (skipKeys.indexOf(key) === -1 && value && value[1] > 0) {
+            if (value && value[1] > 0) {
                 var itemName = value[0] || key;
 
-                // Only process deposits
-                if (itemName.toLowerCase().includes('deposit')) {
+                // Process items with 'deposit' in name OR if key is 'deposit'
+                if (key === 'deposit' || itemName.toLowerCase().includes('deposit')) {
                     var itemAmount = formatCurrency(value[1]);
 
+                    // Clean up Pay After deposit name
+                    var displayName = itemName;
+                    if (itemName.toLowerCase().includes('pay-after') || itemName.toLowerCase().includes('payafter')) {
+                        displayName = 'Pay After Deposit';
+                    }
+
                     var row = '<tr>' +
-                        '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">' + itemName + '</td>' +
+                        '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">' + displayName + '</td>' +
                         '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">' + itemAmount + '</td>' +
                         '</tr>';
 
