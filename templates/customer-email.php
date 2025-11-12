@@ -193,16 +193,16 @@ function generate_order_confirmation_email_html($order_data) {
                 <div class="section-title">Order Information</div>
                 <table class="info-table">
                     <tbody>
-                        <tr>
-                            <td>Order Date & Time:</td>
-                            <td><?php echo esc_html(date('F j, Y g:i A', strtotime($order_timestamp))); ?></td>
-                        </tr>
-                        <?php if (!empty($terms_timestamp)): ?>
-                        <tr>
-                            <td>Terms & Conditions Confirmed at:</td>
-                            <td><?php echo esc_html(date('F j, Y g:i A', strtotime($terms_timestamp))); ?></td>
-                        </tr>
-                        <?php endif; ?>
+                       <tr>
+                    <td>Order Date & Time:</td>
+                <td><?php echo esc_html($order_timestamp); ?></td>
+                </tr>
+                <?php if (!empty($terms_timestamp)): ?>
+                <tr>
+            <td>Terms & Conditions Confirmed at:</td>
+            <td><?php echo esc_html($terms_timestamp); ?></td>
+        </tr>
+            <?php endif; ?>
                         <tr>
                             <td>Customer IP Address:</td>
                             <td><?php echo esc_html($customer_ip); ?></td>
