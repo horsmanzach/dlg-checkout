@@ -1774,38 +1774,60 @@ function transform_order_data_for_email($diallog_order_data) {
     $customer_info = dg_get_customer_info();
     
     // Get CCD from session
-    $ccd = '';
+   /* $ccd = '';
     if (WC()->session) {
         $ccd = WC()->session->get('ccd');
+    } */
+
+    // Get CCD from user meta (same way as thank you page)
+$ccd = '';
+$ccd_encoded = dg_get_user_meta("ccd");
+
+if (!empty($ccd_encoded)) {
+    // The CCD is stored base64 encoded, so decode it for display
+    $ccd_decoded = base64_decode($ccd_encoded);
+    
+    if ($ccd_decoded !== false && !empty($ccd_decoded)) {
+        $ccd = strtoupper(trim($ccd_decoded));
     }
+}
     
     // Get customer IP
     $customer_ip = $_SERVER['REMOTE_ADDR'] ?? '';
     
     // Transform upfront summary to email format
-    $upfront_items_for_email = array();
-    $upfront_subtotal = 0;
-    $upfront_tax = 0;
-    $upfront_total = 0;
+$upfront_items_for_email = array();
+$upfront_deposit_items = array(); // NEW: Separate array for deposits
+$upfront_subtotal = 0;
+$upfront_tax = 0;
+$upfront_total = 0;
+
+if (isset($diallog_order_data['upfront_summary']) && is_array($diallog_order_data['upfront_summary'])) {
+    $upfront = $diallog_order_data['upfront_summary'];
     
-    if (isset($diallog_order_data['upfront_summary']) && is_array($diallog_order_data['upfront_summary'])) {
-        $upfront = $diallog_order_data['upfront_summary'];
-        
-        // Process each item in upfront summary
-        foreach ($upfront as $key => $item) {
-            if (is_array($item) && isset($item[0], $item[1])) {
-                $name = $item[0];
-                $amount = $item[1];
-                
-                // Skip subtotal, tax, and grand_total - we'll handle those separately
-                if ($key === 'subtotal') {
-                    $upfront_subtotal = $amount;
-                } elseif ($key === 'taxes') {
-                    $upfront_tax = $amount;
-                } elseif ($key === 'grand_total') {
-                    $upfront_total = $amount;
+    // Process each item in upfront summary
+    foreach ($upfront as $key => $item) {
+        if (is_array($item) && isset($item[0], $item[1])) {
+            $name = $item[0];
+            $amount = $item[1];
+            
+            // Skip subtotal, tax, and grand_total - we'll handle those separately
+            if ($key === 'subtotal') {
+                $upfront_subtotal = $amount;
+            } elseif ($key === 'taxes') {
+                $upfront_tax = $amount;
+            } elseif ($key === 'grand_total') {
+                $upfront_total = $amount;
+            } else {
+                // Check if this is a deposit item
+                if (stripos($name, 'deposit') !== false) {
+                    // This is a deposit - add to separate array
+                    $upfront_deposit_items[] = array(
+                        'name' => $name,
+                        'total' => $amount
+                    );
                 } else {
-                    // This is an actual item (installation, deposit, etc.)
+                    // Regular item (installation, etc.)
                     $upfront_items_for_email[] = array(
                         'name' => $name,
                         'total' => $amount
@@ -1814,6 +1836,7 @@ function transform_order_data_for_email($diallog_order_data) {
             }
         }
     }
+}
     
     // Transform monthly summary to email format
     $monthly_items_for_email = array();
@@ -1848,18 +1871,25 @@ function transform_order_data_for_email($diallog_order_data) {
         }
     }
     
-    // Get monthly payment method
-    $monthly_payment_method = 'Not specified';
-    if (WC()->session) {
-        $monthly_method_code = WC()->session->get('monthly_payment_method');
-        $card_last_4 = WC()->session->get('monthly_card_last_4');
+   // Get monthly payment method from user meta (same way as thank you page)
+        $monthly_payment_method = 'Not specified';
+        $monthly_method_code = dg_get_user_meta('monthly_bill_payment_option');
+
+    if ($monthly_method_code) {
+    if (strtolower($monthly_method_code) === 'cc') {
+        $monthly_payment_method = 'Credit Card';
         
-        if ($monthly_method_code === 'cc' && $card_last_4) {
-            $monthly_payment_method = 'Credit Card ending in ' . $card_last_4;
-        } elseif ($monthly_method_code === 'bank') {
-            $monthly_payment_method = 'Pre-Authorized Debit (PAD)';
+        // Get last 4 from session with correct key
+        if (WC()->session) {
+            $monthly_card_last_4 = WC()->session->get('monthly_payment_card_last_4');
+            if ($monthly_card_last_4) {
+                $monthly_payment_method .= ' ending in ' . $monthly_card_last_4;
+            }
         }
+    } elseif (in_array(strtolower($monthly_method_code), array('bank', 'pad'))) {
+        $monthly_payment_method = 'Pre-Authorized Debit (PAD)';
     }
+}
     
     // Get payment details from session
     $auth_code = '';
@@ -1885,10 +1915,10 @@ function transform_order_data_for_email($diallog_order_data) {
         
         // Order timestamps
         'order_timestamp' => isset($diallog_order_data['order_timestamp']) ? 
-            date('Y-m-d H:i:s', $diallog_order_data['order_timestamp']) : 
-            date('Y-m-d H:i:s'),
-        'terms_timestamp' => isset($diallog_order_data['terms_acceptance_timestamp']) ? 
-            $diallog_order_data['terms_acceptance_timestamp'] : '',
+    date('Y-m-d H:i:s', $diallog_order_data['order_timestamp']) : 
+    date('Y-m-d H:i:s'),
+        'terms_timestamp' => isset($diallog_order_data['terms_acceptance_timestamp']) && !empty($diallog_order_data['terms_acceptance_timestamp']) ? 
+    get_date_from_gmt(gmdate('Y-m-d H:i:s', strtotime($diallog_order_data['terms_acceptance_timestamp'])), 'Y-m-d H:i:s') : '',
         
         // Payment information
         'authorization_code' => $auth_code,
@@ -1898,6 +1928,7 @@ function transform_order_data_for_email($diallog_order_data) {
         // Upfront payment summary
         'upfront_summary' => array(
             'items' => $upfront_items_for_email,
+            'deposits' => $upfront_deposit_items, // NEW: Add deposits separately
             'subtotal' => $upfront_subtotal,
             'tax' => $upfront_tax,
             'total' => $upfront_total
