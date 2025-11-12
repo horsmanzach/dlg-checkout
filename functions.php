@@ -121,9 +121,26 @@ function dg_get_customer_ip() {
     return $_SERVER['REMOTE_ADDR'] ?? '';
 }
 
-// Get order timestamp (formatted)
-function dg_get_order_timestamp($format = 'Y-m-d H:i:s') {
-    return current_time($format);
+// Get order timestamp (formatted) with WordPress timezone
+function dg_get_order_timestamp($format = 'Y-m-d H:i:s T') {
+    // Get WordPress timezone
+    $wp_timezone_string = wp_timezone_string();
+    
+    // Check if there's a saved order timestamp in the session
+    if (WC()->session) {
+        $saved_timestamp = WC()->session->get('order_timestamp');
+        
+        if ($saved_timestamp) {
+            // Convert Unix timestamp to DateTime with WordPress timezone
+            $order_datetime = new DateTime('@' . $saved_timestamp);
+            $order_datetime->setTimezone(new DateTimeZone($wp_timezone_string));
+            return $order_datetime->format($format);
+        }
+    }
+    
+    // Fallback: Use current time with WordPress timezone
+    $order_datetime = new DateTime('now', new DateTimeZone($wp_timezone_string));
+    return $order_datetime->format($format);
 }
 
 // Get customer info from WooCommerce checkout
@@ -339,9 +356,9 @@ function dg_get_thank_you_page_data() {
     // Invoice number
     $data['invoice_number'] = dg_get_invoice_number();
     
-    // Order timestamp (formatted for display)
-    $data['order_timestamp'] = dg_get_order_timestamp('F j, Y \a\t g:i A');
-    $data['order_timestamp_raw'] = dg_get_order_timestamp('Y-m-d H:i:s');
+  // Order timestamp (formatted for display WITH TIMEZONE)
+    $data['order_timestamp'] = dg_get_order_timestamp('F j, Y \a\t g:i A T'); // Added T for timezone
+    $data['order_timestamp_raw'] = dg_get_order_timestamp('Y-m-d H:i:s T'); // Added T for timezone
     
     // Customer IP address
     $data['customer_ip'] = dg_get_customer_ip();
@@ -1335,9 +1352,11 @@ function exclude_payafter_from_monthly_summary($visible, $cart_item, $cart_item_
 }
 
 /*=====Handle Deposit payments better======*/
+/*========MAY NOT BE REQUIRED ANYMORE - TEST COMMNETED OUT FIRST=========*/
+
 
 // IMPROVED FIX: Add this to your functions.php
-function get_upfront_fee_summary_with_deposits() {
+/*function get_upfront_fee_summary_with_deposits() {
     $summary = array(
         'ModemPurchaseOption'=>true,
         'internet-plan'=>array('',0.0),
@@ -1434,6 +1453,7 @@ function get_upfront_fee_summary_with_deposits() {
     return $summary;
 }
 
+*/
 
 /*========Auto Fill Checkout Fields with previously collected order data======*/
 
@@ -1772,32 +1792,33 @@ function transform_order_data_for_email($diallog_order_data) {
     
     // Get customer data from WooCommerce
     $customer_info = dg_get_customer_info();
-    
-    // Get CCD from session
+
+
+   // Get CCD from session
    /* $ccd = '';
     if (WC()->session) {
         $ccd = WC()->session->get('ccd');
     } */
-
-    // Get CCD from user meta (same way as thank you page)
-$ccd = '';
-$ccd_encoded = dg_get_user_meta("ccd");
-
-if (!empty($ccd_encoded)) {
-    // The CCD is stored base64 encoded, so decode it for display
-    $ccd_decoded = base64_decode($ccd_encoded);
     
-    if ($ccd_decoded !== false && !empty($ccd_decoded)) {
-        $ccd = strtoupper(trim($ccd_decoded));
+    // Get CCD from user meta (same way as thank you page)
+    $ccd = '';
+    $ccd_encoded = dg_get_user_meta("ccd");
+
+    if (!empty($ccd_encoded)) {
+        // The CCD is stored base64 encoded, so decode it for display
+        $ccd_decoded = base64_decode($ccd_encoded);
+        
+        if ($ccd_decoded !== false && !empty($ccd_decoded)) {
+            $ccd = strtoupper(trim($ccd_decoded));
+        }
     }
-}
     
     // Get customer IP
     $customer_ip = $_SERVER['REMOTE_ADDR'] ?? '';
     
     // Transform upfront summary to email format
 $upfront_items_for_email = array();
-$upfront_deposit_items = array(); // NEW: Separate array for deposits
+$upfront_deposit_items = array(); // Separate array for deposits
 $upfront_subtotal = 0;
 $upfront_tax = 0;
 $upfront_total = 0;
@@ -1819,11 +1840,18 @@ if (isset($diallog_order_data['upfront_summary']) && is_array($diallog_order_dat
             } elseif ($key === 'grand_total') {
                 $upfront_total = $amount;
             } else {
-                // Check if this is a deposit item
-                if (stripos($name, 'deposit') !== false) {
+                // IMPROVED: Check if this is a deposit item
+                // Check by key name OR by item name containing "deposit"
+                if ($key === 'deposit' || stripos($name, 'deposit') !== false) {
                     // This is a deposit - add to separate array
+                    // Clean up the name for Pay After
+                    $clean_name = $name;
+                    if (stripos($name, 'pay-after') !== false || stripos($name, 'payafter') !== false) {
+                        $clean_name = 'Pay After Deposit';
+                    }
+                    
                     $upfront_deposit_items[] = array(
-                        'name' => $name,
+                        'name' => $clean_name,
                         'total' => $amount
                     );
                 } else {
@@ -1871,11 +1899,11 @@ if (isset($diallog_order_data['upfront_summary']) && is_array($diallog_order_dat
         }
     }
     
-   // Get monthly payment method from user meta (same way as thank you page)
-        $monthly_payment_method = 'Not specified';
-        $monthly_method_code = dg_get_user_meta('monthly_bill_payment_option');
+    // Get monthly payment method from user meta (same way as thank you page)
+$monthly_payment_method = 'Not specified';
+$monthly_method_code = dg_get_user_meta('monthly_bill_payment_option');
 
-    if ($monthly_method_code) {
+if ($monthly_method_code) {
     if (strtolower($monthly_method_code) === 'cc') {
         $monthly_payment_method = 'Credit Card';
         
@@ -1887,7 +1915,9 @@ if (isset($diallog_order_data['upfront_summary']) && is_array($diallog_order_dat
             }
         }
     } elseif (in_array(strtolower($monthly_method_code), array('bank', 'pad'))) {
-        $monthly_payment_method = 'Pre-Authorized Debit (PAD)';
+        $monthly_payment_method = 'Bank Account - Pre-Authorized Debit (PAD)';
+    } elseif (strtolower($monthly_method_code) === 'payafter') {
+        $monthly_payment_method = 'Pay After (Non Pre-Authorized)';
     }
 }
     
@@ -1902,6 +1932,48 @@ if (isset($diallog_order_data['upfront_summary']) && is_array($diallog_order_dat
         $card_last_4 = WC()->session->get('payment_card_last_4');
     }
     
+    // ============================================================
+    // FORMAT TIMESTAMPS - MUST BE BEFORE $email_order_data ARRAY!
+    // ============================================================
+    
+    // Format timestamps using WordPress timezone
+    // Get WordPress timezone string (e.g., 'America/New_York' for EST)
+    $wp_timezone_string = wp_timezone_string(); // This gets the timezone from WordPress settings
+    
+    // Format order timestamp in WordPress timezone with timezone label
+    $order_timestamp_formatted = '';
+    if (isset($diallog_order_data['order_timestamp']) && !empty($diallog_order_data['order_timestamp'])) {
+        // Convert Unix timestamp to DateTime with WordPress timezone
+        $order_datetime = new DateTime('@' . $diallog_order_data['order_timestamp']);
+        $order_datetime->setTimezone(new DateTimeZone($wp_timezone_string));
+        // Format: "Y-m-d H:i:s" plus timezone abbreviation (EST, PST, etc.)
+        $order_timestamp_formatted = $order_datetime->format('Y-m-d H:i:s T');
+    } else {
+        // Fallback to current time in WordPress timezone
+        $order_datetime = new DateTime('now', new DateTimeZone($wp_timezone_string));
+        $order_timestamp_formatted = $order_datetime->format('Y-m-d H:i:s T');
+    }
+    
+    // Format terms timestamp in WordPress timezone with timezone label
+    $terms_timestamp_formatted = '';
+    if (isset($diallog_order_data['terms_acceptance_timestamp']) && !empty($diallog_order_data['terms_acceptance_timestamp'])) {
+        // The terms timestamp is already a formatted datetime string from JavaScript
+        // Parse it and convert to WordPress timezone
+        try {
+            $terms_datetime = new DateTime($diallog_order_data['terms_acceptance_timestamp']);
+            $terms_datetime->setTimezone(new DateTimeZone($wp_timezone_string));
+            // Format: "Y-m-d H:i:s" plus timezone abbreviation (EST, PST, etc.)
+            $terms_timestamp_formatted = $terms_datetime->format('Y-m-d H:i:s T');
+        } catch (Exception $e) {
+            error_log('Error parsing terms timestamp: ' . $e->getMessage());
+            $terms_timestamp_formatted = '';
+        }
+    }
+    
+    // ============================================================
+    // NOW BUILD THE EMAIL ORDER DATA ARRAY
+    // ============================================================
+    
     // Build the transformed order data for email
     $email_order_data = array(
         // Customer information
@@ -1913,12 +1985,9 @@ if (isset($diallog_order_data['upfront_summary']) && is_array($diallog_order_dat
         'customer_ip' => $customer_ip,
         'ccd' => $ccd,
         
-        // Order timestamps
-        'order_timestamp' => isset($diallog_order_data['order_timestamp']) ? 
-    date('Y-m-d H:i:s', $diallog_order_data['order_timestamp']) : 
-    date('Y-m-d H:i:s'),
-        'terms_timestamp' => isset($diallog_order_data['terms_acceptance_timestamp']) && !empty($diallog_order_data['terms_acceptance_timestamp']) ? 
-    get_date_from_gmt(gmdate('Y-m-d H:i:s', strtotime($diallog_order_data['terms_acceptance_timestamp'])), 'Y-m-d H:i:s') : '',
+        // Order timestamps (formatted with timezone)
+        'order_timestamp' => $order_timestamp_formatted,
+        'terms_timestamp' => $terms_timestamp_formatted,
         
         // Payment information
         'authorization_code' => $auth_code,
@@ -7425,7 +7494,7 @@ function get_upfront_fee_summary() {
         'ModemPurchaseOption'=>true,
         'internet-plan'=>array('',0.0),
         'modems'=>array('Modem Deposit',0.0),
-        'installation'=>array('Installation Fee',0.0), // CHANGED from 'fixed-fee' to 'installation'
+        'installation'=>array('Installation Fee',0.0),
         'deposit'=>array('Pay-after Deposit',0.0),
         'phone-plan'=>array('Phone Plan',0.0),
         'tv-plan'=>array('TV Plan',0.0),
@@ -7531,7 +7600,6 @@ function get_upfront_fee_summary() {
             if ( $product_category == "modems" && $final_deposit > 0 ) {
                 $summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
                 $summary[$product_category][1] = round(floatval($final_deposit), 2);
-                // REMOVED: $total_deposits += $final_deposit; // Don't double-count modem deposit
                 $do_not_include_modem_deposit = true;
                 $modem_deposit = $final_deposit;
                 error_log("Modem Deposit: $" . $final_deposit);
@@ -7540,21 +7608,34 @@ function get_upfront_fee_summary() {
                 $modem_price = $_product->get_price();
                 if ($modem_price > 0) {
                     error_log("Modem also has price: $modem_price");
-                    // This will be handled in the subtotal calculation below
                 }
             } else {
                 // Handle regular products
                 $product_price = $_product->get_price();
-                $summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
-                $summary[$product_category][1] = round(floatval($product_price), 2);
-                $summary['taxes'][1] += round( floatval ( ($summary[$product_category][1] * $tax_rate ) / 100 ) , 2 );
-                error_log("Regular product: " . $summary[$product_category][0] . " = $" . $summary[$product_category][1]);
+                
+                // SPECIAL CASE: For deposit category products, don't add regular price or tax
+                if ($product_category == 'deposit') {
+                    // Deposit products are handled separately via ACF fields below
+                    // Don't set summary or add tax for the $0 product price
+                    error_log("Deposit category product (price will come from ACF): " . $_product->get_name());
+                } else {
+                    // Regular non-deposit products
+                    $summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
+                    $summary[$product_category][1] = round(floatval($product_price), 2);
+                    $summary['taxes'][1] += round( floatval ( ($summary[$product_category][1] * $tax_rate ) / 100 ) , 2 );
+                    error_log("Regular product: " . $summary[$product_category][0] . " = $" . $summary[$product_category][1]);
+                }
             }
             
             // Handle additional ACF deposits for any product (not just modems)
             if ($deposit_fee > 0 && $product_category != "modems") {
                 $total_deposits += $deposit_fee;
-                if ($product_category == "tv-plan") {
+                
+                // Store the product name for deposits
+                if ($product_category == 'deposit') {
+                    // For Pay After deposits, use the actual product title
+                    error_log("Pay After Deposit: " . $_product->get_name() . " = $" . $deposit_fee);
+                } elseif ($product_category == "tv-plan") {
                     $tv_deposit = $deposit_fee;
                     error_log("TV Deposit: $" . $deposit_fee);
                 } elseif ($product_category == "phone-plan") {
@@ -7564,6 +7645,7 @@ function get_upfront_fee_summary() {
                     error_log("Other Deposit for $product_category: $" . $deposit_fee);
                 }
             }
+            
         } else {
             // FIX: Handle installation category specifically
             if ($product_category == 'installation' || $product_id == 265084) {
@@ -7587,7 +7669,7 @@ function get_upfront_fee_summary() {
 
     // Calculate totals
     if( $do_not_include_modem_deposit ) {
-        $summary['subtotal'][1] = $summary['internet-plan'][1] + $summary['installation'][1] + $summary['phone-plan'][1] + $summary['tv-plan'][1]; // CHANGED from 'fixed-fee' to 'installation'
+        $summary['subtotal'][1] = $summary['internet-plan'][1] + $summary['installation'][1] + $summary['phone-plan'][1] + $summary['tv-plan'][1];
         $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['deposit'][1] + $summary['taxes'][1] + $summary['modems'][1];
 
         if (wc_tax_enabled() && !$show_included_taxes ) {
@@ -7597,7 +7679,7 @@ function get_upfront_fee_summary() {
             $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['deposit'][1] + $summary['modems'][1];
         }
     } else {
-        $summary['subtotal'][1] = $summary['internet-plan'][1] + $summary['installation'][1] + $summary['modems'][1] + $summary['phone-plan'][1] + $summary['tv-plan'][1]; // CHANGED from 'fixed-fee' to 'installation'
+        $summary['subtotal'][1] = $summary['internet-plan'][1] + $summary['installation'][1] + $summary['modems'][1] + $summary['phone-plan'][1] + $summary['tv-plan'][1];
         $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['deposit'][1] + $summary['taxes'][1];
         
         if (wc_tax_enabled() && !$show_included_taxes ) {
@@ -7611,11 +7693,12 @@ function get_upfront_fee_summary() {
     error_log("=== FINAL SUMMARY ===");
     error_log("Internet Plan: $" . $summary['internet-plan'][1]);
     error_log("Modem Deposit: $" . $summary['modems'][1]);
-    error_log("Installation: $" . $summary['installation'][1]); // CHANGED from 'Fixed Fee' to 'Installation'
+    error_log("Installation: $" . $summary['installation'][1]);
     error_log("Phone Plan: $" . $summary['phone-plan'][1]);
     error_log("TV Plan: $" . $summary['tv-plan'][1]);
     error_log("TV Deposit: $" . $tv_deposit);
     error_log("Phone Deposit: $" . $phone_deposit);
+    error_log("Deposits Total: $" . $total_deposits);
     error_log("Subtotal: $" . $summary['subtotal'][1]);
     error_log("Tax: $" . $summary['taxes'][1]);
     error_log("Grand Total: $" . $summary['grand_total'][1]);
