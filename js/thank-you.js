@@ -156,12 +156,17 @@ jQuery(document).ready(function ($) {
         }
 
         // Populate monthly payment method
-        if (data.monthly_payment_method_display) {
-            var monthlyPaymentText = data.monthly_payment_method_display;
+        if (data.monthly_payment_method) {
+            var monthlyPaymentText = data.monthly_payment_method;
 
-            // If credit card and we have last 4 digits, add them
-            if (data.monthly_payment_method_display === 'Credit Card' && data.monthly_card_last_4) {
-                monthlyPaymentText += ' ending in ' + data.monthly_card_last_4;
+            // Format the payment method text nicely
+            if (monthlyPaymentText === 'cc') {
+                monthlyPaymentText = 'Credit Card';
+
+                // If we have card last 4 to display
+                if (data.monthly_card_last_4) {
+                    monthlyPaymentText += ' ending in ' + data.monthly_card_last_4;
+                }
             } else if (monthlyPaymentText === 'bank' || monthlyPaymentText === 'pad') {
                 monthlyPaymentText = 'Bank Account - Pre-Authorized Debit (PAD)';
             } else if (monthlyPaymentText === 'payafter') {
