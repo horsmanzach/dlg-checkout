@@ -350,6 +350,8 @@ add_action('woocommerce_checkout_update_order_meta', 'save_monthly_payment_metho
  * Returns an array with all the information needed for the Thank You page
  * UPDATED: Added monthly card last 4 digits
  */
+
+
 function dg_get_thank_you_page_data() {
     $data = array();
     
@@ -464,7 +466,7 @@ function dg_get_thank_you_page_data() {
     }
     // ============================================================
     
-    // Format monthly payment method for display
+  // Format monthly payment method for display
     if ($data['monthly_payment_method']) {
         switch(strtolower($data['monthly_payment_method'])) {
             case 'cc':
@@ -473,6 +475,9 @@ function dg_get_thank_you_page_data() {
             case 'bank':
             case 'pad':
                 $data['monthly_payment_method_display'] = 'Pre-Authorized Debit (PAD)';
+                break;
+            case 'payafter':
+                $data['monthly_payment_method_display'] = 'Pay After (Non Pre-Authorized)';
                 break;
             default:
                 $data['monthly_payment_method_display'] = ucfirst($data['monthly_payment_method']);
@@ -483,6 +488,7 @@ function dg_get_thank_you_page_data() {
     
     return $data;
 }
+
 
 /**
  * AJAX handler to store terms timestamp in WooCommerce session
@@ -1928,7 +1934,7 @@ if ($monthly_method_code) {
     
     if (WC()->session) {
         $auth_code = WC()->session->get('payment_auth_code');
-        $transaction_number = WC()->session->get('payment_transaction_id');
+        $transaction_number = WC()->session->get('payment_reference_num'); 
         $card_last_4 = WC()->session->get('payment_card_last_4');
     }
     
@@ -1946,12 +1952,12 @@ if ($monthly_method_code) {
         // Convert Unix timestamp to DateTime with WordPress timezone
         $order_datetime = new DateTime('@' . $diallog_order_data['order_timestamp']);
         $order_datetime->setTimezone(new DateTimeZone($wp_timezone_string));
-        // Format: "Y-m-d H:i:s" plus timezone abbreviation (EST, PST, etc.)
-        $order_timestamp_formatted = $order_datetime->format('Y-m-d H:i:s T');
+     // Format: "F j, Y at g:i A T" - Example: "November 12, 2025 at 4:50 PM EST"
+        $order_timestamp_formatted = $order_datetime->format('F j, Y \a\t g:i A T');
     } else {
         // Fallback to current time in WordPress timezone
         $order_datetime = new DateTime('now', new DateTimeZone($wp_timezone_string));
-        $order_timestamp_formatted = $order_datetime->format('Y-m-d H:i:s T');
+        $order_timestamp_formatted = $order_datetime->format('F j, Y \a\t g:i A T');
     }
     
     // Format terms timestamp in WordPress timezone with timezone label
@@ -1962,8 +1968,8 @@ if ($monthly_method_code) {
         try {
             $terms_datetime = new DateTime($diallog_order_data['terms_acceptance_timestamp']);
             $terms_datetime->setTimezone(new DateTimeZone($wp_timezone_string));
-            // Format: "Y-m-d H:i:s" plus timezone abbreviation (EST, PST, etc.)
-            $terms_timestamp_formatted = $terms_datetime->format('Y-m-d H:i:s T');
+            // Format: "F j, Y at g:i A T" - Example: "November 12, 2025 at 4:50 PM EST"
+            $terms_timestamp_formatted = $terms_datetime->format('F j, Y \a\t g:i A T');
         } catch (Exception $e) {
             error_log('Error parsing terms timestamp: ' . $e->getMessage());
             $terms_timestamp_formatted = '';
@@ -7150,10 +7156,8 @@ function get_upfront_cart_items_for_thank_you() {
         $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'slugs'));
         $primary_category = !empty($product_cats) ? $product_cats[0] : 'uncategorized';
         
-        // Skip Pay After deposit products (they're shown separately)
-        if ($product_id == 265827) {
-            continue;
-        }
+        // FIXED: Handle Pay After deposit product (265827) 
+        // Don't skip it - process it like other deposits using ACF field
         
         // SPECIAL HANDLING: Install Dates product (265084)
         if ($product_id == 265084 || $parent_id == 265084) {
@@ -7188,8 +7192,8 @@ function get_upfront_cart_items_for_thank_you() {
             continue; // Skip to next item
         }
         
-        // Add main product if it has a price
-        if ($product_price > 0) {
+        // Add main product if it has a price (skip deposit category products with $0 price)
+        if ($product_price > 0 && !in_array('deposit', $product_cats)) {
             $items[] = array(
                 'name' => $product_name,
                 'price' => $product_price,
@@ -7211,9 +7215,9 @@ function get_upfront_cart_items_for_thank_you() {
             $deposit_fee = is_numeric($deposit_fee) ? floatval($deposit_fee) : 0;
         }
         
-        // Add deposit if exists - USE CATEGORY-BASED NAMING ONLY
+        // Add deposit if exists - USE CATEGORY-BASED NAMING
         if ($deposit_fee > 0) {
-            // Determine deposit title based on category only (no dynamic product name)
+            // Determine deposit title based on category
             $deposit_title = 'Deposit'; // Default
             
             if (in_array('modems', $product_cats) || in_array('modems-new', $product_cats)) {
@@ -7222,6 +7226,9 @@ function get_upfront_cart_items_for_thank_you() {
                 $deposit_title = 'TV Deposit';
             } elseif (in_array('phone-plan', $product_cats)) {
                 $deposit_title = 'Phone Deposit';
+            } elseif (in_array('deposit', $product_cats)) {
+                // FIXED: Handle Pay After deposit category
+                $deposit_title = 'Pay After Deposit';
             }
             
             $items[] = array(
