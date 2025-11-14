@@ -271,6 +271,8 @@ jQuery(document).ready(function ($) {
     }
 
     // Function to populate monthly summary table (2 columns)
+    // UPDATED: Function to populate monthly summary table (2 columns)
+    // Now handles promotional pricing display (blurb + strikethrough pricing)
     function populateMonthlySummary(summary) {
         console.log('Populating monthly summary:', summary);
 
@@ -283,11 +285,37 @@ jQuery(document).ready(function ($) {
         $.each(summary, function (key, value) {
             if (skipKeys.indexOf(key) === -1 && value && value[1] > 0) {
                 var itemName = value[0] || key;
-                var itemAmount = formatCurrency(value[1]);
+
+                // NEW: Check if this item has promotional pricing data
+                var originalPrice = value[2] || 0;  // [2] = original_price
+                var promoPrice = value[3] || 0;     // [3] = promo_price
+                var promoBlurb = value[4] || '';    // [4] = promo_blurb
+                var finalPrice = value[1];          // [1] = final price (for display)
+
+                // Build the product name cell with optional promo blurb
+                var nameCell = itemName;
+                if (promoBlurb) {
+                    // Add promo blurb below product name (green, italic)
+                    nameCell += '<br><span style="color: green; font-style: italic; font-size: 0.9em;">' +
+                        promoBlurb + '</span>';
+                }
+
+                // Build the price cell with optional strikethrough
+                var priceCell = '';
+                if (promoPrice > 0) {
+                    // Show strikethrough original price and green bold promo price
+                    priceCell = '<span style="text-decoration: line-through; color: grey; font-size: 0.9em;">' +
+                        formatCurrency(originalPrice) + '</span><br>' +
+                        '<span style="color: green; font-weight: bold;">' +
+                        formatCurrency(promoPrice) + '</span>';
+                } else {
+                    // Regular price display
+                    priceCell = formatCurrency(finalPrice);
+                }
 
                 var row = '<tr>' +
-                    '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">' + itemName + '</td>' +
-                    '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">' + itemAmount + '</td>' +
+                    '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">' + nameCell + '</td>' +
+                    '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">' + priceCell + '</td>' +
                     '</tr>';
 
                 $tbody.append(row);
