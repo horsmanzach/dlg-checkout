@@ -319,6 +319,14 @@ function generate_order_confirmation_email_html($order_data) {
                                             <?php echo esc_html($item['promo_blurb']); ?>
                                         </span>
                                     <?php endif; ?>
+                                    <?php 
+                                // ADD: Display modem details if exists (italicized, grey color)
+                                    if (!empty($item['modem_details'])): 
+                                    ?>
+                                    <br><em style="font-style: italic; font-size: 0.9em; color: #666;">
+                                     <?php echo esc_html($item['modem_details']); ?>
+                                    </em>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <?php 
