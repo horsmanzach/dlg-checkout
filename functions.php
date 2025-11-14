@@ -1892,6 +1892,7 @@ if (isset($diallog_order_data['monthly_summary']) && is_array($diallog_order_dat
             $original_price = isset($item[2]) ? $item[2] : 0;
             $promo_price = isset($item[3]) ? $item[3] : 0;
             $promo_blurb = isset($item[4]) ? $item[4] : '';
+            $modem_details = isset($item[5]) ? $item[5] : '';
             
             // Skip subtotal, tax, and grand_total - we'll handle those separately
             if ($key === 'subtotal') {
@@ -1907,7 +1908,8 @@ if (isset($diallog_order_data['monthly_summary']) && is_array($diallog_order_dat
                     'total' => $final_price,
                     'original_price' => $original_price,
                     'promo_price' => $promo_price,
-                    'promo_blurb' => $promo_blurb
+                    'promo_blurb' => $promo_blurb,
+                    'modem_details' => $modem_details
                 );
             }
         }
@@ -3474,8 +3476,9 @@ function monthly_fee_summary_shortcode() {
         // Check if this is a modems-new category product
         $is_modems_new = in_array('modems-new', wp_list_pluck(get_the_terms($product_id, 'product_cat') ?: [], 'slug'));
         
-        // ONLY DISPLAY IF MONTHLY FEE IS GREATER THAN 0 OR IF IT'S A MODEMS-NEW PRODUCT
-        if ($monthly_fee > 0 || $is_modems_new) {
+        
+        // UPDATED: Display if monthly fee > 0, modems-new, OR "I Have My Own Modem" (265769)
+            if ($monthly_fee > 0 || $is_modems_new || $product_id == 265769) {
             // Build product name with promotional blurb if exists
             $product_name_display = esc_html($product_name);
             if (!empty($monthly_promo_blurb)) {
@@ -7324,21 +7327,29 @@ function get_monthly_cart_items_for_thank_you() {
                 $monthly_promo_blurb = get_field('monthly_promo_blurb', 'product_' . $product_id);
             }
         }
-        
+
+        // NEW: Get modem details if this is "I Have My Own Modem" product (ID: 265769)
+            $modem_details = '';
+            if ($product_id == 265769 && isset($cart_item['modem_details']) && !empty($cart_item['modem_details'])) {
+                $modem_details = $cart_item['modem_details'];
+                error_log("Found modem details for product $product_id: " . $modem_details);
+            }
+
         // Determine the final price to use (promo takes precedence if exists)
         $final_price = $monthly_promo_fee > 0 ? $monthly_promo_fee : $monthly_fee;
-        
-        // Add to items if monthly fee exists
-        if ($monthly_fee > 0) {
+
+        // FIXED: Add to items if monthly fee exists OR if it's the "I Have My Own Modem" product
+        if ($monthly_fee > 0 || $product_id == 265769) {
             $items[] = array(
                 'name' => $product_name,
                 'price' => $final_price, // Use final price (promo or regular)
-                'original_price' => $monthly_fee, // NEW: Store original price
-                'promo_price' => $monthly_promo_fee, // NEW: Store promo price
-                'promo_blurb' => $monthly_promo_blurb, // NEW: Store promo blurb
+                'original_price' => $monthly_fee, // Store original price
+                'promo_price' => $monthly_promo_fee, // Store promo price
+                'promo_blurb' => $monthly_promo_blurb, // Store promo blurb
+                'modem_details' => $modem_details, // Store modem details for 'I have my own modem' product
                 'category' => $primary_category
             );
-            error_log("Added monthly item: $product_name = $$final_price/month (original: $$monthly_fee, promo: $$monthly_promo_fee)");
+            error_log("Added monthly item: $product_name = $$final_price/month (original: $$monthly_fee, promo: $$monthly_promo_fee, modem_details: $modem_details)");
         }
     }
     
@@ -7426,7 +7437,8 @@ function get_monthly_summary_for_thank_you() {
             $item['price'],                 // [1] = final price (used for calculations)
             $item['original_price'],        // [2] = original price (for strikethrough)
             $item['promo_price'],           // [3] = promo price
-            $item['promo_blurb']            // [4] = promo blurb
+            $item['promo_blurb'],          // [4] = promo blurb
+             $item['modem_details']         // [5] = modem details for 'I have my own modem' product
         );
         $subtotal += $item['price'];
     }
