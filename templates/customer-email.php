@@ -236,7 +236,7 @@ function generate_order_confirmation_email_html($order_data) {
                         </tr>
                         <?php if (!empty($ccd)): ?>
                         <tr>
-                            <td>CCD:</td>
+                            <td>Coupon Code:</td>
                             <td><?php echo esc_html($ccd); ?></td>
                         </tr>
                         <?php endif; ?>
