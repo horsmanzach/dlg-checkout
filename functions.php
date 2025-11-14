@@ -1873,38 +1873,46 @@ if (isset($diallog_order_data['upfront_summary']) && is_array($diallog_order_dat
     }
 }
     
-    // Transform monthly summary to email format
-    $monthly_items_for_email = array();
-    $monthly_subtotal = 0;
-    $monthly_tax = 0;
-    $monthly_total = 0;
+// UPDATED: Transform monthly summary to email format WITH PROMOTIONAL INFO
+$monthly_items_for_email = array();
+$monthly_subtotal = 0;
+$monthly_tax = 0;
+$monthly_total = 0;
+
+if (isset($diallog_order_data['monthly_summary']) && is_array($diallog_order_data['monthly_summary'])) {
+    $monthly = $diallog_order_data['monthly_summary'];
     
-    if (isset($diallog_order_data['monthly_summary']) && is_array($diallog_order_data['monthly_summary'])) {
-        $monthly = $diallog_order_data['monthly_summary'];
-        
-        // Process each item in monthly summary
-        foreach ($monthly as $key => $item) {
-            if (is_array($item) && isset($item[0], $item[1])) {
-                $name = $item[0];
-                $amount = $item[1];
-                
-                // Skip subtotal, tax, and grand_total - we'll handle those separately
-                if ($key === 'subtotal') {
-                    $monthly_subtotal = $amount;
-                } elseif ($key === 'taxes') {
-                    $monthly_tax = $amount;
-                } elseif ($key === 'grand_total') {
-                    $monthly_total = $amount;
-                } else {
-                    // This is an actual item (internet, tv, phone)
-                    $monthly_items_for_email[] = array(
-                        'name' => $name,
-                        'total' => $amount
-                    );
-                }
+    // Process each item in monthly summary
+    foreach ($monthly as $key => $item) {
+        if (is_array($item) && isset($item[0], $item[1])) {
+            $name = $item[0];
+            $final_price = $item[1];
+            
+            // NEW: Extract promotional pricing info if available
+            $original_price = isset($item[2]) ? $item[2] : 0;
+            $promo_price = isset($item[3]) ? $item[3] : 0;
+            $promo_blurb = isset($item[4]) ? $item[4] : '';
+            
+            // Skip subtotal, tax, and grand_total - we'll handle those separately
+            if ($key === 'subtotal') {
+                $monthly_subtotal = $final_price;
+            } elseif ($key === 'taxes') {
+                $monthly_tax = $final_price;
+            } elseif ($key === 'grand_total') {
+                $monthly_total = $final_price;
+            } else {
+                // NEW: Include promotional info in email items
+                $monthly_items_for_email[] = array(
+                    'name' => $name,
+                    'total' => $final_price,
+                    'original_price' => $original_price,
+                    'promo_price' => $promo_price,
+                    'promo_blurb' => $promo_blurb
+                );
             }
         }
     }
+}
     
     // Get monthly payment method from user meta (same way as thank you page)
 $monthly_payment_method = 'Not specified';
@@ -7250,6 +7258,11 @@ function get_upfront_cart_items_for_thank_you() {
  * Get detailed monthly cart items for thank you page
  * Returns individual cart items with their monthly fees for display
  */
+/**
+ * UPDATED: Get detailed monthly cart items for thank you page
+ * Now includes promotional pricing fields (monthly_promo_fee and monthly_promo_blurb)
+ */
+
 function get_monthly_cart_items_for_thank_you() {
     $items = array();
     
@@ -7257,10 +7270,10 @@ function get_monthly_cart_items_for_thank_you() {
         return $items;
     }
     
-    error_log('=== GETTING MONTHLY CART ITEMS FOR THANK YOU PAGE ===');
+    error_log('=== GETTING MONTHLY CART ITEMS FOR THANK YOU PAGE (WITH PROMO SUPPORT) ===');
     
     // Categories that should NOT be in monthly billing
-    $exclude_categories = array('deposit', 'installation', 'modems-new');
+    $exclude_categories = array('deposit', 'installation');
     
     foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
         $product = $cart_item['data'];
@@ -7290,28 +7303,42 @@ function get_monthly_cart_items_for_thank_you() {
                 $monthly_fee = get_field('monthly_fee', 'product_' . $product_id);
             }
             
-            // Check for promotional monthly fee
-            $promo_fee = get_field('monthly_promo_fee', $product_id);
-            if (empty($promo_fee) && $promo_fee !== '0') {
-                $promo_fee = get_field('monthly_promo_fee', 'product_' . $product_id);
+            $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
+        }
+        
+        // NEW: Get promotional pricing fields
+        $monthly_promo_fee = 0;
+        $monthly_promo_blurb = '';
+        
+        if (function_exists('get_field')) {
+            // Get promo fee
+            $monthly_promo_fee = get_field('monthly_promo_fee', $product_id);
+            if (empty($monthly_promo_fee) && $monthly_promo_fee !== '0') {
+                $monthly_promo_fee = get_field('monthly_promo_fee', 'product_' . $product_id);
             }
+            $monthly_promo_fee = is_numeric($monthly_promo_fee) ? floatval($monthly_promo_fee) : 0;
             
-            // Use promo fee if available, otherwise regular fee
-            if (is_numeric($promo_fee) && floatval($promo_fee) > 0) {
-                $monthly_fee = floatval($promo_fee);
-            } else {
-                $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
+            // Get promo blurb
+            $monthly_promo_blurb = get_field('monthly_promo_blurb', $product_id);
+            if (empty($monthly_promo_blurb)) {
+                $monthly_promo_blurb = get_field('monthly_promo_blurb', 'product_' . $product_id);
             }
         }
+        
+        // Determine the final price to use (promo takes precedence if exists)
+        $final_price = $monthly_promo_fee > 0 ? $monthly_promo_fee : $monthly_fee;
         
         // Add to items if monthly fee exists
         if ($monthly_fee > 0) {
             $items[] = array(
                 'name' => $product_name,
-                'price' => $monthly_fee,
+                'price' => $final_price, // Use final price (promo or regular)
+                'original_price' => $monthly_fee, // NEW: Store original price
+                'promo_price' => $monthly_promo_fee, // NEW: Store promo price
+                'promo_blurb' => $monthly_promo_blurb, // NEW: Store promo blurb
                 'category' => $primary_category
             );
-            error_log("Added monthly item: $product_name = $$monthly_fee/month");
+            error_log("Added monthly item: $product_name = $$final_price/month (original: $$monthly_fee, promo: $$monthly_promo_fee)");
         }
     }
     
@@ -7379,6 +7406,10 @@ function get_upfront_summary_for_thank_you() {
 /**
  * Get formatted monthly summary for thank you page
  */
+/**
+ * UPDATED: Get formatted monthly summary for thank you page
+ * Now preserves promotional pricing information in the summary array
+ */
 function get_monthly_summary_for_thank_you() {
     $items = get_monthly_cart_items_for_thank_you();
     $tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 13;
@@ -7386,10 +7417,17 @@ function get_monthly_summary_for_thank_you() {
     $summary = array();
     $subtotal = 0;
     
-    // Add each item to summary
+    // Add each item to summary WITH promotional info
     foreach ($items as $item) {
         $key = sanitize_key($item['name']);
-        $summary[$key] = array($item['name'], $item['price']);
+        // NEW: Add additional fields for promotional display
+        $summary[$key] = array(
+            $item['name'],                  // [0] = name
+            $item['price'],                 // [1] = final price (used for calculations)
+            $item['original_price'],        // [2] = original price (for strikethrough)
+            $item['promo_price'],           // [3] = promo price
+            $item['promo_blurb']            // [4] = promo blurb
+        );
         $subtotal += $item['price'];
     }
     
@@ -7399,12 +7437,12 @@ function get_monthly_summary_for_thank_you() {
         $tax = round(($subtotal * $tax_rate) / 100, 2);
     }
     
-    // Add totals
+    // Add totals (maintain original structure for these)
     $summary['subtotal'] = array('Subtotal', $subtotal);
     $summary['taxes'] = array('Tax', $tax);
     $summary['grand_total'] = array('Total', $subtotal + $tax);
     
-    error_log('Monthly summary for thank you: ' . json_encode($summary));
+    error_log('Monthly summary for thank you (with promo): ' . json_encode($summary));
     return $summary;
 }
 
