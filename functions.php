@@ -547,7 +547,8 @@ function enqueue_thank_you_scripts() {
         
         // Make sure ajaxurl is available
         wp_localize_script('thank-you-js', 'thankYouData', array(
-            'ajaxurl' => admin_url('admin-ajax.php')
+            'ajaxurl' => admin_url('admin-ajax.php'),
+            'timezone' => wp_timezone_string(),
         ));
     }
 }
