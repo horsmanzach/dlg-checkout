@@ -1,3 +1,4 @@
+
 jQuery(document).ready(function ($) {
     // Track current screen and whether user came from checkout
     let currentScreen = 1;
@@ -223,8 +224,30 @@ jQuery(document).ready(function ($) {
         }
 
         if (currentScreen === totalScreens) {
-            // On the final slide, redirect instead of animating
-            window.location.href = finalSlideRedirectUrl;
+            // On the final slide, show loading state before redirect
+            const $btn = $(this);
+
+            // Check if it's a mobile button (only change color, keep arrow)
+            if ($btn.hasClass('mobile-next-btn')) {
+                $btn.css({
+                    'background-color': '#999999 !important',
+                    'cursor': 'wait',
+                    'pointer-events': 'none'
+                });
+            } else {
+                // Desktop button - change text and color
+                $btn.text('Redirecting...')
+                    .css({
+                        'background-color': '#999999 !important',
+                        'cursor': 'wait',
+                        'pointer-events': 'none'
+                    });
+            }
+
+            // Redirect after showing the loading state
+            setTimeout(function () {
+                window.location.href = finalSlideRedirectUrl;
+            }, 100);
             return;
         }
 
