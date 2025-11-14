@@ -309,8 +309,38 @@ function generate_order_confirmation_email_html($order_data) {
                         <?php if (!empty($monthly_items)): ?>
                             <?php foreach ($monthly_items as $item): ?>
                             <tr>
-                                <td><?php echo esc_html($item['name']); ?></td>
-                                <td>$<?php echo esc_html(number_format($item['total'], 2)); ?></td>
+                                <td>
+                                    <?php echo esc_html($item['name']); ?>
+                                    <?php 
+                                    // NEW: Display promo blurb if exists (green, italic)
+                                    if (!empty($item['promo_blurb'])): 
+                                    ?>
+                                        <br><span style="color: green; font-style: italic; font-size: 0.9em;">
+                                            <?php echo esc_html($item['promo_blurb']); ?>
+                                        </span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php 
+                                    // NEW: Check if this item has promotional pricing
+                                    $has_promo = !empty($item['promo_price']) && $item['promo_price'] > 0;
+                                    
+                                    if ($has_promo): 
+                                        // Show strikethrough original price and green bold promo price
+                                    ?>
+                                        <span style="text-decoration: line-through; color: grey; font-size: 0.9em;">
+                                            $<?php echo esc_html(number_format($item['original_price'], 2)); ?>
+                                        </span>
+                                        <br>
+                                        <span style="color: green; font-weight: bold;">
+                                            $<?php echo esc_html(number_format($item['promo_price'], 2)); ?>
+                                        </span>
+                                    <?php else: 
+                                        // Regular price display
+                                    ?>
+                                        $<?php echo esc_html(number_format($item['total'], 2)); ?>
+                                    <?php endif; ?>
+                                </td>
                             </tr>
                             <?php endforeach; ?>
                             <tr>
