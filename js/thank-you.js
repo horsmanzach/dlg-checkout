@@ -283,13 +283,14 @@ jQuery(document).ready(function ($) {
         var skipKeys = ['subtotal', 'taxes', 'grand_total'];
 
         $.each(summary, function (key, value) {
-            if (skipKeys.indexOf(key) === -1 && value && value[1] > 0) {
+            if (skipKeys.indexOf(key) === -1 && value && (value[1] > 0 || value[5])) {
                 var itemName = value[0] || key;
 
                 // NEW: Check if this item has promotional pricing data
                 var originalPrice = value[2] || 0;  // [2] = original_price
                 var promoPrice = value[3] || 0;     // [3] = promo_price
                 var promoBlurb = value[4] || '';    // [4] = promo_blurb
+                var modemDetails = value[5] || '';   // [5] = modem_details
                 var finalPrice = value[1];          // [1] = final price (for display)
 
                 // Build the product name cell with optional promo blurb
@@ -298,6 +299,12 @@ jQuery(document).ready(function ($) {
                     // Add promo blurb below product name (green, italic)
                     nameCell += '<br><span style="color: green; font-style: italic; font-size: 0.9em;">' +
                         promoBlurb + '</span>';
+                }
+
+                // ADD: Modem details display (grey, italic)
+                if (modemDetails) {
+                    nameCell += '<br><em style="font-style: italic; font-size: 0.9em; color: #666;">' +
+                        modemDetails + '</em>';
                 }
 
                 // Build the price cell with optional strikethrough
