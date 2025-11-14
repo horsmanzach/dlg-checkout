@@ -11,7 +11,7 @@ jQuery(document).ready(function ($) {
     }
 
 
-    // NEW: Function to format timestamp for display with timezone - MATCHES ORDER DATE FORMAT
+    // NEW: Function to format timestamp - UPDATE THIS EXISTING FUNCTION
     function formatTermsTimestamp(timestamp) {
         if (!timestamp) {
             return '';
@@ -21,7 +21,7 @@ jQuery(document).ready(function ($) {
             const date = new Date(timestamp);
 
             // Format to match: "October 14, 2025 at 3:45 PM EST"
-            // This matches the PHP format: 'F j, Y \a\t g:i A T'
+            // Use WordPress site timezone from localized data
             const options = {
                 year: 'numeric',
                 month: 'long',
@@ -29,19 +29,19 @@ jQuery(document).ready(function ($) {
                 hour: 'numeric',
                 minute: '2-digit',
                 hour12: true,
-                timeZoneName: 'short' // This adds the timezone abbreviation (EST, PST, etc.)
+                timeZone: thankYouData.timezone, // Use WP timezone setting
+                timeZoneName: 'short'
             };
 
             const formatted = date.toLocaleString('en-US', options);
 
-            // The toLocaleString gives us "October 14, 2025 at 3:45 PM EST" which matches perfectly
             return formatted;
         } catch (e) {
             console.error('Error formatting timestamp:', e);
-            return timestamp; // Return raw timestamp if formatting fails
+            return timestamp;
         }
     }
-
+    
     // Function to load Thank You page data
     function loadThankYouData() {
         console.log('Fetching Thank You page data...');
