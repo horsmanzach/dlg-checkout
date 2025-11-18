@@ -224,8 +224,8 @@ jQuery(document).ready(function ($) {
         // Step 2: Add Subtotal row
         if (summary.subtotal) {
             var subtotalRow = '<tr class="subtotal-row">' +
-                '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Subtotal</strong></td>' +
-                '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>' + formatCurrency(summary.subtotal[1]) + '</strong></td>' +
+                '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">Subtotal</td>' +
+                '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">' + formatCurrency(summary.subtotal[1]) + '</td>' +
                 '</tr>';
             $tbody.append(subtotalRow);
         }
@@ -233,8 +233,8 @@ jQuery(document).ready(function ($) {
         // Step 3: Add Tax row
         if (summary.taxes) {
             var taxRow = '<tr class="tax-row">' +
-                '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Tax</strong></td>' +
-                '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>' + formatCurrency(summary.taxes[1]) + '</strong></td>' +
+                '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">Tax</td>' +
+                '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">' + formatCurrency(summary.taxes[1]) + '</td>' +
                 '</tr>';
             $tbody.append(taxRow);
         }
@@ -266,7 +266,7 @@ jQuery(document).ready(function ($) {
 
         // Step 5: Populate the grand total in tfoot (existing element)
         if (summary.grand_total) {
-            $('#upfront-total').text(formatCurrency(summary.grand_total[1]));
+            $('#upfront-total').html('<strong>' + formatCurrency(summary.grand_total[1]) + '</strong>');
         }
     }
 
@@ -313,7 +313,7 @@ jQuery(document).ready(function ($) {
                     // Show strikethrough original price and green bold promo price
                     priceCell = '<span style="text-decoration: line-through; color: grey; font-size: 0.9em;">' +
                         formatCurrency(originalPrice) + '</span><br>' +
-                        '<span style="color: green; font-weight: bold;">' +
+                        '<span style="color: green;">' +
                         formatCurrency(promoPrice) + '</span>';
                 } else {
                     // Regular price display
@@ -337,7 +337,7 @@ jQuery(document).ready(function ($) {
             $('#monthly-tax').text(formatCurrency(summary.taxes[1]));
         }
         if (summary.grand_total) {
-            $('#monthly-total').text(formatCurrency(summary.grand_total[1]));
+            $('#monthly-total').html('<strong>' + formatCurrency(summary.grand_total[1]) + '</strong>');
         }
     }
 
