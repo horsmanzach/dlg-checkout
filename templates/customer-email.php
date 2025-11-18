@@ -76,7 +76,8 @@ function generate_order_confirmation_email_html($order_data) {
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         .email-header {
-            background-color: #139948;
+           background-color: #139948; 
+          /* background-color: #333333; */
             color: #ffffff;
             padding: 30px 20px;
             text-align: center;
@@ -128,7 +129,7 @@ function generate_order_confirmation_email_html($order_data) {
         }
         .items-table td:last-child {
             text-align: right;
-            font-weight: bold;
+            /*font-weight: bold; */
         }
         .total-row {
             background-color: #f0f8ff;
@@ -154,10 +155,10 @@ function generate_order_confirmation_email_html($order_data) {
             text-decoration: none;
         }
         .logo {
-            max-width: 200px;
+            max-width: 180px;
             height: auto;
             margin-bottom: 10px;
-            border-radius: 10px;
+            /*border-radius: 10px; */
         }
         .section-title {
             font-size: 18px;
@@ -176,7 +177,7 @@ function generate_order_confirmation_email_html($order_data) {
             <!-- Email Header -->
             <div class="email-header">
                 <!-- Company Logo - Update with your actual logo URL -->
-                <img src="<?php echo esc_url(home_url('/wp-content/uploads/2022/02/Diallog-Logo-tall-110.jpg')); ?>" 
+                <img src="<?php echo esc_url(home_url('/wp-content/uploads/2022/08/Diallog-logo-ResizedandWhite.png')); ?>" 
                      alt="Diallog Logo" class="logo">
                 <h1>Thank You for Your Order!</h1>
             </div>
