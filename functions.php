@@ -1637,6 +1637,7 @@ function moneris_payment_form_shortcode($atts) {
         <?php if ($atts['show_amount'] === 'true' && $total_amount > 0): ?>
             <div class="moneris-payment-amount">
                 <h3>Amount Due Today: <?php echo $total_display; ?></h3>
+                <p>If you do not have access to a credit card and would like to send a payment via e-transfer please email us @ <a href="mailto:customercare@diallog.com">customercare@diallog.com</a> and we will assist in completing your order.</p>
             </div>
         <?php endif; ?>
         
