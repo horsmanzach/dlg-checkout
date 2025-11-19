@@ -41,7 +41,7 @@ jQuery(document).ready(function ($) {
             return timestamp;
         }
     }
-    
+
     // Function to load Thank You page data
     function loadThankYouData() {
         console.log('Fetching Thank You page data...');
@@ -74,6 +74,9 @@ jQuery(document).ready(function ($) {
     // Modified to handle combined name and full address display
     function populateThankYouPage(data) {
         console.log('Populating Thank You page with data');
+        console.log('=== TAX RATE DEBUG ===');
+        console.log('Tax rate from data:', data.tax_rate);
+        console.log('Full data object:', data);
 
         // Populate Invoice Number
         if (data.invoice_number) {
@@ -132,9 +135,9 @@ jQuery(document).ready(function ($) {
             console.log('No CCD value to display');
         }
 
-        // Populate Upfront Payment Summary
+        // Populate Upfront Payment Summary - PASS data object
         if (data.upfront_summary) {
-            populateUpfrontSummary(data.upfront_summary);
+            populateUpfrontSummary(data.upfront_summary, data);
         }
 
         // Populate card last 4 digits
@@ -150,9 +153,9 @@ jQuery(document).ready(function ($) {
             $('#reference-num').text(data.reference_num);
         }
 
-        // Populate Monthly Billing Summary
+        // Populate Monthly Billing Summary - PASS data object
         if (data.monthly_summary) {
-            populateMonthlySummary(data.monthly_summary);
+            populateMonthlySummary(data.monthly_summary, data);
         }
 
         // Populate monthly payment method
@@ -180,8 +183,8 @@ jQuery(document).ready(function ($) {
     }
 
     // Function to populate upfront summary table (2 columns)
-    // SIMPLE VERSION: Appends everything to tbody in order
-    function populateUpfrontSummary(summary) {
+    // UPDATED: Now accepts data parameter for tax rate
+    function populateUpfrontSummary(summary, data) {
         console.log('Populating upfront summary:', summary);
 
         var $tbody = $('#upfront-items');
@@ -230,10 +233,14 @@ jQuery(document).ready(function ($) {
             $tbody.append(subtotalRow);
         }
 
-        // Step 3: Add Tax row
+        // Step 3: Add Tax row with dynamic rate
         if (summary.taxes) {
+            var taxLabel = 'Tax';
+            if (data.tax_rate && data.tax_rate > 0) {
+                taxLabel = 'Tax (' + data.tax_rate + '%)';
+            }
             var taxRow = '<tr class="tax-row">' +
-                '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">Tax</td>' +
+                '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">' + taxLabel + '</td>' +
                 '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">' + formatCurrency(summary.taxes[1]) + '</td>' +
                 '</tr>';
             $tbody.append(taxRow);
@@ -271,9 +278,8 @@ jQuery(document).ready(function ($) {
     }
 
     // Function to populate monthly summary table (2 columns)
-    // UPDATED: Function to populate monthly summary table (2 columns)
-    // Now handles promotional pricing display (blurb + strikethrough pricing)
-    function populateMonthlySummary(summary) {
+    // UPDATED: Now accepts data parameter for tax rate and handles promotional pricing
+    function populateMonthlySummary(summary, data) {
         console.log('Populating monthly summary:', summary);
 
         var $tbody = $('#monthly-items');
@@ -310,7 +316,7 @@ jQuery(document).ready(function ($) {
                 // Build the price cell with optional strikethrough
                 var priceCell = '';
                 if (promoPrice > 0) {
-                    // Show strikethrough original price and green bold promo price
+                    // Show strikethrough original price and green promo price (without bold)
                     priceCell = '<span style="text-decoration: line-through; color: grey; font-size: 0.9em;">' +
                         formatCurrency(originalPrice) + '</span><br>' +
                         '<span style="color: green;">' +
@@ -333,9 +339,17 @@ jQuery(document).ready(function ($) {
         if (summary.subtotal) {
             $('#monthly-subtotal').text(formatCurrency(summary.subtotal[1]));
         }
+
         if (summary.taxes) {
+            var taxLabel = 'Tax';
+            if (data.tax_rate && data.tax_rate > 0) {
+                taxLabel = 'Tax (' + data.tax_rate + '%)';
+            }
+            // Find and update the tax label in the monthly summary table
+            $('#monthly-tax').closest('tr').find('td:first').text(taxLabel);
             $('#monthly-tax').text(formatCurrency(summary.taxes[1]));
         }
+
         if (summary.grand_total) {
             $('#monthly-total').html('<strong>' + formatCurrency(summary.grand_total[1]) + '</strong>');
         }
