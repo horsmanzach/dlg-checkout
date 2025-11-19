@@ -231,6 +231,18 @@ jQuery(document).ready(function ($) {
                             'pointer-events': 'none'
                         });
 
+                    // Create and show green success message
+                    const successMessage = `
+        <div class="payment-success-message" style="color: #28a745; text-align: center; font-size: 14px; margin: 15px 0; font-weight: 500;">
+            ✓ Payment Successful
+        </div>
+    `;
+
+                    // Insert success message after the payment button
+                    if ($('.payment-success-message').length === 0) {
+                        $submitBtn.after(successMessage);
+                    }
+
                     showValidationMessage('success', response.data.message);
 
                     // Clear form
@@ -241,12 +253,11 @@ jQuery(document).ready(function ($) {
                     if (redirectUrl) {
                         setTimeout(function () {
                             window.location.href = redirectUrl;
-                        }, 2000);
+                        }, 500);
                     }
 
                     // Trigger custom event for successful payment
                     $(document).trigger('monerisPaymentSuccess', response.data);
-
                 } else {
                     // Payment failed - only restore button on failure
                     $submitBtn.prop('disabled', false)
