@@ -260,7 +260,7 @@ function dg_get_customer_info() {
         'last_name' => $last_name,
         'full_name' => $full_name, // NEW: Combined name
         'email' => WC()->customer->get_billing_email(),
-        'phone' => WC()->customer->get_billing_phone(),
+        'phone' => dg_format_phone_for_display(WC()->customer->get_billing_phone()),
         'service_address_full' => $service_address_full, // NEW: Full service address on one line
         'shipping_address_full' => $shipping_address_full, // NEW: Full shipping address on one line
         // Keep legacy fields for backward compatibility (in case they're used elsewhere)
@@ -292,9 +292,6 @@ function dg_get_invoice_number() {
     
     return $invoice_number;
 }
-
-
-/*Save Monthly Billing Method to Woocommerce session so it can be displayed on Thank You page*/
 
 
 /*Save Monthly Billing Method to Woocommerce session so it can be displayed on Thank You page*/
@@ -605,6 +602,20 @@ function enqueue_thank_you_scripts() {
 add_action('wp_enqueue_scripts', 'enqueue_thank_you_scripts');
 
 
+// Enqueue billing fields formatting JavaScript
+function enqueue_billing_fields_formatting() {
+    if (is_checkout()) {
+        wp_enqueue_script(
+            'billing-fields-formatting',
+            get_stylesheet_directory_uri() . '/js/billing-fields-formatting.js',
+            array('jquery'),
+            '1.0.0',
+            true
+        );
+    }
+}
+add_action('wp_enqueue_scripts', 'enqueue_billing_fields_formatting');
+
 
 /*----------*/
 
@@ -664,9 +675,100 @@ function verify_card_ex($payment_info) {
 	error_log( "Got response back " . $mpg_response->getComplete() );
 }
 
+/************
+ ---------------Billing Field Formatting---------------
+ ***********/
+
+function dg_enqueue_phone_formatting_js() {
+    if (is_checkout()) {
+        $js_file_path = get_stylesheet_directory() . '/js/billing-fields-formatting.js';
+        
+        if (file_exists($js_file_path)) {
+            wp_enqueue_script(
+                'dg-billing-phone-formatting',
+                get_stylesheet_directory_uri() . '/js/billing-fields-formatting.js',
+                array('jquery'),
+                '1.0.2',
+                true
+            );
+        } else {
+            error_log('Phone formatting JS file not found at: ' . $js_file_path);
+        }
+    }
+}
+add_action('wp_enqueue_scripts', 'dg_enqueue_phone_formatting_js');
+
+// ============================================
+// PART 2: Add custom CSS to update the label
+// ============================================
+function dg_phone_label_css() {
+    if (is_checkout()) {
+        ?>
+        <style>
+            #billing_phone_field label::after {
+                content: "(10 digits)";
+            }
+        </style>
+        <?php
+    }
+}
+add_action('wp_head', 'dg_phone_label_css');
+
+// ============================================
+// PART 3: Validate phone (exactly 10 digits)
+// ============================================
+function dg_validate_phone_10_digits() {
+    if (isset($_POST['billing_phone'])) {
+        $phone = $_POST['billing_phone'];
+        $digits_only = preg_replace('/\D/', '', $phone);
+        
+        if (strlen($digits_only) !== 10) {
+            wc_add_notice('Phone number must contain exactly 10 digits.', 'error');
+        }
+    }
+}
+add_action('woocommerce_checkout_process', 'dg_validate_phone_10_digits');
+
+// ============================================
+// PART 4: Strip formatting before saving (digits only)
+// ============================================
+function dg_strip_phone_formatting_on_save() {
+    if (isset($_POST['billing_phone'])) {
+        $phone = $_POST['billing_phone'];
+        
+        // Remove all non-digit characters
+        $digits_only = preg_replace('/\D/', '', $phone);
+        
+        // Update the POST data with digits only
+        $_POST['billing_phone'] = $digits_only;
+    }
+}
+// Hook early in checkout process to strip before anything else processes it
+add_action('woocommerce_checkout_process', 'dg_strip_phone_formatting_on_save', 5);
+
+// ============================================
+// PART 5: Helper function to format phone for display
+// ============================================
+function dg_format_phone_for_display($phone) {
+    if (empty($phone)) {
+        return '';
+    }
+    
+    // Remove all non-digit characters (in case it's already formatted)
+    $digits_only = preg_replace('/\D/', '', $phone);
+    
+    // Only format if we have exactly 10 digits
+    if (strlen($digits_only) === 10) {
+        return '(' . substr($digits_only, 0, 3) . ') ' . substr($digits_only, 3, 3) . '-' . substr($digits_only, 6, 4);
+    }
+    
+    // Return original if not 10 digits
+    return $phone;
+}
+
+
 
 // ========== Zach's AJAX handlers for monthly billing section on checkout====
-
 
 add_action('wp_ajax_remove_monthly_billing_deposits', 'ajax_remove_monthly_billing_deposits');
 add_action('wp_ajax_nopriv_remove_monthly_billing_deposits', 'ajax_remove_monthly_billing_deposits');
