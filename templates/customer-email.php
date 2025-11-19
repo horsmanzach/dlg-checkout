@@ -21,6 +21,7 @@ function generate_order_confirmation_email_html($order_data) {
     $shipping_address = isset($order_data['shipping_address']) ? $order_data['shipping_address'] : '';
     $customer_ip = isset($order_data['customer_ip']) ? $order_data['customer_ip'] : '';
     $ccd = isset($order_data['ccd']) ? $order_data['ccd'] : '';
+    $tax_rate = isset($order_data['tax_rate']) ? $order_data['tax_rate'] : 0;
     
     // Order timestamps
     $order_timestamp = isset($order_data['order_timestamp']) ? $order_data['order_timestamp'] : date('Y-m-d H:i:s');
@@ -261,7 +262,7 @@ function generate_order_confirmation_email_html($order_data) {
                 <td>$<?php echo esc_html(number_format($upfront_subtotal, 2)); ?></td>
             </tr>
             <tr>
-                <td>Tax:</td>
+                <td>Tax<?php if ($tax_rate > 0) { echo ' (' . esc_html(number_format($tax_rate, 0)) . '%)'; } ?>:</td>
                 <td>$<?php echo esc_html(number_format($upfront_tax, 2)); ?></td>
             </tr>
             <?php 
@@ -341,7 +342,7 @@ function generate_order_confirmation_email_html($order_data) {
                                             $<?php echo esc_html(number_format($item['original_price'], 2)); ?>
                                         </span>
                                         <br>
-                                        <span style="color: green; font-weight: bold;">
+                                        <span style="color: green;">
                                             $<?php echo esc_html(number_format($item['promo_price'], 2)); ?>
                                         </span>
                                     <?php else: 
@@ -357,7 +358,7 @@ function generate_order_confirmation_email_html($order_data) {
                                 <td>$<?php echo esc_html(number_format($monthly_subtotal, 2)); ?></td>
                             </tr>
                             <tr>
-                                <td>Tax:</td>
+                                <td>Tax<?php if ($tax_rate > 0) { echo ' (' . esc_html(number_format($tax_rate, 0)) . '%)'; } ?>:</td>
                                 <td>$<?php echo esc_html(number_format($monthly_tax, 2)); ?></td>
                             </tr>
                         <?php endif; ?>
