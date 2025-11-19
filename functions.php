@@ -518,6 +518,53 @@ function ajax_store_terms_timestamp() {
 }
 
 /**
+ * Get the tax rate percentage based on customer's state/province
+ */
+function get_customer_tax_rate_percentage() {
+    // Get customer's state from stored address data
+    $searched_address = dg_get_user_meta("searched_address");
+    
+    error_log('=== TAX RATE DEBUG ===');
+    error_log('Searched address: ' . print_r($searched_address, true));
+    
+    // FIXED: Check for both possible key names
+    $state = '';
+    if (isset($searched_address['provinceOrState'])) {
+        $state = $searched_address['provinceOrState'];
+    } elseif (isset($searched_address['administrative_area_level_1'])) {
+        $state = $searched_address['administrative_area_level_1'];
+    }
+    
+    error_log('State extracted: ' . $state);
+    
+    if (empty($state)) {
+        error_log('State is empty, returning 0');
+        return 0;
+    }
+    
+    // Get WooCommerce tax rates for this state
+    $tax_rates = WC_Tax::find_rates(array(
+        'country'   => 'CA',
+        'state'     => $state,
+        'city'      => '',
+        'postcode'  => ''
+    ));
+    
+    error_log('WooCommerce tax rates found: ' . print_r($tax_rates, true));
+    
+    // Calculate total tax rate percentage
+    $tax_percentage = 0;
+    if (!empty($tax_rates)) {
+        foreach ($tax_rates as $rate) {
+            $tax_percentage += floatval($rate['rate']);
+        }
+    }
+    
+    error_log('Final tax percentage: ' . $tax_percentage);
+    
+    return $tax_percentage;
+}
+/**
  * AJAX handler to get Thank You page data
  */
 add_action('wp_ajax_get_thank_you_data', 'ajax_get_thank_you_data');
@@ -526,6 +573,9 @@ add_action('wp_ajax_nopriv_get_thank_you_data', 'ajax_get_thank_you_data');
 function ajax_get_thank_you_data() {
     // Get all the Thank You page data
     $data = dg_get_thank_you_page_data();
+
+
+    $data['tax_rate'] = get_customer_tax_rate_percentage();
     
     // Return the data as JSON
     wp_send_json_success($data);
@@ -1801,6 +1851,8 @@ function transform_order_data_for_email($diallog_order_data) {
     // Get customer data from WooCommerce
     $customer_info = dg_get_customer_info();
 
+    // NEW: Get tax rate percentage
+    $tax_rate = get_customer_tax_rate_percentage();
 
    // Get CCD from session
    /* $ccd = '';
@@ -2006,6 +2058,9 @@ if ($monthly_method_code) {
         // Order timestamps (formatted with timezone)
         'order_timestamp' => $order_timestamp_formatted,
         'terms_timestamp' => $terms_timestamp_formatted,
+
+        // Tax information
+        'tax_rate' => $tax_rate,
         
         // Payment information
         'authorization_code' => $auth_code,
