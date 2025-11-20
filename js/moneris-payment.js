@@ -1,6 +1,12 @@
 /**
  * Updated Moneris Payment JavaScript - Supports Separate Complete Payment Button
  * File: js/moneris-payment.js
+ * 
+ * UPDATED: Now includes validation for all 4 checkout requirements:
+ * 1. Monthly Billing
+ * 2. Terms & Conditions
+ * 3. Shipping Address (if applicable)
+ * 4. Customer Info Confirmation
  */
 
 jQuery(document).ready(function ($) {
@@ -91,6 +97,10 @@ jQuery(document).ready(function ($) {
         });
     }
 
+    /**
+     * UPDATED: Validate all payment prerequisites including 4th validation
+     * This is a safety check that runs when payment button is clicked
+     */
     function validatePaymentPrerequisites() {
         console.log('Validating payment prerequisites...');
 
@@ -106,19 +116,49 @@ jQuery(document).ready(function ($) {
             return false;
         }
 
-        // 2. Validate Moneris form fields
+        // 2. NEW: Check if Terms & Conditions are confirmed
+        const termsConfirmed = sessionStorage.getItem('termsConfirmed') === 'true';
+        console.log('Terms & Conditions confirmed:', termsConfirmed);
+
+        if (!termsConfirmed) {
+            showValidationMessage('error', 'Please confirm the Terms & Conditions before completing payment.');
+            return false;
+        }
+
+        // 3. NEW: Check shipping address validation (if applicable)
+        const $shippingCheckbox = $('#ship-to-different-checkbox');
+        if ($shippingCheckbox.length > 0 && $shippingCheckbox.is(':checked')) {
+            const shippingAddress = $('#shipping-address-input').val().trim();
+            console.log('Shipping address required, value:', shippingAddress);
+
+            if (shippingAddress.length < 10) {
+                showValidationMessage('error', 'Please enter a valid shipping address before completing payment.');
+                return false;
+            }
+        }
+
+        // 4. NEW: Check if Customer Info is confirmed
+        const customerInfoConfirmed = sessionStorage.getItem('customerInfoConfirmed') === 'true';
+        console.log('Customer Info confirmed:', customerInfoConfirmed);
+
+        if (!customerInfoConfirmed) {
+            showValidationMessage('error', 'Please confirm your customer information before completing payment. Scroll up to the customer info section.');
+            return false;
+        }
+
+        // 5. Validate Moneris form fields
         if (!validateMonerisForm()) {
             showValidationMessage('error', 'Please correct the payment form errors.');
             return false;
         }
 
-        // 3. Additional check: ensure monthly billing method is actually validated
+        // 6. Additional check: ensure monthly billing method is actually validated
         if (!checkMonthlyBillingValidationState()) {
             showValidationMessage('error', 'Monthly billing validation incomplete. Please validate your selected payment method.');
             return false;
         }
 
-        console.log('✓ All payment prerequisites validated');
+        console.log('✓ All payment prerequisites validated (all 4 validations passed)');
         return true;
     }
 
@@ -222,8 +262,7 @@ jQuery(document).ready(function ($) {
                 $('.moneris-loading').hide();
 
                 if (response.success) {
-                    // Payment successful - KEEP button disabled and in processing state
-                    // Do NOT re-enable or change the button back
+                    // Payment successful - Change button to "Redirecting..." and KEEP disabled
                     $submitBtn.html('<span class="payment-spinner"></span> Redirecting...')
                         .css({
                             'background-color': '#999999',
@@ -231,64 +270,55 @@ jQuery(document).ready(function ($) {
                             'pointer-events': 'none'
                         });
 
-                    // Create and show green success message
-                    const successMessage = `
-        <div class="payment-success-message" style="color: #28a745; text-align: center; font-size: 14px; margin: 15px 0; font-weight: 500;">
-            ✓ Payment Successful
-        </div>
-    `;
+                    // Show success message BELOW the button (not in the button)
+                    showValidationMessage('success', response.data.message || 'Payment processed successfully!');
 
-                    // Insert success message after the payment button
-                    if ($('.payment-success-message').length === 0) {
-                        $submitBtn.after(successMessage);
+                    // Store payment data in session for thank you page
+                    if (response.data.order_data) {
+                        sessionStorage.setItem('payment_order_data', JSON.stringify(response.data.order_data));
                     }
-
-                    showValidationMessage('success', response.data.message);
-
-                    // Clear form
-                    $('#moneris-payment-form')[0].reset();
 
                     // Redirect if URL provided
                     const redirectUrl = response.data.redirect_url || $submitBtn.data('redirect-url');
                     if (redirectUrl) {
+                        console.log('Redirecting to:', redirectUrl);
                         setTimeout(function () {
                             window.location.href = redirectUrl;
-                        }, 500);
+                        }, 1500);
                     }
-
-                    // Trigger custom event for successful payment
-                    $(document).trigger('monerisPaymentSuccess', response.data);
                 } else {
-                    // Payment failed - only restore button on failure
+                    // Payment failed - Re-enable button
                     $submitBtn.prop('disabled', false)
-                        .text(originalText)
+                        .html(originalText)
                         .css({
                             'background-color': '',
                             'cursor': '',
                             'pointer-events': ''
                         });
 
-                    showValidationMessage('error', response.data.message || 'Payment failed. Please try again.');
+                    // Show error message
+                    const errorMessage = response.data?.message || 'Payment processing failed. Please try again.';
+                    showValidationMessage('error', errorMessage);
 
-                    // Trigger custom event for failed payment
-                    $(document).trigger('monerisPaymentError', response.data);
+                    // Trigger custom event for payment error
+                    $(document).trigger('monerisPaymentError', { message: errorMessage });
                 }
             },
             error: function (xhr, status, error) {
                 console.error('Payment AJAX error:', error);
-                console.error('Response:', xhr.responseText);
 
                 $('.moneris-loading').hide();
 
-                // Only restore button on error
+                // Re-enable button
                 $submitBtn.prop('disabled', false)
-                    .text(originalText)
+                    .html(originalText)
                     .css({
                         'background-color': '',
                         'cursor': '',
                         'pointer-events': ''
                     });
 
+                // Show error message
                 showValidationMessage('error', 'Network error occurred. Please check your connection and try again.');
 
                 // Trigger custom event for network error
@@ -329,7 +359,10 @@ jQuery(document).ready(function ($) {
         updateCompletePaymentButtonState();
     }
 
-        
+    /**
+     * NOTE: This function is kept for backward compatibility but button state
+     * is primarily managed by confirm-terms.js which handles all 4 validations
+     */
     function updateCompletePaymentButtonState() {
         const $button = $('#moneris-complete-payment-btn, #moneris-mobile-payment-btn');
         if ($button.length === 0) return;
@@ -338,11 +371,11 @@ jQuery(document).ready(function ($) {
         const monthlyBillingConfirmed = $('input[name="monthly_billing_confirmed"]').val();
 
         if (isMonthlyBillingConfirmed && monthlyBillingConfirmed === '1') {
-            $button.prop('disabled', false).removeClass('disabled');
-            $('.moneris-payment-validation-message').hide();
+            // Note: Button state is actually controlled by confirm-terms.js
+            // This is just a fallback check
+            console.log('Monthly billing validated (but button state controlled by confirm-terms.js)');
         } else {
-            $button.prop('disabled', true).addClass('disabled');
-            showValidationMessage('info', 'Complete monthly billing validation to enable payment.');
+            console.log('Monthly billing not validated');
         }
     }
 
@@ -353,11 +386,20 @@ jQuery(document).ready(function ($) {
         const alertClass = type === 'error' ? 'alert-danger' :
             type === 'success' ? 'alert-success' : 'alert-info';
 
-        $container.html(`
-            <div class="alert ${alertClass}" style="margin: 10px 0; padding: 10px; border-radius: 4px;">
-                ${message}
-            </div>
-        `).show();
+        // Different styling for success messages (green text below button)
+        if (type === 'success') {
+            $container.html(`
+                <div class="payment-success-message" style="color: #28a745; text-align: center; font-size: 14px; margin-top: 15px; font-weight: 500;">
+                    ✓ ${message}
+                </div>
+            `).show();
+        } else {
+            $container.html(`
+                <div class="alert ${alertClass}" style="margin: 10px 0; padding: 10px; border-radius: 4px;">
+                    ${message}
+                </div>
+            `).show();
+        }
     }
 
     function validateField($input, fieldType) {
@@ -407,7 +449,7 @@ jQuery(document).ready(function ($) {
         }
     }
 
-    // Validation helper functions (keep existing ones)
+    // Validation helper functions
     function validateCardNumber(number) {
         const cleanNumber = number.replace(/\s/g, '');
         if (!/^\d{13,19}$/.test(cleanNumber)) return false;
@@ -416,7 +458,7 @@ jQuery(document).ready(function ($) {
         let sum = 0;
         let isEven = false;
         for (let i = cleanNumber.length - 1; i >= 0; i--) {
-            let digit = parseInt(cleanNumber.charAt(i));
+            let digit = parseInt(cleanNumber.charAt(i), 10);
             if (isEven) {
                 digit *= 2;
                 if (digit > 9) digit -= 9;
@@ -424,31 +466,31 @@ jQuery(document).ready(function ($) {
             sum += digit;
             isEven = !isEven;
         }
-        return sum % 10 === 0;
+        return (sum % 10) === 0;
     }
 
     function validateExpiryDate(expiry) {
-        if (!/^\d{2}\/\d{2}$/.test(expiry)) return false;
+        const parts = expiry.split('/');
+        if (parts.length !== 2) return false;
 
-        const [month, year] = expiry.split('/').map(num => parseInt(num));
+        const month = parseInt(parts[0], 10);
+        const year = parseInt('20' + parts[1], 10);
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth() + 1;
+
         if (month < 1 || month > 12) return false;
-
-        const currentDate = new Date();
-        const currentYear = currentDate.getFullYear() % 100;
-        const currentMonth = currentDate.getMonth() + 1;
-
-        if (year < currentYear || (year === currentYear && month < currentMonth)) {
-            return false;
-        }
+        if (year < currentYear) return false;
+        if (year === currentYear && month < currentMonth) return false;
 
         return true;
     }
 
     function validateCanadianPostalCode(postal) {
-        return /^[A-Za-z]\d[A-Za-z][\s-]?\d[A-Za-z]\d$/.test(postal);
+        const cleanPostal = postal.replace(/\s/g, '').toUpperCase();
+        const postalRegex = /^[A-Z]\d[A-Z]\d[A-Z]\d$/;
+        return postalRegex.test(cleanPostal);
     }
-});
 
-// Custom events for external integration
-// Usage: $(document).on('monerisPaymentSuccess', function(event, data) { ... });
-// Usage: $(document).on('monerisPaymentError', function(event, data) { ... });
+    console.log('Moneris Payment: Initialization complete with 4-validation support');
+});
