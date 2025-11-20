@@ -270,7 +270,19 @@ jQuery(document).ready(function ($) {
                             'pointer-events': 'none'
                         });
 
-                    // Show success message BELOW the button (not in the button)
+                    // Create and show green success message DIRECTLY after the button
+                    const successMessage = `
+                    <div class="payment-success-message" style="color: #28a745; text-align: center; font-size: 14px; margin: 15px 0; font-weight: 500;">
+                        ✓ Payment Successful
+                    </div>
+                `;
+
+                    // Insert success message after the payment button (only if it doesn't already exist)
+                    if ($('.payment-success-message').length === 0) {
+                        $submitBtn.after(successMessage);
+                    }
+
+                    // Also show in validation message container if it exists (as backup)
                     showValidationMessage('success', response.data.message || 'Payment processed successfully!');
 
                     // Store payment data in session for thank you page
@@ -278,14 +290,20 @@ jQuery(document).ready(function ($) {
                         sessionStorage.setItem('payment_order_data', JSON.stringify(response.data.order_data));
                     }
 
+                    // Clear form
+                    $('#moneris-payment-form')[0].reset();
+
                     // Redirect if URL provided
                     const redirectUrl = response.data.redirect_url || $submitBtn.data('redirect-url');
                     if (redirectUrl) {
                         console.log('Redirecting to:', redirectUrl);
                         setTimeout(function () {
                             window.location.href = redirectUrl;
-                        }, 1500);
+                        }, 500);
                     }
+
+                    // Trigger custom event for successful payment
+                    $(document).trigger('monerisPaymentSuccess', response.data);
                 } else {
                     // Payment failed - Re-enable button
                     $submitBtn.prop('disabled', false)
@@ -306,10 +324,11 @@ jQuery(document).ready(function ($) {
             },
             error: function (xhr, status, error) {
                 console.error('Payment AJAX error:', error);
+                console.error('Response:', xhr.responseText);
 
                 $('.moneris-loading').hide();
 
-                // Re-enable button
+                // Re-enable button on error
                 $submitBtn.prop('disabled', false)
                     .html(originalText)
                     .css({
