@@ -1,11 +1,9 @@
 /**
  * Terms & Conditions Confirmation Handler - PERFORMANCE OPTIMIZED
- * File: js/confirm-terms.js
- * 
  * This script handles the terms and conditions confirmation flow and integrates
  * with the Moneris payment button to ensure users confirm T&C before payment.
  * 
- * FIXED: Now properly integrates with shipping address validation without removing it
+ * UPDATED: Now includes 4th validation - Customer Info Confirmation
  */
 
 jQuery(document).ready(function ($) {
@@ -20,6 +18,7 @@ jQuery(document).ready(function ($) {
     initializeTermsAndConditions();
     initializePopupFunctionality();
     setupMonthlyBillingEventListeners();
+    setupCustomerInfoEventListeners(); // NEW: Listen for customer info confirmation
 
     /**
      * Initialize Terms and Conditions confirmation system
@@ -40,6 +39,27 @@ jQuery(document).ready(function ($) {
         }, 1000);
 
         console.log('Terms & Conditions system initialized');
+    }
+
+    /**
+     * NEW: Setup event listeners for customer info confirmation
+     */
+    function setupCustomerInfoEventListeners() {
+        console.log('Setting up customer info event listeners...');
+
+        // Listen for customer info confirmed event
+        $(document).on('customerInfoConfirmed', function (e, data) {
+            console.log('Customer info confirmed event received:', data);
+            updateButtonState();
+        });
+
+        // Listen for customer info reset event
+        $(document).on('customerInfoReset', function () {
+            console.log('Customer info reset event received');
+            updateButtonState();
+        });
+
+        console.log('Customer info event listeners configured');
     }
 
     /**
@@ -106,21 +126,21 @@ jQuery(document).ready(function ($) {
     }
 
     /**
-     * PERFORMANCE OPTIMIZED: Update button state only when necessary
-     * FIXED: Now properly integrates with shipping validation
+     * UPDATED: Update button state - now includes 4th validation check
+     * PERFORMANCE OPTIMIZED: Only updates when necessary
+     * FIXED: Now properly integrates with shipping validation and customer info confirmation
      */
     function updateButtonState() {
         const termsOk = termsConfirmed;
         const monthlyBillingOk = checkMonthlyBillingValidation();
-
-        // FIX: Check shipping validation state
         const shippingOk = checkShippingValidation();
+        const customerInfoOk = checkCustomerInfoConfirmation(); // NEW: 4th validation
 
-        // FIX: All three validations must pass
-        const allValid = termsOk && monthlyBillingOk && shippingOk;
+        // NEW: All four validations must pass
+        const allValid = termsOk && monthlyBillingOk && shippingOk && customerInfoOk;
 
         // Create state signature to avoid unnecessary DOM updates
-        const currentState = `${termsOk}-${monthlyBillingOk}-${shippingOk}-${allValid}`;
+        const currentState = `${termsOk}-${monthlyBillingOk}-${shippingOk}-${customerInfoOk}-${allValid}`;
 
         // PERFORMANCE FIX: Only update DOM if state actually changed
         if (lastButtonState === currentState) {
@@ -146,13 +166,13 @@ jQuery(document).ready(function ($) {
             if (allValid) {
                 enableMonerisButton($btn);
             } else {
-                disableMonerisButton($btn, termsOk, monthlyBillingOk, shippingOk);
+                disableMonerisButton($btn, termsOk, monthlyBillingOk, shippingOk, customerInfoOk);
             }
         });
     }
 
     /**
-     * FIX: Check shipping validation state
+     * Check shipping validation state
      */
     function checkShippingValidation() {
         const $checkbox = $('#ship-to-different-checkbox');
@@ -169,6 +189,23 @@ jQuery(document).ready(function ($) {
 
         console.log('Shipping validation check from confirm-terms:', isValid);
         return isValid;
+    }
+
+    /**
+     * NEW: Check customer info confirmation state
+     */
+    function checkCustomerInfoConfirmation() {
+        // Check if CustomerInfoConfirm API exists and is confirmed
+        if (typeof window.CustomerInfoConfirm !== 'undefined') {
+            const isConfirmed = window.CustomerInfoConfirm.isConfirmed();
+            console.log('Customer info confirmation check from confirm-terms:', isConfirmed);
+            return isConfirmed;
+        }
+
+        // Fallback to session storage check
+        const confirmed = sessionStorage.getItem('customerInfoConfirmed') === 'true';
+        console.log('Customer info confirmation check (session storage):', confirmed);
+        return confirmed;
     }
 
     /**
@@ -208,10 +245,11 @@ jQuery(document).ready(function ($) {
     }
 
     /**
-     * Disable the Moneris payment button (OPTIMIZED - only updates when needed)
-     * FIXED: Now includes shipping validation in messages
+     * UPDATED: Disable the Moneris payment button - now includes customer info validation
+     * OPTIMIZED: Only updates when needed
+     * FIXED: Now includes shipping validation and customer info in messages
      */
-    function disableMonerisButton($monerisBtn, termsOk, monthlyBillingOk, shippingOk) {
+    function disableMonerisButton($monerisBtn, termsOk, monthlyBillingOk, shippingOk, customerInfoOk) {
         console.log('Disabling Moneris payment button - requirements not met');
 
         $monerisBtn
@@ -270,7 +308,7 @@ jQuery(document).ready(function ($) {
             });
         }
 
-        // FIX: Check if shipping validation is required
+        // Check if shipping validation is required
         const $checkbox = $('#ship-to-different-checkbox');
         if ($checkbox.length > 0 && $checkbox.is(':checked')) {
             if (!shippingOk) {
@@ -284,6 +322,19 @@ jQuery(document).ready(function ($) {
                     type: 'success'
                 });
             }
+        }
+
+        // NEW: Add customer info confirmation validation message
+        if (!customerInfoOk) {
+            messages.push({
+                text: '✗ Confirm Customer Info (scroll up to customer info section)',
+                type: 'error'
+            });
+        } else {
+            messages.push({
+                text: '✓ Customer Info confirmed',
+                type: 'success'
+            });
         }
 
         // Create content signature for comparison
@@ -423,6 +474,73 @@ jQuery(document).ready(function ($) {
     }
 
     /**
+     * Restore terms confirmation state from previous session
+     */
+    function restoreTermsState() {
+        const savedTermsState = sessionStorage.getItem('termsConfirmed');
+        const savedTimestamp = sessionStorage.getItem('termsTimestamp');
+
+        if (savedTermsState === 'true') {
+            console.log('Restoring terms confirmed state from session');
+            termsConfirmed = true;
+            termsTimestamp = savedTimestamp;
+            styleConfirmedTcButton();
+            updateButtonState();
+        }
+    }
+
+    /**
+     * Style the Terms & Conditions button as confirmed
+     */
+    function styleConfirmedTcButton() {
+        const $tcButton = $('.tc-button');
+        if ($tcButton.length > 0) {
+            $tcButton.addClass('terms-confirmed')
+                .css({
+                    'background-color': '#28a745',
+                    'color': '#fff',
+                    'border-color': '#28a745'
+                });
+
+            if (!$tcButton.find('.terms-checkmark').length) {
+                $tcButton.append(' <span class="terms-checkmark">✓</span>');
+            }
+
+            console.log('T&C button styled as confirmed');
+        }
+    }
+
+    /**
+     * Handle clicks on disabled Moneris button
+     */
+    $(document).on('click', '.moneris-payment-button:disabled, .moneris-payment-button.terms-not-confirmed', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        if ($(this).prop('disabled')) {
+            console.log('Disabled Moneris button clicked');
+
+            // Show what's missing without recreating DOM
+            updateButtonState();
+
+            // Open Terms popup if terms not confirmed
+            if (!termsConfirmed) {
+                const $tcButton = $('.tc-button');
+                if ($tcButton.length > 0) {
+                    const popupTarget = $tcButton.attr('href');
+                    if (popupTarget) {
+                        $(popupTarget).closest('.dl-popup-wrapper').addClass('popup-is-visible');
+                        $(popupTarget).closest('.et_builder_inner_content').addClass('popup-is-visible');
+                        $('body').addClass('dl-noscroll');
+                    }
+                }
+            }
+
+            return false;
+        }
+    });
+
+    /**
      * Close popup helper
      */
     function closePopup($element) {
@@ -487,91 +605,6 @@ jQuery(document).ready(function ($) {
     }
 
     /**
-     * Style the tc-button to show it's been confirmed
-     */
-    function styleConfirmedTcButton() {
-        const $tcButton = $('.tc-button');
-
-        if ($tcButton.length > 0 && !$tcButton.hasClass('terms-confirmed')) {
-            console.log('Styling tc-button as confirmed');
-
-            $tcButton
-                .addClass('terms-confirmed')
-                .css({
-                    'background-color': '#28a745',
-                    'color': '#ffffff',
-                    'border-color': '#28a745',
-                    'transition': 'all 0.3s ease'
-                });
-
-            if (!$tcButton.find('.terms-checkmark').length) {
-                $tcButton.prepend('<span class="terms-checkmark">✓ </span>');
-            }
-
-            const originalText = $tcButton.text().replace('✓ ', '');
-            if (!originalText.includes('Confirmed')) {
-                $tcButton.html('<span class="terms-checkmark">✓ </span>' + originalText + ' (Confirmed)');
-            }
-
-            $tcButton.fadeOut(200).fadeIn(400);
-        }
-    }
-
-    /**
-     * Restore terms confirmation state from session storage
-     */
-    function restoreTermsState() {
-        const wasConfirmed = sessionStorage.getItem('termsConfirmed') === 'true';
-        const storedTimestamp = sessionStorage.getItem('termsTimestamp');
-
-        if (wasConfirmed) {
-            console.log('Restoring previously confirmed terms state');
-            termsConfirmed = true;
-            termsTimestamp = storedTimestamp;
-
-            setTimeout(function () {
-                const $tcButton = $('.tc-button');
-                if ($tcButton.length > 0) {
-                    styleConfirmedTcButton();
-                }
-                updateButtonState();
-            }, 500);
-        }
-    }
-
-    /**
-     * Handle clicks on disabled Moneris button
-     */
-    $(document).on('click', '.moneris-payment-button', function (e) {
-        const $btn = $(this);
-
-        if ($btn.prop('disabled')) {
-            e.preventDefault();
-            e.stopPropagation();
-
-            console.log('Disabled Moneris button clicked');
-
-            // Show what's missing without recreating DOM
-            updateButtonState();
-
-            // Open Terms popup if terms not confirmed
-            if (!termsConfirmed) {
-                const $tcButton = $('.tc-button');
-                if ($tcButton.length > 0) {
-                    const popupTarget = $tcButton.attr('href');
-                    if (popupTarget) {
-                        $(popupTarget).closest('.dl-popup-wrapper').addClass('popup-is-visible');
-                        $(popupTarget).closest('.et_builder_inner_content').addClass('popup-is-visible');
-                        $('body').addClass('dl-noscroll');
-                    }
-                }
-            }
-
-            return false;
-        }
-    });
-
-    /**
      * Reset terms confirmation
      */
     function resetTermsConfirmation() {
@@ -616,7 +649,7 @@ jQuery(document).ready(function ($) {
         sessionStorage.removeItem('termsTimestamp');
     }
 
-    // FIX: Listen for shipping validation changes
+    // Listen for shipping validation changes
     $(document).on('shippingValidationChanged', function () {
         console.log('Shipping validation changed - updating button state');
         updateButtonState();
@@ -645,6 +678,7 @@ jQuery(document).ready(function ($) {
                 timestamp: termsTimestamp,
                 monthlyBillingValidated: monthlyBillingValidated,
                 shippingValidated: checkShippingValidation(),
+                customerInfoConfirmed: checkCustomerInfoConfirmation(), // NEW
                 tcButtonExists: $('.tc-button').length > 0,
                 monerisButtonExists: $('.moneris-payment-button').length > 0,
                 monerisButtonEnabled: !$('.moneris-payment-button').prop('disabled')
@@ -659,8 +693,9 @@ jQuery(document).ready(function ($) {
         console.log('Terms Timestamp:', termsTimestamp);
         console.log('Monthly Billing Validated:', monthlyBillingValidated);
         console.log('Shipping Validated:', checkShippingValidation());
+        console.log('Customer Info Confirmed:', checkCustomerInfoConfirmation()); // NEW
         console.log('Last Button State:', lastButtonState);
-        console.log('Current State Signature:', `${termsConfirmed}-${monthlyBillingValidated}-${checkShippingValidation()}`);
+        console.log('Current State Signature:', `${termsConfirmed}-${monthlyBillingValidated}-${checkShippingValidation()}-${checkCustomerInfoConfirmation()}`);
         console.log('===============================');
 
         return window.TermsAndConditions.getState();
