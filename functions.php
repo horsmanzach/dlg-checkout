@@ -616,6 +616,66 @@ function enqueue_billing_fields_formatting() {
 }
 add_action('wp_enqueue_scripts', 'enqueue_billing_fields_formatting');
 
+// Enqueue Customer Info Confirmation Script
+
+function enqueue_customer_info_confirm_script() {
+    // Only load on checkout page
+    if (is_checkout() || is_page(264127)) {
+        
+        wp_enqueue_script(
+            'customer-info-confirm-js',
+            get_stylesheet_directory_uri() . '/js/customer-info-confirm.js',
+            array('jquery'), // Depends on jQuery and shipping-address
+            '1.0.0',
+            true
+        );
+        
+        // Localize script with AJAX data (for future API integration)
+        wp_localize_script('customer-info-confirm-js', 'customerInfoConfirm', array(
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('customer_info_nonce')
+        ));
+    }
+}
+add_action('wp_enqueue_scripts', 'enqueue_customer_info_confirm_script', 14);
+
+
+/**
+ * AJAX Handler - Store Customer Info Confirmation (for future API integration)
+ * This will be used when you integrate the Diallog API call
+ */
+function ajax_store_customer_info_confirmation() {
+    // Verify nonce
+    check_ajax_referer('customer_info_nonce', 'nonce');
+    
+    // Get customer info data
+    $customer_data = array(
+        'first_name' => isset($_POST['first_name']) ? sanitize_text_field($_POST['first_name']) : '',
+        'last_name' => isset($_POST['last_name']) ? sanitize_text_field($_POST['last_name']) : '',
+        'email' => isset($_POST['email']) ? sanitize_email($_POST['email']) : '',
+        'phone' => isset($_POST['phone']) ? sanitize_text_field($_POST['phone']) : '',
+        'service_address' => isset($_POST['service_address']) ? sanitize_text_field($_POST['service_address']) : '',
+        'shipping_address' => isset($_POST['shipping_address']) ? sanitize_text_field($_POST['shipping_address']) : '',
+        'timestamp' => isset($_POST['timestamp']) ? sanitize_text_field($_POST['timestamp']) : current_time('mysql'),
+    );
+    
+    // Store in session for now (you'll integrate Diallog API here later)
+    if (!session_id()) {
+        session_start();
+    }
+    $_SESSION['customer_info_confirmed'] = $customer_data;
+    
+    // TODO: Send to Diallog API here
+    // $diallog_response = send_to_diallog_api($customer_data);
+    
+    wp_send_json_success(array(
+        'message' => 'Customer info stored successfully',
+        'timestamp' => $customer_data['timestamp']
+    ));
+}
+add_action('wp_ajax_store_customer_info_confirmation', 'ajax_store_customer_info_confirmation');
+add_action('wp_ajax_nopriv_store_customer_info_confirmation', 'ajax_store_customer_info_confirmation');
+
 
 /*----------*/
 
@@ -1264,8 +1324,8 @@ function enqueue_confirm_terms_script() {
         wp_enqueue_script(
             'confirm-terms-js',
             get_stylesheet_directory_uri() . '/js/confirm-terms.js',
-            array('jquery', 'monthly-billing-js'), // UPDATED: Add monthly-billing-js as dependency
-            '1.1.0', // Updated version for cache busting
+            array('jquery', 'monthly-billing-js', 'customer-info-confirm-js'), // UPDATED: Add monthly-billing-js as dependency
+            '1.2.0', // Updated version for cache busting
             true
         );
         
