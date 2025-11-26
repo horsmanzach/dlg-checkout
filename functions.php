@@ -2054,6 +2054,9 @@ if (isset($diallog_order_data['upfront_summary']) && is_array($diallog_order_dat
             $name = $item[0];
             $amount = $item[1];
             
+            // NEW: Get installation dates if available (index [2] for Installation items)
+            $installation_dates = isset($item[2]) ? $item[2] : '';
+            
             // Skip subtotal, tax, and grand_total - we'll handle those separately
             if ($key === 'subtotal') {
                 $upfront_subtotal = $amount;
@@ -2078,10 +2081,18 @@ if (isset($diallog_order_data['upfront_summary']) && is_array($diallog_order_dat
                     );
                 } else {
                     // Regular item (installation, etc.)
-                    $upfront_items_for_email[] = array(
+                    // NEW: Include installation_dates if available
+                    $item_data = array(
                         'name' => $name,
                         'total' => $amount
                     );
+                    
+                    // Add installation dates if they exist (for Installation Fee items)
+                    if (!empty($installation_dates)) {
+                        $item_data['installation_dates'] = $installation_dates;
+                    }
+                    
+                    $upfront_items_for_email[] = $item_data;
                 }
             }
         }
@@ -2250,7 +2261,6 @@ if ($monthly_method_code) {
     
     return $email_order_data;
 }
-
 
 /**
  * AJAX handler for processing Moneris payments
