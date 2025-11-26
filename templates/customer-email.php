@@ -77,8 +77,7 @@ function generate_order_confirmation_email_html($order_data) {
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         .email-header {
-           background-color: #139948; 
-          /* background-color: #333333; */
+           background-color: #139948;
             color: #ffffff;
             padding: 30px 20px;
             text-align: center;
@@ -130,7 +129,11 @@ function generate_order_confirmation_email_html($order_data) {
         }
         .items-table td:last-child {
             text-align: right;
-            /*font-weight: bold; */
+        }
+        /* NEW: Styling for subtotal and tax rows */
+        .subtotal-row td,
+        .tax-row td {
+            background-color: #f0f8ff;
         }
         .total-row {
             background-color: #f0f8ff;
@@ -155,12 +158,16 @@ function generate_order_confirmation_email_html($order_data) {
             color: #66b3ff;
             text-decoration: none;
         }
-        .logo {
-            max-width: 180px;
+        .email-logo {
+            max-width: 180px !important;
             height: auto;
             margin-bottom: 10px;
-            /*border-radius: 10px; */
         }
+
+        .email-logo img {
+            max-width: 180px !important;
+        }
+
         .section-title {
             font-size: 18px;
             font-weight: bold;
@@ -178,8 +185,8 @@ function generate_order_confirmation_email_html($order_data) {
             <!-- Email Header -->
             <div class="email-header">
                 <!-- Company Logo - Update with your actual logo URL -->
-                <img src="<?php echo esc_url(home_url('/wp-content/uploads/2022/08/Diallog-logo-ResizedandWhite.png')); ?>" 
-                     alt="Diallog Logo" class="logo">
+                <img src="<?php echo esc_url(home_url('/wp-content/uploads/2025/11/Diallog-White-EmailSize.png')); ?>" 
+                     alt="Diallog Logo" class="email-logo">
                 <h1>Thank You for Your Order!</h1>
             </div>
             
@@ -253,20 +260,30 @@ function generate_order_confirmation_email_html($order_data) {
         <?php if (!empty($upfront_items)): ?>
             <?php foreach ($upfront_items as $item): ?>
             <tr>
-                <td><?php echo esc_html($item['name']); ?></td>
+                <td>
+                    <?php echo esc_html($item['name']); ?>
+                    <?php 
+                    // NEW: Display installation dates if this is an Installation Fee item
+                    if (!empty($item['installation_dates'])): 
+                    ?>
+                        <br><em style="font-style: italic; font-size: 0.9em; color: #666;">
+                            <?php echo esc_html($item['installation_dates']); ?>
+                        </em>
+                    <?php endif; ?>
+                </td>
                 <td>$<?php echo esc_html(number_format($item['total'], 2)); ?></td>
             </tr>
             <?php endforeach; ?>
-            <tr>
+            <tr class="subtotal-row">
                 <td>Subtotal:</td>
                 <td>$<?php echo esc_html(number_format($upfront_subtotal, 2)); ?></td>
             </tr>
-            <tr>
+            <tr class="tax-row">
                 <td>Tax<?php if ($tax_rate > 0) { echo ' (' . esc_html(number_format($tax_rate, 0)) . '%)'; } ?>:</td>
                 <td>$<?php echo esc_html(number_format($upfront_tax, 2)); ?></td>
             </tr>
             <?php 
-            // NEW: Add deposits after tax
+            // Add deposits after tax
             $upfront_deposits = isset($order_data['upfront_summary']['deposits']) ? $order_data['upfront_summary']['deposits'] : array();
             if (!empty($upfront_deposits)): 
                 foreach ($upfront_deposits as $deposit): ?>
@@ -314,7 +331,7 @@ function generate_order_confirmation_email_html($order_data) {
                                 <td>
                                     <?php echo esc_html($item['name']); ?>
                                     <?php 
-                                    // NEW: Display promo blurb if exists (green, italic)
+                                    // Display promo blurb if exists (green, italic)
                                     if (!empty($item['promo_blurb'])): 
                                     ?>
                                         <br><span style="color: green; font-style: italic; font-size: 0.9em;">
@@ -322,7 +339,7 @@ function generate_order_confirmation_email_html($order_data) {
                                         </span>
                                     <?php endif; ?>
                                     <?php 
-                                // ADD: Display modem details if exists (italicized, grey color)
+                                    // Display modem details if exists (italicized, grey color)
                                     if (!empty($item['modem_details'])): 
                                     ?>
                                     <br><em style="font-style: italic; font-size: 0.9em; color: #666;">
@@ -332,11 +349,11 @@ function generate_order_confirmation_email_html($order_data) {
                                 </td>
                                 <td>
                                     <?php 
-                                    // NEW: Check if this item has promotional pricing
+                                    // Check if this item has promotional pricing
                                     $has_promo = !empty($item['promo_price']) && $item['promo_price'] > 0;
                                     
                                     if ($has_promo): 
-                                        // Show strikethrough original price and green bold promo price
+                                        // Show strikethrough original price and green promo price
                                     ?>
                                         <span style="text-decoration: line-through; color: grey; font-size: 0.9em;">
                                             $<?php echo esc_html(number_format($item['original_price'], 2)); ?>
@@ -353,11 +370,11 @@ function generate_order_confirmation_email_html($order_data) {
                                 </td>
                             </tr>
                             <?php endforeach; ?>
-                            <tr>
+                            <tr class="subtotal-row">
                                 <td>Subtotal:</td>
                                 <td>$<?php echo esc_html(number_format($monthly_subtotal, 2)); ?></td>
                             </tr>
-                            <tr>
+                            <tr class="tax-row">
                                 <td>Tax<?php if ($tax_rate > 0) { echo ' (' . esc_html(number_format($tax_rate, 0)) . '%)'; } ?>:</td>
                                 <td>$<?php echo esc_html(number_format($monthly_tax, 2)); ?></td>
                             </tr>
