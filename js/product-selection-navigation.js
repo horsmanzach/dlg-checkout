@@ -1,4 +1,3 @@
-
 jQuery(document).ready(function ($) {
     // Track current screen and whether user came from checkout
     let currentScreen = 1;
@@ -215,17 +214,71 @@ jQuery(document).ready(function ($) {
     });
 
     // Forward navigation using event delegation
-    $(document).on('click', '.next-btn, .mobile-next-btn', function () {
-        console.log('Button clicked - class:', $(this).attr('class'));
-        console.log('Button has disabled class:', $(this).hasClass('disabled'));
+// Forward navigation using event delegation
+$(document).on('click', '.next-btn, .mobile-next-btn', function () {
+    console.log('Button clicked - class:', $(this).attr('class'));
+    console.log('Button has disabled class:', $(this).hasClass('disabled'));
 
-        if ($(this).hasClass('disabled')) {
-            return; // Don't proceed if button is disabled
+    if ($(this).hasClass('disabled')) {
+        return; // Don't proceed if button is disabled
+    }
+
+    // NEW: If we're on the modem screen (screen 2), save the modem details to cart
+    if (currentScreen === 2) {
+        const $ownModemRow = $('.modem-4');
+        const $ownModemInput = $ownModemRow.find('.own-modem-input');
+        
+        // Check if "I Have My Own Modem" is selected
+        if ($ownModemRow.hasClass('modem-row-selected')) {
+            const modemDetails = $ownModemInput.val().trim();
+            const productId = 265769;
+            
+            if (modemDetails.length >= 5 && modemDetails.length <= 100) {
+                console.log('Saving modem details on Next click:', modemDetails);
+                
+                // IMPORTANT: Wait for AJAX to complete before navigating
+                $.ajax({
+                    type: 'POST',
+                    url: modem_selection_vars.ajax_url,
+                    data: {
+                        action: 'save_modem_details',
+                        product_id: productId,
+                        modem_details: modemDetails,
+                        nonce: modem_selection_vars.nonce
+                    },
+                    success: function (response) {
+                        if (response.success) {
+                            console.log('Own modem saved to cart successfully');
+                            // NOW navigate after successful save
+                            proceedToNextScreen();
+                        } else {
+                            console.error('Error saving modem:', response.data.message);
+                            // Still proceed even if save failed
+                            proceedToNextScreen();
+                        }
+                    },
+                    error: function (xhr, status, error) {
+                        console.error('AJAX Error:', error);
+                        // Still proceed even if AJAX failed
+                        proceedToNextScreen();
+                    }
+                });
+                
+                // Exit here - don't continue with navigation yet
+                return;
+            }
         }
+    }
 
+    // If we get here, either not on screen 2 or no modem details to save
+    // Proceed with normal navigation
+    proceedToNextScreen();
+
+    // Helper function to handle the actual navigation
+    function proceedToNextScreen() {
         if (currentScreen === totalScreens) {
             // On the final slide, show loading state before redirect
-            const $btn = $(this);
+            const $btn = $('.next-btn, .mobile-next-btn');
 
             // Check if it's a mobile button (only change color, keep arrow)
             if ($btn.hasClass('mobile-next-btn')) {
@@ -292,7 +345,8 @@ jQuery(document).ready(function ($) {
             // Update URL hash
             updateHash(currentScreen);
         }
-    });
+    }
+});
 
     // Backward navigation using event delegation
     $(document).on('click', '.back-btn, .mobile-back-btn', function () {
