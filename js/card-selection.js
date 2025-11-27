@@ -107,6 +107,7 @@ jQuery(document).ready(function ($) {
 
 
     // Enhanced input validation handler for modem details
+    // Enhanced input validation handler for modem details
     $(document).on('input', '.own-modem-input', function () {
         console.log('INPUT HANDLER TRIGGERED');
 
@@ -116,44 +117,42 @@ jQuery(document).ready(function ($) {
 
         console.log('Input value:', modemDetails);
         console.log('Input length:', modemDetails.length);
-        console.log('Row classes BEFORE:', $row.attr('class'));
 
         if (modemDetails.length >= 5 && modemDetails.length <= 100) {
             console.log('VALIDATION PASSED');
 
-            // Clear errors
+            // Clear errors and show as valid (green)
             $input.removeClass('error');
             $row.find('.own-modem-error').hide();
 
-            // Convert from pending to selected if needed
+            // Convert from pending to selected (visual state only)
             if ($row.hasClass('own-modem-pending')) {
                 console.log('Converting from pending to selected');
                 $row.removeClass('own-modem-pending');
                 $row.addClass('modem-row-selected');
-
-                // Add to cart
-                const productId = 265769;
-                addOwnModemToCart(productId, modemDetails);
             }
-        } else {
-            console.log('VALIDATION FAILED');
 
-            // If card was previously selected (green), revert to pending (red)
+            // DO NOT ADD TO CART HERE - we'll do it on Next button click
+
+        } else if (modemDetails.length < 5 && modemDetails.length > 0) {
+            console.log('VALIDATION FAILED - too short');
+
+            // Show error (red state)
+            $input.addClass('error');
+            $row.find('.own-modem-error').show();
+
+            // Revert to pending state
             if ($row.hasClass('modem-row-selected')) {
                 console.log('Converting from selected back to pending');
                 $row.removeClass('modem-row-selected');
                 $row.addClass('own-modem-pending');
-
-                // Remove from cart
-                const productId = 265769;
-                removeFromCart(productId);
             }
 
-            // Show error styling if card is in pending state
-            if ($row.hasClass('own-modem-pending')) {
-                $input.addClass('error');
-                $row.find('.own-modem-error').show();
-            }
+        } else if (modemDetails.length === 0) {
+            // Empty field - clear everything
+            $input.removeClass('error');
+            $row.find('.own-modem-error').hide();
+            $row.removeClass('modem-row-selected own-modem-pending');
         }
 
         // Trigger button state update after changes
@@ -168,7 +167,6 @@ jQuery(document).ready(function ($) {
             }
         }, 50);
     });
-
 
     // Make phone rows clickable
     $('.phone-0, .phone-1, .phone-2').on('click', function () {
