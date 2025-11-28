@@ -214,139 +214,234 @@ jQuery(document).ready(function ($) {
     });
 
     // Forward navigation using event delegation
-// Forward navigation using event delegation
-$(document).on('click', '.next-btn, .mobile-next-btn', function () {
-    console.log('Button clicked - class:', $(this).attr('class'));
-    console.log('Button has disabled class:', $(this).hasClass('disabled'));
+    // Forward navigation using event delegation
+    $(document).on('click', '.next-btn, .mobile-next-btn', function () {
+        console.log('=== NEXT BUTTON CLICKED ===');
+        console.log('Button class:', $(this).attr('class'));
+        console.log('Button has disabled class:', $(this).hasClass('disabled'));
+        console.log('Current screen:', currentScreen);
 
-    if ($(this).hasClass('disabled')) {
-        return; // Don't proceed if button is disabled
-    }
+        if ($(this).hasClass('disabled')) {
+            console.log('Button is disabled - exiting');
+            return; // Don't proceed if button is disabled
+        }
 
-    // NEW: If we're on the modem screen (screen 2), save the modem details to cart
-    if (currentScreen === 2) {
-        const $ownModemRow = $('.modem-4');
-        const $ownModemInput = $ownModemRow.find('.own-modem-input');
-        
-        // Check if "I Have My Own Modem" is selected
-        if ($ownModemRow.hasClass('modem-row-selected')) {
-            const modemDetails = $ownModemInput.val().trim();
-            const productId = 265769;
-            
-            if (modemDetails.length >= 5 && modemDetails.length <= 100) {
-                console.log('Saving modem details on Next click:', modemDetails);
-                
-                // IMPORTANT: Wait for AJAX to complete before navigating
-                $.ajax({
-                    type: 'POST',
-                    url: modem_selection_vars.ajax_url,
-                    data: {
-                        action: 'save_modem_details',
-                        product_id: productId,
-                        modem_details: modemDetails,
-                        nonce: modem_selection_vars.nonce
-                    },
-                    success: function (response) {
-                        if (response.success) {
-                            console.log('Own modem saved to cart successfully');
-                            // NOW navigate after successful save
-                            proceedToNextScreen();
-                        } else {
-                            console.error('Error saving modem:', response.data.message);
-                            // Still proceed even if save failed
+        // NEW: If we're on the modem screen (screen 2), save the modem details to cart
+        if (currentScreen === 2) {
+            console.log('--- MODEM SCREEN (2) DETECTED ---');
+
+            const $ownModemRow = $('.modem-4');
+            const $ownModemInput = $ownModemRow.find('.own-modem-input');
+
+            console.log('Own modem row exists:', $ownModemRow.length > 0);
+            console.log('Own modem input exists:', $ownModemInput.length > 0);
+            console.log('Own modem row classes:', $ownModemRow.attr('class'));
+            console.log('Has modem-row-selected:', $ownModemRow.hasClass('modem-row-selected'));
+            console.log('Has own-modem-pending:', $ownModemRow.hasClass('own-modem-pending'));
+
+            // Check if "I Have My Own Modem" is selected
+            if ($ownModemRow.hasClass('modem-row-selected')) {
+                console.log('✅ Own modem row IS selected');
+
+                const modemDetails = $ownModemInput.val().trim();
+                const productId = 265769;
+
+                console.log('Modem details value:', modemDetails);
+                console.log('Modem details length:', modemDetails.length);
+                console.log('Product ID:', productId);
+
+                if (modemDetails.length >= 5 && modemDetails.length <= 100) {
+                    console.log('✅ Validation passed - proceeding with AJAX save');
+                    console.log('🚀 AJAX: Saving modem details:', modemDetails);
+                    console.log('AJAX URL:', modem_selection_vars.ajax_url);
+                    console.log('Nonce:', modem_selection_vars.nonce);
+
+                    // IMPORTANT: Wait for AJAX to complete before navigating
+                    $.ajax({
+                        type: 'POST',
+                        url: modem_selection_vars.ajax_url,
+                        data: {
+                            action: 'save_modem_details',
+                            product_id: productId,
+                            modem_details: modemDetails,
+                            nonce: modem_selection_vars.nonce
+                        },
+                        success: function (response) {
+                            console.log('--- AJAX SUCCESS CALLBACK ---');
+                            console.log('AJAX Response received:', response);
+                            console.log('Response success status:', response.success);
+
+                            if (response.success) {
+                                console.log('✅ Own modem saved to cart successfully');
+                                console.log('Response data:', response.data);
+
+                                // CRITICAL: Update cart fragments and fee tables BEFORE navigating
+                                console.log('Triggering cart fragment refresh');
+                                $(document.body).trigger('wc_fragment_refresh');
+
+                                console.log('Calling updateFeeTables to refresh summary tables');
+
+                                // Call updateFeeTables and wait for it to complete
+                                $.ajax({
+                                    type: "POST",
+                                    url: modem_selection_vars.ajax_url,
+                                    data: {
+                                        action: "update_fee_tables",
+                                        current_product_id: $('input[name="add-to-cart"]').val() || 0,
+                                        nonce: modem_selection_vars.nonce
+                                    },
+                                    success: function (tableResponse) {
+                                        console.log('✅ Fee tables updated successfully');
+
+                                        // Update the table HTML
+                                        if (tableResponse.success) {
+                                            $(".upfront-fee-summary-container").html(tableResponse.data.upfront_table);
+                                            $(".monthly-fee-summary-container").html(tableResponse.data.monthly_table);
+                                            console.log('Tables HTML updated in DOM');
+                                        }
+
+                                        // NOW navigate after tables are completely updated
+                                        console.log('Proceeding to next screen after table updates');
+                                        proceedToNextScreen();
+                                    },
+                                    error: function () {
+                                        console.error('❌ Error updating fee tables, but proceeding anyway');
+                                        // Still proceed even if table update fails
+                                        proceedToNextScreen();
+                                    }
+                                }); // ← Close the inner $.ajax() for update_fee_tables
+
+                            } else {
+                                console.error('❌ Error saving modem - response.success = false');
+                                console.error('Error message:', response.data ? response.data.message : 'No message provided');
+                                console.error('Full response:', response);
+
+                                // Still proceed even if save failed
+                                console.log('Proceeding to next screen despite save error');
+                                proceedToNextScreen();
+                            }
+                        },
+                        error: function (xhr, status, error) {
+                            console.error('--- AJAX ERROR CALLBACK ---');
+                            console.error('❌ AJAX Request Failed');
+                            console.error('Status:', status);
+                            console.error('Error:', error);
+                            console.error('XHR status code:', xhr.status);
+                            console.error('XHR response text:', xhr.responseText);
+                            console.error('XHR object:', xhr);
+
+                            // Still proceed even if AJAX failed
+                            console.log('Proceeding to next screen despite AJAX error');
                             proceedToNextScreen();
                         }
-                    },
-                    error: function (xhr, status, error) {
-                        console.error('AJAX Error:', error);
-                        // Still proceed even if AJAX failed
-                        proceedToNextScreen();
-                    }
-                });
-                
-                // Exit here - don't continue with navigation yet
-                return;
-            }
-        }
-    }
+                    });
 
-    // If we get here, either not on screen 2 or no modem details to save
-    // Proceed with normal navigation
-    proceedToNextScreen();
-
-    // Helper function to handle the actual navigation
-    function proceedToNextScreen() {
-        if (currentScreen === totalScreens) {
-            // On the final slide, show loading state before redirect
-            const $btn = $('.next-btn, .mobile-next-btn');
-
-            // Check if it's a mobile button (only change color, keep arrow)
-            if ($btn.hasClass('mobile-next-btn')) {
-                $btn.css({
-                    'background-color': '#999999 !important',
-                    'cursor': 'wait',
-                    'pointer-events': 'none'
-                });
+                    // Exit here - don't continue with navigation yet
+                    console.log('Waiting for AJAX to complete before navigation');
+                    return;
+                } else {
+                    console.log('❌ Validation FAILED - modem details length invalid');
+                    console.log('Required: 5-100 characters, Got:', modemDetails.length);
+                }
             } else {
-                // Desktop button - change text and color
-                $btn.text('Redirecting...')
-                    .css({
+                console.log('ℹ️ Own modem row NOT selected - skipping save');
+            }
+        } else {
+            console.log('Not on screen 2 (current screen:', currentScreen, ') - skipping modem check');
+        }
+
+        // If we get here, either not on screen 2 or no modem details to save
+        console.log('Proceeding to next screen (no modem save needed)');
+        proceedToNextScreen();
+
+        // Helper function to handle the actual navigation
+        function proceedToNextScreen() {
+            console.log('--- PROCEEDING TO NEXT SCREEN ---');
+            console.log('Current screen before navigation:', currentScreen);
+
+            if (currentScreen === totalScreens) {
+                console.log('On final screen - preparing redirect to checkout');
+
+                // On the final slide, show loading state before redirect
+                const $btn = $('.next-btn, .mobile-next-btn');
+
+                // Check if it's a mobile button (only change color, keep arrow)
+                if ($btn.hasClass('mobile-next-btn')) {
+                    console.log('Mobile button - changing color only');
+                    $btn.css({
                         'background-color': '#999999 !important',
                         'cursor': 'wait',
                         'pointer-events': 'none'
                     });
+                } else {
+                    console.log('Desktop button - changing text and color');
+                    // Desktop button - change text and color
+                    $btn.text('Redirecting...')
+                        .css({
+                            'background-color': '#999999 !important',
+                            'cursor': 'wait',
+                            'pointer-events': 'none'
+                        });
+                }
+
+                // Redirect after showing the loading state
+                console.log('Redirecting to:', finalSlideRedirectUrl);
+                setTimeout(function () {
+                    window.location.href = finalSlideRedirectUrl;
+                }, 100);
+                return;
             }
 
-            // Redirect after showing the loading state
-            setTimeout(function () {
-                window.location.href = finalSlideRedirectUrl;
-            }, 100);
-            return;
-        }
+            if (currentScreen < totalScreens) {
+                console.log('Animating from screen', currentScreen, 'to screen', currentScreen + 1);
 
-        if (currentScreen < totalScreens) {
-            const currentEl = $(`#screen${currentScreen}`);
-            const nextEl = $(`#screen${currentScreen + 1}`);
+                const currentEl = $(`#screen${currentScreen}`);
+                const nextEl = $(`#screen${currentScreen + 1}`);
 
-            // Scroll to top first
-            scrollToTop();
+                // Scroll to top first
+                scrollToTop();
 
-            // Animate current screen out
-            gsap.to(currentEl, {
-                duration: 0.5,
-                x: '-100%',
-                opacity: 0,
-                ease: 'power2.inOut'
-            });
-
-            // Animate next screen in
-            gsap.fromTo(nextEl,
-                {
-                    x: '100%',
-                    opacity: 0
-                },
-                {
+                // Animate current screen out
+                gsap.to(currentEl, {
                     duration: 0.5,
-                    x: '0%',
-                    opacity: 1,
-                    ease: 'power2.inOut',
-                    onComplete: function () {
-                        // Adjust container height after animation completes
-                        adjustContainerHeight();
+                    x: '-100%',
+                    opacity: 0,
+                    ease: 'power2.inOut'
+                });
+
+                // Animate next screen in
+                gsap.fromTo(nextEl,
+                    {
+                        x: '100%',
+                        opacity: 0
+                    },
+                    {
+                        duration: 0.5,
+                        x: '0%',
+                        opacity: 1,
+                        ease: 'power2.inOut',
+                        onComplete: function () {
+                            console.log('Animation complete');
+                            // Adjust container height after animation completes
+                            adjustContainerHeight();
+                        }
                     }
-                }
-            );
+                );
 
-            currentScreen++;
-            updateButtonStates();
-            updateProgressBar(currentScreen);
-            updateCheckoutButtonVisibility();
+                currentScreen++;
+                console.log('Screen updated to:', currentScreen);
 
-            // Update URL hash
-            updateHash(currentScreen);
+                updateButtonStates();
+                updateProgressBar(currentScreen);
+                updateCheckoutButtonVisibility();
+
+                // Update URL hash
+                updateHash(currentScreen);
+
+                console.log('=== END NEXT BUTTON HANDLER ===');
+            }
         }
-    }
-});
+    });
 
     // Backward navigation using event delegation
     $(document).on('click', '.back-btn, .mobile-back-btn', function () {
@@ -637,7 +732,7 @@ $(document).on('click', '.next-btn, .mobile-next-btn', function () {
         return isValid;
     }
 
-   
+
 
     // Function to show/hide the Skip to Checkout button based on whether user came from checkout
     function updateCheckoutButtonVisibility() {
