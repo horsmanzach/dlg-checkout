@@ -1799,7 +1799,6 @@ function hide_auto_filled_address_fields($fields) {
 
 // Moneris Test Mode Control - Change this to switch between test and production
 function is_moneris_test_mode() {
-    // Change this to true for testing, false for production
     return true; // Set to true for test mode, false for live transactions
 }
 
@@ -1808,15 +1807,15 @@ function get_moneris_config() {
     if (is_moneris_test_mode()) {
         // TEST ENVIRONMENT CREDENTIALS
         return array(
-            'store_id' => 'store5',     // Replace with your test store ID tomorrow
-            'api_token' => 'yesguy',   // Replace with your test API token tomorrow
+            'store_id' => 'store5',     // test store ID tomorrow
+            'api_token' => 'yesguy',   // test API token tomorrow
             'test_mode' => true
         );
     } else {
         // PRODUCTION ENVIRONMENT CREDENTIALS (from your existing processpayment.php)
         return array(
-            'store_id' => 'store5',                 // Your current production store ID
-            'api_token' => 'yesguy',               // Your current production API token
+            'store_id' => 'store5',                 // current production store ID
+            'api_token' => 'yesguy',               // current production API token
             'test_mode' => false
         );
     }
@@ -1937,6 +1936,10 @@ add_shortcode('moneris_complete_payment_button', 'moneris_complete_payment_butto
 /**
  * Prepare order data for Diallog database
  */
+/**
+ * Prepare order data for Diallog database
+ * INCLUDES COMPREHENSIVE LOGGING FOR DIALLOG DEVELOPER
+ */
 function prepare_diallog_order_data($payment_response, $cardholder_name, $moneris_config) {
     // Get cart items before clearing
     $cart_items = array();
@@ -1959,19 +1962,36 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
     $monthly_summary = function_exists('get_monthly_fee_summary') ? 
         get_monthly_fee_summary() : array();
     
-    // Get customer data from session
+    // Get customer data using the SAME method as thank you page
+    $customer_info = dg_get_customer_info();
+
     $customer_data = array(
-        'first_name' => WC()->session->get('customer')['first_name'] ?? '',
-        'last_name' => WC()->session->get('customer')['last_name'] ?? '',
-        'email' => WC()->session->get('customer')['email'] ?? '',
-        'billing_address' => WC()->session->get('customer')['billing_address_1'] ?? '',
-        'billing_city' => WC()->session->get('customer')['billing_city'] ?? '',
-        'billing_state' => WC()->session->get('customer')['billing_state'] ?? '',
-        'billing_postcode' => WC()->session->get('customer')['billing_postcode'] ?? '',
-        'billing_phone' => WC()->session->get('customer')['phone'] ?? '',
+    'billing_first_name' => $customer_info['first_name'],
+    'billing_last_name' => $customer_info['last_name'],
+    'billing_email' => $customer_info['email'],
+    'billing_phone' => $customer_info['phone'],
+    'billing_address_1' => $customer_info['service_address_full'],
+    'billing_city' => '',
+    'billing_state' => '',
+    'billing_postcode' => '',
     );
+
+    // Get addresses from customer info
+    $service_address = $customer_info['service_address_full'];
+    $shipping_address = $customer_info['shipping_address_full'];
+    $customer_ip = $_SERVER['REMOTE_ADDR'] ?? '';
     
-    // NEW: Get terms acceptance timestamp from session
+    // Get CCD (coupon code)
+    $ccd = '';
+    $ccd_encoded = dg_get_user_meta("ccd");
+    if (!empty($ccd_encoded)) {
+        $ccd_decoded = base64_decode($ccd_encoded);
+        if ($ccd_decoded !== false && !empty($ccd_decoded)) {
+            $ccd = strtoupper(trim($ccd_decoded));
+        }
+    }
+    
+    // Get terms acceptance timestamp from session
     $terms_timestamp = '';
     if (WC()->session) {
         $terms_timestamp = WC()->session->get('terms_timestamp');
@@ -1990,16 +2010,140 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
             'time' => $payment_response->getTransTime(),
             'card_type' => $payment_response->getCardType(),
             'auth_code' => $payment_response->getAuthCode(),
+            'reference_num' => $payment_response->getReferenceNum(),
             'test_mode' => $moneris_config['test_mode']
         ),
         'customer_data' => $customer_data,
+        'customer_service_address' => $service_address,
+        'customer_shipping_address' => $shipping_address,
+        'customer_ip' => $customer_ip,
+        'ccd' => $ccd,
         'cart_items' => $cart_items,
         'upfront_summary' => $upfront_summary,
         'monthly_summary' => $monthly_summary,
         'order_timestamp' => time(),
         'order_source' => 'website_checkout',
-        'terms_acceptance_timestamp' => $terms_timestamp // NEW: Include timestamp
+        'terms_acceptance_timestamp' => $terms_timestamp
     );
+    
+    // ========== ADD ENCRYPTED MONTHLY BILLING DATA ==========
+    $monthly_method = dg_get_user_meta('monthly_bill_payment_option');
+    
+    if ($monthly_method === 'cc' || $monthly_method === 'bank') {
+        // Generate encryption key (same way as old system)
+        if (is_user_logged_in()) {
+            $encryption_key = md5(get_current_user_id());
+        } else {
+            $encryption_key = get_dg_user_id();
+        }
+        
+        // Include Cryptor class
+        require_once get_template_directory() . '/includes/crypt.php';
+        
+        if ($monthly_method === 'cc') {
+            // Collect credit card data from user meta
+            $cc_data = array(
+                'billing_full_name' => dg_get_user_meta('cc_monthly_billing_full_name'),
+                'billing_card_number' => dg_get_user_meta('cc_monthly_billing_card_number'),
+                'billing_card_expiry' => dg_get_user_meta('cc_monthly_billing_card_expiry'),
+                'billing_card_cvv' => dg_get_user_meta('cc_monthly_billing_card_cvv'),
+                'billing_postcode' => dg_get_user_meta('cc_monthly_billing_postcode')
+            );
+            
+            // Log unencrypted CC data for developer reference
+            error_log('========================================');
+            error_log('MONTHLY CC DATA (UNENCRYPTED - FOR DIALLOG DEVELOPER REFERENCE)');
+            error_log('========================================');
+            error_log(json_encode($cc_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            error_log('========================================');
+            error_log('NOTE: This data will be serialized, encrypted with Cryptor class (AES-128-CTR),');
+            error_log('and stored in the "monthly_cc" field in the order_data payload.');
+            error_log('Decrypt using: $cryptor = new Cryptor($dg_user_hash); $decrypted = $cryptor->decrypt($monthly_cc);');
+            error_log('Then unserialize: $data = maybe_unserialize($decrypted);');
+            error_log('========================================');
+            
+            // Encrypt it
+            $cryptor = new Cryptor($encryption_key);
+            $order_data['monthly_cc'] = $cryptor->encrypt(maybe_serialize($cc_data));
+            $order_data['dg_user_hash'] = $encryption_key;
+            
+        } elseif ($monthly_method === 'bank') {
+            // Collect bank account data from user meta
+            $bank_data = array(
+                'billing_first_name' => dg_get_user_meta('bank_monthly_billing_first_name'),
+                'billing_last_name' => dg_get_user_meta('bank_monthly_billing_last_name'),
+                'account_type' => dg_get_user_meta('bank_monthly_billing_account_type'),
+                'financial_institution' => dg_get_user_meta('bank_monthly_billing_financial_institution'),
+                'transit_number' => dg_get_user_meta('bank_monthly_billing_transit_number'),
+                'institution_number' => dg_get_user_meta('bank_monthly_billing_institution_number'),
+                'account_number' => dg_get_user_meta('bank_monthly_billing_account_number')
+            );
+            
+            // Log unencrypted bank data for developer reference
+            error_log('========================================');
+            error_log('MONTHLY BANK DATA (UNENCRYPTED - FOR DIALLOG DEVELOPER REFERENCE)');
+            error_log('========================================');
+            error_log(json_encode($bank_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            error_log('========================================');
+            error_log('NOTE: This data will be serialized, encrypted with Cryptor class (AES-128-CTR),');
+            error_log('and stored in the "monthly_bank" field in the order_data payload.');
+            error_log('Decrypt using: $cryptor = new Cryptor($dg_user_hash); $decrypted = $cryptor->decrypt($monthly_bank);');
+            error_log('Then unserialize: $data = maybe_unserialize($decrypted);');
+            error_log('========================================');
+            
+            // Encrypt it
+            $cryptor = new Cryptor($encryption_key);
+            $order_data['monthly_bank'] = $cryptor->encrypt(maybe_serialize($bank_data));
+            $order_data['dg_user_hash'] = $encryption_key;
+        }
+        
+        // Add the payment method indicator
+        $order_data['monthly_bill_payment_option'] = $monthly_method;
+        
+    } elseif ($monthly_method === 'payafter') {
+        // Log Pay After selection
+        error_log('========================================');
+        error_log('MONTHLY BILLING METHOD: PAY AFTER (NO ENCRYPTED DATA)');
+        error_log('========================================');
+        error_log('Customer selected Pay After / Non Pre-Authorized billing.');
+        error_log('A $100 deposit was added to upfront_summary.');
+        error_log('No encrypted monthly billing data is included for this method.');
+        error_log('========================================');
+        
+        $order_data['monthly_bill_payment_option'] = 'payafter';
+    }
+    
+    // ========== COMPREHENSIVE LOGGING FOR DIALLOG DEVELOPER ==========
+    error_log('');
+    error_log('================================================================================');
+    error_log('==================== COMPLETE ORDER DATA FOR DIALLOG ==========================');
+    error_log('================================================================================');
+    error_log('');
+    error_log('--- 1) UPFRONT BILLING SUMMARY (UNENCRYPTED) ---');
+    error_log(json_encode($order_data['upfront_summary'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    error_log('');
+    error_log('--- 2) MONTHLY BILLING SUMMARY (UNENCRYPTED) ---');
+    error_log(json_encode($order_data['monthly_summary'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    error_log('');
+    error_log('--- 3) MONTHLY BILLING METHOD ---');
+    error_log('Selected Method: ' . ($monthly_method ? $monthly_method : 'NOT SET'));
+    if ($monthly_method === 'cc') {
+        error_log('monthly_cc field: [ENCRYPTED STRING - see separate log above for unencrypted structure]');
+        error_log('dg_user_hash: ' . $encryption_key);
+    } elseif ($monthly_method === 'bank') {
+        error_log('monthly_bank field: [ENCRYPTED STRING - see separate log above for unencrypted structure]');
+        error_log('dg_user_hash: ' . $encryption_key);
+    } elseif ($monthly_method === 'payafter') {
+        error_log('Pay After selected - No encrypted billing data');
+    }
+    error_log('');
+    error_log('--- COMPLETE ORDER DATA STRUCTURE (WITH ENCRYPTED FIELDS) ---');
+    error_log(json_encode($order_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    error_log('');
+    error_log('================================================================================');
+    error_log('========================== END DIALLOG ORDER DATA =============================');
+    error_log('================================================================================');
+    error_log('');
     
     return $order_data;
 }
@@ -3031,12 +3175,13 @@ function save_modem_details_to_cart() {
     $modem_details = isset($_POST['modem_details']) ? sanitize_text_field($_POST['modem_details']) : '';
     
     if ($product_id !== 265769 || strlen($modem_details) < 5 || strlen($modem_details) > 100) {
+        error_log("VALIDATION FAILED - product_id: $product_id, length: " . strlen($modem_details));
         wp_send_json_error(array('message' => 'Invalid modem details'));
         return;
     }
     
     // Remove any existing modems from cart
-    $modem_category_id = 62; // Your modem category ID
+    $modem_category_id = 62;
     
     foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
         $cart_product_id = $cart_item['product_id'];
@@ -3048,14 +3193,24 @@ function save_modem_details_to_cart() {
         }
     }
     
-    // Add to cart with custom data (MODEM DETAILS ONLY)
+    // Add to cart with custom data
     $cart_item_data = array(
         'modem_details' => $modem_details
     );
     
+    error_log("Cart item data being added: " . print_r($cart_item_data, true));
+    
     $added = WC()->cart->add_to_cart($product_id, 1, 0, array(), $cart_item_data);
     
     if ($added) {
+        // DEBUG: Check what was actually saved to cart
+        foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+            if ($cart_item['product_id'] == 265769) {
+                error_log("SAVED TO CART - modem_details: " . ($cart_item['modem_details'] ?? 'NOT SET'));
+                error_log("SAVED TO CART - LENGTH: " . strlen($cart_item['modem_details'] ?? ''));
+            }
+        }
+        
         wp_send_json_success(array('message' => 'Own modem added to cart'));
     } else {
         wp_send_json_error(array('message' => 'Failed to add to cart'));
@@ -8024,8 +8179,6 @@ function add_custom_price( $cart_object ) {
 
 ---- */
 
-
-
 function GetModemsInfo(&$plan_name, &$fees, &$class_name, &$upfront_info ) {
 	foreach ( WC()->cart->get_cart() as $cart_item_key => $cart_item ) {
 			
@@ -8045,7 +8198,23 @@ function GetModemsInfo(&$plan_name, &$fees, &$class_name, &$upfront_info ) {
 		}
 		
 		$class_name = esc_attr( apply_filters( 'woocommerce_cart_item_class', 'cart_item', $cart_item, $cart_item_key ) );
-		$plan_name = apply_filters( 'woocommerce_cart_item_name', $_product->get_name(), $cart_item, $cart_item_key ) . '&nbsp;' . wc_get_formatted_cart_item_data( $cart_item );
+		
+		// FIX: Check if this is "I Have My Own Modem" product and handle modem details specially
+		$product_id = $_product->get_id();
+		
+		if ($product_id == 265769 && isset($cart_item['modem_details']) && !empty($cart_item['modem_details'])) {
+			// For "I Have My Own Modem", build the plan name manually WITHOUT using wc_get_formatted_cart_item_data
+			$product_name = apply_filters( 'woocommerce_cart_item_name', $_product->get_name(), $cart_item, $cart_item_key );
+			$modem_details_full = $cart_item['modem_details']; // Get the FULL details directly
+			
+			// Build plan name with full modem details
+			$plan_name = $product_name . '<br><em style="font-style: italic; color: #666;">' . esc_html($modem_details_full) . '</em>';
+			
+			error_log("GetModemsInfo: Full modem details = " . $modem_details_full . " (length: " . strlen($modem_details_full) . ")");
+		} else {
+			// For regular modems, use the standard WooCommerce formatting
+			$plan_name = apply_filters( 'woocommerce_cart_item_name', $_product->get_name(), $cart_item, $cart_item_key ) . '&nbsp;' . wc_get_formatted_cart_item_data( $cart_item );
+		}
 		
 		$ProdPrice = $_product->get_price();
 		$fees = $ProdPrice;
