@@ -10,7 +10,7 @@ jQuery(document).ready(function ($) {
         'modem-1': 265105,
         'modem-2': 265107,
         'modem-3': 265108,
-        'modem-4': 265769 
+        'modem-4': 265769
     };
 
     const phoneRows = {
@@ -52,11 +52,11 @@ jQuery(document).ready(function ($) {
         }
     }
 
-    
+
     // Make modem rows clickable
     $('.modem-0, .modem-1, .modem-2, .modem-3, .modem-4').on('click', function (e) {
-        // Don't trigger click if user is interacting with input fields or radio buttons
-        if ($(e.target).is('input, label')) {
+        // Don't trigger click if user is interacting with radio buttons or labels (but allow input clicks)
+        if ($(e.target).is('label') && !$(e.target).closest('.own-modem-input-container').length) {
             return;
         }
 
@@ -78,19 +78,44 @@ jQuery(document).ready(function ($) {
             // Remove selection from all other modem rows first
             $('.modem-0, .modem-1, .modem-2, .modem-3').removeClass('modem-row-selected');
 
-            // Check if this card is already selected
-            if ($this.hasClass('modem-row-selected')) {
-                // If already selected and clicked again, deselect
+            // Check if this card is already selected WITH valid input
+            if ($this.hasClass('modem-row-selected') && modemDetails.length >= 5 && modemDetails.length <= 100) {
+                // Card is already valid - just keep it selected, don't deselect
+                // This allows clicking back into the card without losing the selection
+                console.log('Own modem card already valid - maintaining selection');
+                return;
+            }
+
+            // Check if clicking to deselect (card is selected but input is now invalid/empty)
+            if ($this.hasClass('modem-row-selected') && modemDetails.length === 0) {
+                // User cleared the input, so deselect
                 $this.removeClass('modem-row-selected own-modem-pending');
                 removeFromCart(productId);
                 return;
             }
 
-            // Mark card as clicked/pending
-            $this.addClass('own-modem-pending');
-            
-            // Validate the entire card
-            validateOwnModemCard();
+            // If we get here, card is either:
+            // 1. Not selected yet (new click)
+            // 2. Has pending state (red, needs completion)
+            // Mark card as clicked/pending if not already in a valid state
+            if (!$this.hasClass('modem-row-selected')) {
+                $this.addClass('own-modem-pending');
+            }
+
+            // Re-validate the card based on current input
+            const inputLength = modemDetails.length;
+            if (inputLength >= 5 && inputLength <= 100) {
+                // Valid input - convert to selected state
+                $this.removeClass('own-modem-pending').addClass('modem-row-selected');
+                $input.removeClass('error');
+                $this.find('.own-modem-error').hide();
+            } else if (inputLength > 0 && inputLength < 5) {
+                // Invalid input - show error
+                $this.removeClass('modem-row-selected').addClass('own-modem-pending');
+                $input.addClass('error');
+                $this.find('.own-modem-error').show();
+            }
+            // If empty, just mark as pending (already done above)
 
         } else {
             // Handle regular modem selection (unchanged)
@@ -106,10 +131,43 @@ jQuery(document).ready(function ($) {
     });
 
 
-    // Enhanced input validation handler for modem details
+    // Handle focus on own modem input - treat it as card selection
+    $(document).on('focus', '.own-modem-input', function () {
+        console.log('=== OWN MODEM INPUT FOCUSED ===');
+
+        const $input = $(this);
+        const $row = $input.closest('.modem-4');
+        const modemDetails = $input.val().trim();
+
+        console.log('Input has focus, current value:', modemDetails);
+        console.log('Row classes before focus:', $row.attr('class'));
+
+        // Remove selection from all other modem rows
+        $('.modem-0, .modem-1, .modem-2, .modem-3').removeClass('modem-row-selected');
+
+        // If the card isn't already selected or pending, mark it as pending
+        if (!$row.hasClass('modem-row-selected') && !$row.hasClass('own-modem-pending')) {
+            console.log('Adding own-modem-pending class on focus');
+            $row.addClass('own-modem-pending');
+        }
+
+        // If there's already valid text in the field, convert to selected immediately
+        if (modemDetails.length >= 5 && modemDetails.length <= 100) {
+            console.log('Valid text already exists - converting to selected on focus');
+            $row.removeClass('own-modem-pending').addClass('modem-row-selected');
+            $input.removeClass('error');
+            $row.find('.own-modem-error').hide();
+
+            // Trigger button state update
+            if (typeof revalidateButtonStates === 'function') {
+                revalidateButtonStates();
+            }
+        }
+    });
+
     // Enhanced input validation handler for modem details
     $(document).on('input', '.own-modem-input', function () {
-        console.log('INPUT HANDLER TRIGGERED');
+        console.log('=== INPUT HANDLER TRIGGERED ===');
 
         const $input = $(this);
         const $row = $input.closest('.modem-4');
@@ -117,6 +175,16 @@ jQuery(document).ready(function ($) {
 
         console.log('Input value:', modemDetails);
         console.log('Input length:', modemDetails.length);
+        console.log('Row classes BEFORE:', $row.attr('class'));
+
+        // Remove selection from all other modem rows
+        $('.modem-0, .modem-1, .modem-2, .modem-3').removeClass('modem-row-selected');
+
+        // Ensure the card is at least marked as pending if user is typing
+        if (!$row.hasClass('modem-row-selected') && !$row.hasClass('own-modem-pending') && modemDetails.length > 0) {
+            console.log('User started typing - adding own-modem-pending class');
+            $row.addClass('own-modem-pending');
+        }
 
         if (modemDetails.length >= 5 && modemDetails.length <= 100) {
             console.log('VALIDATION PASSED');
@@ -126,8 +194,8 @@ jQuery(document).ready(function ($) {
             $row.find('.own-modem-error').hide();
 
             // Convert from pending to selected (visual state only)
-            if ($row.hasClass('own-modem-pending')) {
-                console.log('Converting from pending to selected');
+            if ($row.hasClass('own-modem-pending') || !$row.hasClass('modem-row-selected')) {
+                console.log('Converting to selected state');
                 $row.removeClass('own-modem-pending');
                 $row.addClass('modem-row-selected');
             }
@@ -222,7 +290,7 @@ jQuery(document).ready(function ($) {
         }
     });
 
-    
+
 
     // Function to add product to cart
     function addToCart(productId, isInternetPlan = false, productType = '') {
