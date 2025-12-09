@@ -2057,62 +2057,88 @@ if ($monthly_method === 'payafter') {
 $tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 0;
 $monthly_subtotal = 0;
 
+error_log('=== MONTHLY SUMMARY DEBUG ===');
+error_log('Monthly summary keys: ' . json_encode(array_keys($monthly_summary)));
+
 foreach (WC()->cart->get_cart() as $cart_item) {
     $product = $cart_item['data'];
     $product_cat_ids = $product->get_category_ids();
-    
+
+    error_log('Processing product: ' . $product->get_name());
+    error_log('Product ID: ' . $product->get_id());
+    error_log('Category IDs: ' . json_encode($product_cat_ids));
+
     if (empty($product_cat_ids)) {
+        error_log('SKIPPED - No categories');
         continue;
     }
     
-    $product_cat = get_term($product_cat_ids[0], 'product_cat');
-    if (is_wp_error($product_cat)) {
-        continue;
-    }
-    
-    $product_category = $product_cat->slug;
-    if ($product_category == 'modems-new') {
-        $product_category = 'modems';
-    }
-    
-    // Only process categories that exist in monthly summary
-    if (isset($monthly_summary[$product_category])) {
-        $product_id = $product->get_id();
-        
-        // Get monthly_fee from ACF
-        $monthly_fee = 0;
-        if (function_exists('get_field')) {
-            $monthly_fee = get_field('monthly_fee', $product_id);
-            $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
+    // Loop through ALL categories to find a match with monthly_summary keys
+    $product_category = null;
+    foreach ($product_cat_ids as $cat_id) {
+        $product_cat = get_term($cat_id, 'product_cat');
+        if (is_wp_error($product_cat)) {
+            continue;
         }
         
-        // Update the summary with product name and monthly fee
-        $monthly_summary[$product_category][0] = $product->get_name();
-        $monthly_summary[$product_category][1] = round($monthly_fee, 2);
+        $cat_slug = $product_cat->slug;
+        error_log('Checking category slug: ' . $cat_slug);
         
-        // Check for promotional pricing ACF fields
-        if (function_exists('get_field')) {
-            $promo_blurb = get_field('monthly_promo_blurb', $product_id);
-            $promo_fee = get_field('monthly_promo_fee', $product_id);
+        // Handle modem category alias
+        if ($cat_slug == 'modems-new') {
+            $cat_slug = 'modems';
+        }
+        
+        // Check if this category matches any key in monthly_summary
+        if (isset($monthly_summary[$cat_slug])) {
+            $product_category = $cat_slug;
+            error_log('MATCH FOUND: ' . $cat_slug);
+            break; // Found a match, stop looking
+        }
+    }
+
+    // Skip if no matching category found
+    if ($product_category === null) {
+        error_log('SKIPPED - No matching category in monthly_summary');
+        continue;
+    }   
+
+    // Now process the product with the matched category
+    $product_id = $product->get_id();
+
+    // Get monthly_fee from ACF
+    $monthly_fee = 0;
+    if (function_exists('get_field')) {
+        $monthly_fee = get_field('monthly_fee', $product_id);
+        $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
+    }
+    
+    // Update the summary with product name and monthly fee
+    $monthly_summary[$product_category][0] = $product->get_name();
+    $monthly_summary[$product_category][1] = round($monthly_fee, 2);
+
+    // Check for promotional pricing ACF fields
+    if (function_exists('get_field')) {
+        $promo_blurb = get_field('monthly_promo_blurb', $product_id);
+        $promo_fee = get_field('monthly_promo_fee', $product_id);
+        
+        // Add promo fields as elements [2] and [3] if they exist
+        if (!empty($promo_blurb) || !empty($promo_fee)) {
+            $monthly_summary[$product_category][2] = $promo_blurb ? $promo_blurb : '';
+            $monthly_summary[$product_category][3] = $promo_fee ? floatval($promo_fee) : 0;
             
-            // Add promo fields as elements [2] and [3] if they exist
-            if (!empty($promo_blurb) || !empty($promo_fee)) {
-                $monthly_summary[$product_category][2] = $promo_blurb ? $promo_blurb : '';
-                $monthly_summary[$product_category][3] = $promo_fee ? floatval($promo_fee) : 0;
-                
-                // Use promo fee for subtotal if available
-                if ($promo_fee > 0) {
-                    $monthly_subtotal += floatval($promo_fee);
-                } else {
-                    $monthly_subtotal += $monthly_fee;
-                }
+            // Use promo fee for subtotal if available
+            if ($promo_fee > 0) {
+                $monthly_subtotal += floatval($promo_fee);
             } else {
-                // No promo - use regular monthly fee
                 $monthly_subtotal += $monthly_fee;
             }
         } else {
+            // No promo - use regular monthly fee
             $monthly_subtotal += $monthly_fee;
         }
+    } else {
+        $monthly_subtotal += $monthly_fee;
     }
 }
 
@@ -2265,7 +2291,14 @@ $monthly_summary['grand_total'][1] = round($monthly_subtotal + $monthly_summary[
         }
         
         // Include Cryptor class
-        require_once get_template_directory() . '/includes/crypt.php';
+            $crypt_path = get_stylesheet_directory() . '/includes/crypt.php';
+
+            if (!file_exists($crypt_path)) {
+                error_log('CRITICAL ERROR: crypt.php not found at: ' . $crypt_path);
+                return false;
+            }
+
+            require_once $crypt_path;  
         
         if ($monthly_method === 'cc') {
             // Collect credit card data from user meta
