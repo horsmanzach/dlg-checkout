@@ -1941,47 +1941,245 @@ add_shortcode('moneris_complete_payment_button', 'moneris_complete_payment_butto
  * INCLUDES COMPREHENSIVE LOGGING FOR DIALLOG DEVELOPER
  */
 function prepare_diallog_order_data($payment_response, $cardholder_name, $moneris_config) {
-    // Get cart items before clearing
-    $cart_items = array();
-    foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
-        $product = $cart_item['data'];
-        $cart_items[] = array(
-            'product_id' => $product->get_id(),
-            'name' => $product->get_name(),
-            'quantity' => $cart_item['quantity'],
-            'price' => $product->get_price(),
-            'total' => $cart_item['line_total']
-        );
+ 
+   // Get summaries
+    $upfront_summary = function_exists('get_upfront_fee_summary') ? get_upfront_fee_summary() : array();
+
+    // TRANSFORM FOR DIALLOG OUTPUT ONLY (doesn't affect thank you page/email)
+    // Remove unnecessary fields
+    unset($upfront_summary['ModemPurchaseOption']);
+    unset($upfront_summary['internet-plan']);
+    unset($upfront_summary['deposit']); // Remove total deposits line
+
+    // Add individual deposit info from ACF fields
+    foreach ($upfront_summary as $key => $value) {
+        // Skip totals/subtotals
+        if (in_array($key, array('subtotal', 'taxes', 'grand_total'))) {
+        continue;
     }
     
-    // Get summaries
-    $upfront_summary = function_exists('get_upfront_fee_summary_with_deposits') ? 
-        get_upfront_fee_summary_with_deposits() : 
-        (function_exists('get_upfront_fee_summary') ? get_upfront_fee_summary() : array());
+    // Get product ID from cart for this category
+    foreach (WC()->cart->get_cart() as $cart_item) {
+        $product = $cart_item['data'];
+        $product_cat_ids = $product->get_category_ids();
+        
+        if (empty($product_cat_ids)) {
+            continue;
+        }
+        
+        $product_cat = get_term($product_cat_ids[0], 'product_cat');
+        if (is_wp_error($product_cat)) {
+            continue;
+        }
+        
+        $product_category = $product_cat->slug;
+        if ($product_category == 'modems-new') {
+            $product_category = 'modems';
+        }
+        
+        // If this product matches the current summary key
+        if ($product_category === $key) {
+            $product_id = $product->get_id();
+            
+            // Check for ACF deposit fields
+            if (function_exists('get_field')) {
+                $deposit_title = get_field('deposit-title', $product_id);
+                $deposit_fee = get_field('deposit-fee', $product_id);
+                
+                // Add deposit info as elements [2] and [3] if they exist
+                if (!empty($deposit_title) || !empty($deposit_fee)) {
+                    $upfront_summary[$key][2] = $deposit_title ? $deposit_title : '';
+                    $upfront_summary[$key][3] = $deposit_fee ? floatval($deposit_fee) : 0;
+                }
+            }
+            break;
+        }
+    }
+}
+
+// Fix modem price for Diallog output only
+// The helper function sets price to deposit amount, but Diallog needs actual product price (0)
+    if (isset($upfront_summary['modems']) && isset($upfront_summary['modems'][3])) {
+        // Element [1] was set to deposit amount in helper, change to actual product price
+        foreach (WC()->cart->get_cart() as $cart_item) {
+            $product = $cart_item['data'];
+            $product_cat_ids = $product->get_category_ids();
+        
+            if (!empty($product_cat_ids)) {
+                $product_cat = get_term($product_cat_ids[0], 'product_cat');
+                if (!is_wp_error($product_cat) && ($product_cat->slug === 'modems' || $product_cat->slug === 'modems-new')) {
+                    $upfront_summary['modems'][1] = round(floatval($product->get_price()), 2);
+                    break;
+            }
+        }
+    }
+}
+
+// Add Pay After Deposit to upfront_summary if selected
+$monthly_method = dg_get_user_meta('monthly_bill_payment_option');
+if ($monthly_method === 'payafter') {
+    // Get Pay After product to retrieve ACF deposit fields
+    $payafter_product_id = 265827;
+    
+    $deposit_title = '';
+    $deposit_fee = 0;
+    
+    if (function_exists('get_field')) {
+        $deposit_title = get_field('deposit-title', $payafter_product_id);
+        $deposit_fee = get_field('deposit-fee', $payafter_product_id);
+    }
+    
+    // Use defaults if ACF fields are empty
+    if (empty($deposit_title)) {
+        $deposit_title = 'Pay After Deposit';
+    }
+    if (empty($deposit_fee)) {
+        $deposit_fee = 200;
+    }
+    
+    // Rebuild upfront_summary with deposit before subtotal
+    $reordered = array();
+    foreach ($upfront_summary as $key => $value) {
+        if ($key === 'subtotal') {
+            // Insert deposit right before subtotal
+            $reordered['deposit'] = array($deposit_title, floatval($deposit_fee));
+        }
+        $reordered[$key] = $value;
+    }
+    $upfront_summary = $reordered;
+}
     
     $monthly_summary = function_exists('get_monthly_fee_summary') ? 
-        get_monthly_fee_summary() : array();
+    get_monthly_fee_summary() : array();
+
+// TRANSFORM MONTHLY SUMMARY FOR DIALLOG OUTPUT ONLY
+// Replace regular prices with monthly_fee ACF values and ensure all products display
+$tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 0;
+$monthly_subtotal = 0;
+
+foreach (WC()->cart->get_cart() as $cart_item) {
+    $product = $cart_item['data'];
+    $product_cat_ids = $product->get_category_ids();
+    
+    if (empty($product_cat_ids)) {
+        continue;
+    }
+    
+    $product_cat = get_term($product_cat_ids[0], 'product_cat');
+    if (is_wp_error($product_cat)) {
+        continue;
+    }
+    
+    $product_category = $product_cat->slug;
+    if ($product_category == 'modems-new') {
+        $product_category = 'modems';
+    }
+    
+    // Only process categories that exist in monthly summary
+    if (isset($monthly_summary[$product_category])) {
+        $product_id = $product->get_id();
+        
+        // Get monthly_fee from ACF
+        $monthly_fee = 0;
+        if (function_exists('get_field')) {
+            $monthly_fee = get_field('monthly_fee', $product_id);
+            $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
+        }
+        
+        // Update the summary with product name and monthly fee
+        $monthly_summary[$product_category][0] = $product->get_name();
+        $monthly_summary[$product_category][1] = round($monthly_fee, 2);
+        
+        // Check for promotional pricing ACF fields
+        if (function_exists('get_field')) {
+            $promo_blurb = get_field('monthly_promo_blurb', $product_id);
+            $promo_fee = get_field('monthly_promo_fee', $product_id);
+            
+            // Add promo fields as elements [2] and [3] if they exist
+            if (!empty($promo_blurb) || !empty($promo_fee)) {
+                $monthly_summary[$product_category][2] = $promo_blurb ? $promo_blurb : '';
+                $monthly_summary[$product_category][3] = $promo_fee ? floatval($promo_fee) : 0;
+                
+                // Use promo fee for subtotal if available
+                if ($promo_fee > 0) {
+                    $monthly_subtotal += floatval($promo_fee);
+                } else {
+                    $monthly_subtotal += $monthly_fee;
+                }
+            } else {
+                // No promo - use regular monthly fee
+                $monthly_subtotal += $monthly_fee;
+            }
+        } else {
+            $monthly_subtotal += $monthly_fee;
+        }
+    }
+}
+
+// Add tv-plan if not in summary but exists in cart
+if (!isset($monthly_summary['tv-plan'])) {
+    foreach (WC()->cart->get_cart() as $cart_item) {
+        $product = $cart_item['data'];
+        $product_cat_ids = $product->get_category_ids();
+        
+        if (!empty($product_cat_ids)) {
+            $product_cat = get_term($product_cat_ids[0], 'product_cat');
+            if (!is_wp_error($product_cat) && $product_cat->slug === 'tv-plan') {
+                $product_id = $product->get_id();
+                $monthly_fee = 0;
+                
+                if (function_exists('get_field')) {
+                    $monthly_fee = get_field('monthly_fee', $product_id);
+                    $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
+                }
+                
+                // Check for promo fields
+                $promo_blurb = '';
+                $promo_fee = 0;
+                if (function_exists('get_field')) {
+                    $promo_blurb = get_field('monthly_promo_blurb', $product_id);
+                    $promo_fee = get_field('monthly_promo_fee', $product_id);
+                    $promo_fee = is_numeric($promo_fee) ? floatval($promo_fee) : 0;
+                }
+                
+                // Build tv-plan array
+                $tv_plan_array = array($product->get_name(), round($monthly_fee, 2));
+                
+                // Add promo fields if they exist
+                if (!empty($promo_blurb) || $promo_fee > 0) {
+                    $tv_plan_array[2] = $promo_blurb ? $promo_blurb : '';
+                    $tv_plan_array[3] = round($promo_fee, 2);
+                    
+                    // Use promo fee for subtotal if available
+                    $monthly_subtotal += ($promo_fee > 0) ? $promo_fee : $monthly_fee;
+                } else {
+                    $monthly_subtotal += $monthly_fee;
+                }
+                
+                // Add tv-plan before subtotal
+                $reordered = array();
+                foreach ($monthly_summary as $key => $value) {
+                    if ($key === 'subtotal') {
+                        $reordered['tv-plan'] = $tv_plan_array;
+                    }
+                    $reordered[$key] = $value;
+                }
+                $monthly_summary = $reordered;
+                break;
+            }
+        }
+    }
+}
+
+// Recalculate totals based on monthly_fee values
+$monthly_summary['subtotal'][1] = round($monthly_subtotal, 2);
+$monthly_summary['taxes'][1] = round(($monthly_subtotal * $tax_rate) / 100, 2);
+$monthly_summary['grand_total'][1] = round($monthly_subtotal + $monthly_summary['taxes'][1], 2);
     
     // Get customer data using the SAME method as thank you page
     $customer_info = dg_get_customer_info();
 
-    $customer_data = array(
-    'billing_first_name' => $customer_info['first_name'],
-    'billing_last_name' => $customer_info['last_name'],
-    'billing_email' => $customer_info['email'],
-    'billing_phone' => $customer_info['phone'],
-    'billing_address_1' => $customer_info['service_address_full'],
-    'billing_city' => '',
-    'billing_state' => '',
-    'billing_postcode' => '',
-    );
-
-    // Get addresses from customer info
-    $service_address = $customer_info['service_address_full'];
-    $shipping_address = $customer_info['shipping_address_full'];
-    $customer_ip = $_SERVER['REMOTE_ADDR'] ?? '';
-    
-    // Get CCD (coupon code)
+    // Get CCD (coupon code) first
     $ccd = '';
     $ccd_encoded = dg_get_user_meta("ccd");
     if (!empty($ccd_encoded)) {
@@ -1990,6 +2188,17 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
             $ccd = strtoupper(trim($ccd_decoded));
         }
     }
+
+    $customer_data = array(
+        'billing_first_name' => $customer_info['first_name'],
+        'billing_last_name' => $customer_info['last_name'],
+        'billing_email' => $customer_info['email'],
+        'billing_phone' => $customer_info['phone'],
+        'customer_service_address' => $customer_info['service_address_full'],
+        'customer_shipping_address' => $customer_info['shipping_address_full'],
+        'customer_ip' => $_SERVER['REMOTE_ADDR'] ?? '',
+        'ccd' => $ccd
+    );
     
     // Get terms acceptance timestamp from session
     $terms_timestamp = '';
@@ -1999,7 +2208,31 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
             error_log('Including terms timestamp in order data: ' . $terms_timestamp);
         }
     }
+
+
+    // Format timestamps for display
+    $order_timestamp_formatted = '';
+    $terms_timestamp_formatted = '';
+
+    if (function_exists('wp_timezone')) {
+        $timezone = wp_timezone();
     
+        // Format order timestamp
+        $order_date = new DateTime('now', $timezone);
+        $order_timestamp_formatted = $order_date->format('F j, Y \a\t g:i A T');
+    
+        // Format terms timestamp if exists
+        if (!empty($terms_timestamp)) {
+            try {
+                $terms_date = new DateTime($terms_timestamp, new DateTimeZone('UTC'));
+                $terms_date->setTimezone($timezone);
+                $terms_timestamp_formatted = $terms_date->format('F j, Y \a\t g:i A T');
+            } catch (Exception $e) {
+                $terms_timestamp_formatted = $terms_timestamp; // Fallback to original
+            }
+        }
+    }
+
     // Build complete order data structure
     $order_data = array(
         'payment_info' => array(
@@ -2011,23 +2244,17 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
             'card_type' => $payment_response->getCardType(),
             'auth_code' => $payment_response->getAuthCode(),
             'reference_num' => $payment_response->getReferenceNum(),
-            'test_mode' => $moneris_config['test_mode']
+            'test_mode' => $moneris_config['test_mode'],
+            'order_timestamp' => $order_timestamp_formatted,
+            'order_source' => 'website_checkout',
+            'terms_acceptance_timestamp' => $terms_timestamp_formatted
         ),
         'customer_data' => $customer_data,
-        'customer_service_address' => $service_address,
-        'customer_shipping_address' => $shipping_address,
-        'customer_ip' => $customer_ip,
-        'ccd' => $ccd,
-        'cart_items' => $cart_items,
         'upfront_summary' => $upfront_summary,
-        'monthly_summary' => $monthly_summary,
-        'order_timestamp' => time(),
-        'order_source' => 'website_checkout',
-        'terms_acceptance_timestamp' => $terms_timestamp
+        'monthly_summary' => $monthly_summary
     );
     
     // ========== ADD ENCRYPTED MONTHLY BILLING DATA ==========
-    $monthly_method = dg_get_user_meta('monthly_bill_payment_option');
     
     if ($monthly_method === 'cc' || $monthly_method === 'bank') {
         // Generate encryption key (same way as old system)
