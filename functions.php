@@ -1940,9 +1940,10 @@ add_shortcode('moneris_complete_payment_button', 'moneris_complete_payment_butto
  * Prepare order data for Diallog database
  * INCLUDES COMPREHENSIVE LOGGING FOR DIALLOG DEVELOPER
  */
+
 function prepare_diallog_order_data($payment_response, $cardholder_name, $moneris_config) {
  
-   // Get summaries
+    // Get summaries
     $upfront_summary = function_exists('get_upfront_fee_summary') ? get_upfront_fee_summary() : array();
 
     // TRANSFORM FOR DIALLOG OUTPUT ONLY (doesn't affect thank you page/email)
@@ -1951,56 +1952,113 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
     unset($upfront_summary['internet-plan']);
     unset($upfront_summary['deposit']); // Remove total deposits line
 
-    // Add individual deposit info from ACF fields
-    foreach ($upfront_summary as $key => $value) {
-        // Skip totals/subtotals
-        if (in_array($key, array('subtotal', 'taxes', 'grand_total'))) {
-        continue;
-    }
+    // Get installation dates from cart - check for specific installation variation (ID: 265450)
+    $installation_dates = array(
+        'preferred' => '',
+        'secondary' => ''
+    );
     
-    // Get product ID from cart for this category
     foreach (WC()->cart->get_cart() as $cart_item) {
         $product = $cart_item['data'];
-        $product_cat_ids = $product->get_category_ids();
         
-        if (empty($product_cat_ids)) {
-            continue;
-        }
-        
-        $product_cat = get_term($product_cat_ids[0], 'product_cat');
-        if (is_wp_error($product_cat)) {
-            continue;
-        }
-        
-        $product_category = $product_cat->slug;
-        if ($product_category == 'modems-new') {
-            $product_category = 'modems';
-        }
-        
-        // If this product matches the current summary key
-        if ($product_category === $key) {
-            $product_id = $product->get_id();
+        // Check if this is THE installation variation (ID: 265450)
+        if ($product->get_id() == 265450) {
+            error_log('Found installation variation 265450 in cart');
             
-            // Check for ACF deposit fields
-            if (function_exists('get_field')) {
-                $deposit_title = get_field('deposit-title', $product_id);
-                $deposit_fee = get_field('deposit-fee', $product_id);
+            // Get dates from variation attributes
+            if (isset($cart_item['variation']) && is_array($cart_item['variation'])) {
+                $installation_dates['preferred'] = isset($cart_item['variation']['attribute_preferred-date']) ? 
+                    $cart_item['variation']['attribute_preferred-date'] : '';
+                $installation_dates['secondary'] = isset($cart_item['variation']['attribute_secondary-date']) ? 
+                    $cart_item['variation']['attribute_secondary-date'] : '';
                 
-                // Add deposit info as elements [2] and [3] if they exist
-                if (!empty($deposit_title) || !empty($deposit_fee)) {
-                    $upfront_summary[$key][2] = $deposit_title ? $deposit_title : '';
-                    $upfront_summary[$key][3] = $deposit_fee ? floatval($deposit_fee) : 0;
+                error_log('Extracted dates - Preferred: ' . $installation_dates['preferred'] . ', Secondary: ' . $installation_dates['secondary']);
+                
+                // Add dates to installation object immediately if installation exists in summary
+                if (isset($upfront_summary['installation'])) {
+                    // Convert to object
+                    $upfront_summary['installation'] = array(
+                        'Title' => $upfront_summary['installation'][0],
+                        'Price' => $upfront_summary['installation'][1]
+                    );
+                    
+                    // Add dates
+                    if (!empty($installation_dates['preferred'])) {
+                        $upfront_summary['installation']['Preferred Installation Date'] = $installation_dates['preferred'];
+                        error_log('✓ Added preferred date: ' . $installation_dates['preferred']);
+                    }
+                    if (!empty($installation_dates['secondary'])) {
+                        $upfront_summary['installation']['Secondary Installation Date'] = $installation_dates['secondary'];
+                        error_log('✓ Added secondary date: ' . $installation_dates['secondary']);
+                    }
                 }
             }
-            break;
+            break; // Found it, stop looking
         }
     }
-}
 
-// Fix modem price for Diallog output only
-// The helper function sets price to deposit amount, but Diallog needs actual product price (0)
-    if (isset($upfront_summary['modems']) && isset($upfront_summary['modems'][3])) {
-        // Element [1] was set to deposit amount in helper, change to actual product price
+    // Add individual deposit info from ACF fields AND convert to objects
+    foreach ($upfront_summary as $key => $value) {
+        // Skip totals/subtotals - keep these as arrays for consistency
+        if (in_array($key, array('subtotal', 'taxes', 'grand_total', 'total-deposits'))) {
+            continue;
+        }
+    
+        // Get product ID from cart for this category
+        foreach (WC()->cart->get_cart() as $cart_item) {
+            $product = $cart_item['data'];
+            $product_cat_ids = $product->get_category_ids();
+            
+            if (empty($product_cat_ids)) {
+                continue;
+            }
+            
+            $product_cat = get_term($product_cat_ids[0], 'product_cat');
+            if (is_wp_error($product_cat)) {
+                continue;
+            }
+            
+            $product_category = $product_cat->slug;
+            if ($product_category == 'modems-new') {
+                $product_category = 'modems';
+            }
+            
+            // If this product matches the current summary key
+            if ($product_category === $key) {
+                $product_id = $product->get_id();
+                
+                // Convert to object with named keys (skip installation - already done above)
+                if ($key !== 'installation') {
+                    $original_name = $upfront_summary[$key][0];
+                    $original_price = $upfront_summary[$key][1];
+                    
+                    $upfront_summary[$key] = array(
+                        'Title' => $original_name,
+                        'Price' => $original_price
+                    );
+                }
+                
+                // Check for ACF deposit fields
+                if (function_exists('get_field')) {
+                    $deposit_title = get_field('deposit-title', $product_id);
+                    $deposit_fee = get_field('deposit-fee', $product_id);
+                    
+                    // Add deposit fields if they exist
+                    if (!empty($deposit_title) || !empty($deposit_fee)) {
+                        $upfront_summary[$key]['Deposit Title'] = $deposit_title ? $deposit_title : '';
+                        $upfront_summary[$key]['Deposit Amount'] = $deposit_fee ? floatval($deposit_fee) : 0;
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    // Fix modem price for Diallog output only
+    // The helper function sets price to deposit amount, but Diallog needs actual product price (0)
+    // Now works with object format
+    if (isset($upfront_summary['modems']) && isset($upfront_summary['modems']['Deposit Amount'])) {
+        // The Price was set to deposit amount in helper, change to actual product price (0)
         foreach (WC()->cart->get_cart() as $cart_item) {
             $product = $cart_item['data'];
             $product_cat_ids = $product->get_category_ids();
@@ -2008,199 +2066,269 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
             if (!empty($product_cat_ids)) {
                 $product_cat = get_term($product_cat_ids[0], 'product_cat');
                 if (!is_wp_error($product_cat) && ($product_cat->slug === 'modems' || $product_cat->slug === 'modems-new')) {
-                    $upfront_summary['modems'][1] = round(floatval($product->get_price()), 2);
+                    $actual_price = round(floatval($product->get_price()), 2);
+                    $upfront_summary['modems']['Price'] = $actual_price;
+                    error_log('Fixed modem price - was deposit amount, now actual price: ' . $actual_price);
                     break;
+                }
             }
         }
     }
-}
 
-// Add Pay After Deposit to upfront_summary if selected
-$monthly_method = dg_get_user_meta('monthly_bill_payment_option');
-if ($monthly_method === 'payafter') {
-    // Get Pay After product to retrieve ACF deposit fields
-    $payafter_product_id = 265827;
-    
-    $deposit_title = '';
-    $deposit_fee = 0;
-    
-    if (function_exists('get_field')) {
-        $deposit_title = get_field('deposit-title', $payafter_product_id);
-        $deposit_fee = get_field('deposit-fee', $payafter_product_id);
-    }
-    
-    // Use defaults if ACF fields are empty
-    if (empty($deposit_title)) {
-        $deposit_title = 'Pay After Deposit';
-    }
-    if (empty($deposit_fee)) {
-        $deposit_fee = 200;
-    }
-    
-    // Rebuild upfront_summary with deposit before subtotal
-    $reordered = array();
-    foreach ($upfront_summary as $key => $value) {
-        if ($key === 'subtotal') {
-            // Insert deposit right before subtotal
-            $reordered['deposit'] = array($deposit_title, floatval($deposit_fee));
+    // Add Pay After Deposit to upfront_summary if selected
+    $monthly_method = dg_get_user_meta('monthly_bill_payment_option');
+    if ($monthly_method === 'payafter') {
+        // Get Pay After product to retrieve ACF deposit fields
+        $payafter_product_id = 265827;
+        
+        $deposit_title = '';
+        $deposit_fee = 0;
+        
+        if (function_exists('get_field')) {
+            $deposit_title = get_field('deposit-title', $payafter_product_id);
+            $deposit_fee = get_field('deposit-fee', $payafter_product_id);
         }
-        $reordered[$key] = $value;
+        
+        // Use defaults if ACF fields are empty
+        if (empty($deposit_title)) {
+            $deposit_title = 'Pay After Deposit';
+        }
+        if (empty($deposit_fee)) {
+            $deposit_fee = 200;
+        }
+        
+        // Rebuild upfront_summary with deposit before subtotal (as object)
+        $reordered = array();
+        foreach ($upfront_summary as $key => $value) {
+            if ($key === 'subtotal') {
+                // Insert deposit right before subtotal as object
+                $reordered['deposit'] = array(
+                    'Title' => $deposit_title,
+                    'Amount' => floatval($deposit_fee)
+                );
+            }
+            $reordered[$key] = $value;
+        }
+        $upfront_summary = $reordered;
     }
-    $upfront_summary = $reordered;
-}
     
     $monthly_summary = function_exists('get_monthly_fee_summary') ? 
-    get_monthly_fee_summary() : array();
+        get_monthly_fee_summary() : array();
 
-// TRANSFORM MONTHLY SUMMARY FOR DIALLOG OUTPUT ONLY
-// Replace regular prices with monthly_fee ACF values and ensure all products display
-$tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 0;
-$monthly_subtotal = 0;
+    // TRANSFORM MONTHLY SUMMARY FOR DIALLOG OUTPUT ONLY
+    // Replace regular prices with monthly_fee ACF values and ensure all products display
+    $tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 0;
+    $monthly_subtotal = 0;
 
-error_log('=== MONTHLY SUMMARY DEBUG ===');
-error_log('Monthly summary keys: ' . json_encode(array_keys($monthly_summary)));
+    error_log('=== MONTHLY SUMMARY DEBUG ===');
+    error_log('Monthly summary keys: ' . json_encode(array_keys($monthly_summary)));
 
-foreach (WC()->cart->get_cart() as $cart_item) {
-    $product = $cart_item['data'];
-    $product_cat_ids = $product->get_category_ids();
-
-    error_log('Processing product: ' . $product->get_name());
-    error_log('Product ID: ' . $product->get_id());
-    error_log('Category IDs: ' . json_encode($product_cat_ids));
-
-    if (empty($product_cat_ids)) {
-        error_log('SKIPPED - No categories');
-        continue;
-    }
-    
-    // Loop through ALL categories to find a match with monthly_summary keys
-    $product_category = null;
-    foreach ($product_cat_ids as $cat_id) {
-        $product_cat = get_term($cat_id, 'product_cat');
-        if (is_wp_error($product_cat)) {
-            continue;
-        }
-        
-        $cat_slug = $product_cat->slug;
-        error_log('Checking category slug: ' . $cat_slug);
-        
-        // Handle modem category alias
-        if ($cat_slug == 'modems-new') {
-            $cat_slug = 'modems';
-        }
-        
-        // Check if this category matches any key in monthly_summary
-        if (isset($monthly_summary[$cat_slug])) {
-            $product_category = $cat_slug;
-            error_log('MATCH FOUND: ' . $cat_slug);
-            break; // Found a match, stop looking
-        }
-    }
-
-    // Skip if no matching category found
-    if ($product_category === null) {
-        error_log('SKIPPED - No matching category in monthly_summary');
-        continue;
-    }   
-
-    // Now process the product with the matched category
-    $product_id = $product->get_id();
-
-    // Get monthly_fee from ACF
-    $monthly_fee = 0;
-    if (function_exists('get_field')) {
-        $monthly_fee = get_field('monthly_fee', $product_id);
-        $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
-    }
-    
-    // Update the summary with product name and monthly fee
-    $monthly_summary[$product_category][0] = $product->get_name();
-    $monthly_summary[$product_category][1] = round($monthly_fee, 2);
-
-    // Check for promotional pricing ACF fields
-    if (function_exists('get_field')) {
-        $promo_blurb = get_field('monthly_promo_blurb', $product_id);
-        $promo_fee = get_field('monthly_promo_fee', $product_id);
-        
-        // Add promo fields as elements [2] and [3] if they exist
-        if (!empty($promo_blurb) || !empty($promo_fee)) {
-            $monthly_summary[$product_category][2] = $promo_blurb ? $promo_blurb : '';
-            $monthly_summary[$product_category][3] = $promo_fee ? floatval($promo_fee) : 0;
-            
-            // Use promo fee for subtotal if available
-            if ($promo_fee > 0) {
-                $monthly_subtotal += floatval($promo_fee);
-            } else {
-                $monthly_subtotal += $monthly_fee;
-            }
-        } else {
-            // No promo - use regular monthly fee
-            $monthly_subtotal += $monthly_fee;
-        }
-    } else {
-        $monthly_subtotal += $monthly_fee;
-    }
-}
-
-// Add tv-plan if not in summary but exists in cart
-if (!isset($monthly_summary['tv-plan'])) {
     foreach (WC()->cart->get_cart() as $cart_item) {
         $product = $cart_item['data'];
         $product_cat_ids = $product->get_category_ids();
+
+        error_log('Processing product: ' . $product->get_name());
+        error_log('Product ID: ' . $product->get_id());
+        error_log('Category IDs: ' . json_encode($product_cat_ids));
+
+        if (empty($product_cat_ids)) {
+            error_log('SKIPPED - No categories');
+            continue;
+        }
         
-        if (!empty($product_cat_ids)) {
-            $product_cat = get_term($product_cat_ids[0], 'product_cat');
-            if (!is_wp_error($product_cat) && $product_cat->slug === 'tv-plan') {
-                $product_id = $product->get_id();
-                $monthly_fee = 0;
+        // Loop through ALL categories to find a match with monthly_summary keys
+        $product_category = null;
+        foreach ($product_cat_ids as $cat_id) {
+            $product_cat = get_term($cat_id, 'product_cat');
+            if (is_wp_error($product_cat)) {
+                continue;
+            }
+            
+            $cat_slug = $product_cat->slug;
+            error_log('Checking category slug: ' . $cat_slug);
+            
+            // Handle modem category alias
+            if ($cat_slug == 'modems-new') {
+                $cat_slug = 'modems';
+            }
+            
+            // Check if this category matches any key in monthly_summary
+            if (isset($monthly_summary[$cat_slug])) {
+                $product_category = $cat_slug;
+                error_log('MATCH FOUND: ' . $cat_slug);
+                break; // Found a match, stop looking
+            }
+        }
+
+        // Skip if no matching category found
+        if ($product_category === null) {
+            error_log('SKIPPED - No matching category in monthly_summary');
+            continue;
+        }   
+
+        // Now process the product with the matched category
+        $product_id = $product->get_id();
+
+        // Get monthly_fee from ACF
+        $monthly_fee = 0;
+        if (function_exists('get_field')) {
+            $monthly_fee = get_field('monthly_fee', $product_id);
+            $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
+        }
+        
+        // Update the summary with product name and monthly fee AS OBJECT
+        $monthly_summary[$product_category] = array(
+            'Title' => $product->get_name(),
+            'Monthly Fee' => round($monthly_fee, 2)
+        );
+
+        // Special handling for internet-plan category - get the 'id' attribute
+        if ($product_category === 'internet-plan') {
+            $plan_id = $product->get_attribute('id');
+            if (!empty($plan_id)) {
+                $monthly_summary[$product_category]['ID Attribute'] = $plan_id;
+                error_log('Added internet plan ID to monthly_summary: ' . $plan_id);
+            }
+        }
+        // Special handling for modems category - check for modem_details
+        else if ($product_category === 'modems' && $product_id == 265769) {
+            // This is "I Have My Own Modem" product
+            if (isset($cart_item['modem_details']) && !empty($cart_item['modem_details'])) {
+                $monthly_summary[$product_category]['Modem Make & Model'] = $cart_item['modem_details'];
+                error_log('Added modem details to monthly_summary: ' . $cart_item['modem_details']);
+            }
+        }
+        // Check for promotional pricing ACF fields (for other products)
+        else if (function_exists('get_field')) {
+            $promo_blurb = get_field('monthly_promo_blurb', $product_id);
+            $promo_fee = get_field('monthly_promo_fee', $product_id);
+            
+            // Add promo fields if they exist
+            if (!empty($promo_blurb) || !empty($promo_fee)) {
+                $monthly_summary[$product_category]['Promotional Blurb'] = $promo_blurb ? $promo_blurb : '';
+                $monthly_summary[$product_category]['Promotional Price'] = $promo_fee ? floatval($promo_fee) : 0;
                 
-                if (function_exists('get_field')) {
-                    $monthly_fee = get_field('monthly_fee', $product_id);
-                    $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
-                }
-                
-                // Check for promo fields
-                $promo_blurb = '';
-                $promo_fee = 0;
-                if (function_exists('get_field')) {
-                    $promo_blurb = get_field('monthly_promo_blurb', $product_id);
-                    $promo_fee = get_field('monthly_promo_fee', $product_id);
-                    $promo_fee = is_numeric($promo_fee) ? floatval($promo_fee) : 0;
-                }
-                
-                // Build tv-plan array
-                $tv_plan_array = array($product->get_name(), round($monthly_fee, 2));
-                
-                // Add promo fields if they exist
-                if (!empty($promo_blurb) || $promo_fee > 0) {
-                    $tv_plan_array[2] = $promo_blurb ? $promo_blurb : '';
-                    $tv_plan_array[3] = round($promo_fee, 2);
-                    
-                    // Use promo fee for subtotal if available
-                    $monthly_subtotal += ($promo_fee > 0) ? $promo_fee : $monthly_fee;
+                // Use promo fee for subtotal if available
+                if ($promo_fee > 0) {
+                    $monthly_subtotal += floatval($promo_fee);
                 } else {
                     $monthly_subtotal += $monthly_fee;
                 }
-                
-                // Add tv-plan before subtotal
-                $reordered = array();
-                foreach ($monthly_summary as $key => $value) {
-                    if ($key === 'subtotal') {
-                        $reordered['tv-plan'] = $tv_plan_array;
+            } else {
+                // No promo - use regular monthly fee
+                $monthly_subtotal += $monthly_fee;
+            }
+        } else {
+            $monthly_subtotal += $monthly_fee;
+        }
+        
+        // Add to subtotal if not already added by promo logic
+        if (!isset($promo_fee) || $promo_fee <= 0) {
+            $monthly_subtotal += $monthly_fee;
+        }
+    }
+
+    // Add tv-plan if not in summary but exists in cart
+    if (!isset($monthly_summary['tv-plan'])) {
+        foreach (WC()->cart->get_cart() as $cart_item) {
+            $product = $cart_item['data'];
+            $product_cat_ids = $product->get_category_ids();
+            
+            if (!empty($product_cat_ids)) {
+                $product_cat = get_term($product_cat_ids[0], 'product_cat');
+                if (!is_wp_error($product_cat) && $product_cat->slug === 'tv-plan') {
+                    $product_id = $product->get_id();
+                    $monthly_fee = 0;
+                    
+                    if (function_exists('get_field')) {
+                        $monthly_fee = get_field('monthly_fee', $product_id);
+                        $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
                     }
-                    $reordered[$key] = $value;
+                    
+                    // Check for promo fields
+                    $promo_blurb = '';
+                    $promo_fee = 0;
+                    if (function_exists('get_field')) {
+                        $promo_blurb = get_field('monthly_promo_blurb', $product_id);
+                        $promo_fee = get_field('monthly_promo_fee', $product_id);
+                        $promo_fee = is_numeric($promo_fee) ? floatval($promo_fee) : 0;
+                    }
+                    
+                    // Build tv-plan as object
+                    $tv_plan_object = array(
+                        'Title' => $product->get_name(),
+                        'Monthly Fee' => round($monthly_fee, 2)
+                    );
+                    
+                    // Add promo fields if they exist
+                    if (!empty($promo_blurb) || $promo_fee > 0) {
+                        $tv_plan_object['Promotional Blurb'] = $promo_blurb ? $promo_blurb : '';
+                        $tv_plan_object['Promotional Price'] = round($promo_fee, 2);
+                        
+                        // Use promo fee for subtotal if available
+                        $monthly_subtotal += ($promo_fee > 0) ? $promo_fee : $monthly_fee;
+                    } else {
+                        $monthly_subtotal += $monthly_fee;
+                    }
+                    
+                    // Add tv-plan before subtotal
+                    $reordered = array();
+                    foreach ($monthly_summary as $key => $value) {
+                        if ($key === 'subtotal') {
+                            $reordered['tv-plan'] = $tv_plan_object;
+                        }
+                        $reordered[$key] = $value;
+                    }
+                    $monthly_summary = $reordered;
+                    break;
                 }
-                $monthly_summary = $reordered;
-                break;
             }
         }
     }
-}
 
-// Recalculate totals based on monthly_fee values
-$monthly_summary['subtotal'][1] = round($monthly_subtotal, 2);
-$monthly_summary['taxes'][1] = round(($monthly_subtotal * $tax_rate) / 100, 2);
-$monthly_summary['grand_total'][1] = round($monthly_subtotal + $monthly_summary['taxes'][1], 2);
+    // Recalculate totals based on monthly_fee values
+    $monthly_summary['subtotal'][1] = round($monthly_subtotal, 2);
+    $monthly_summary['taxes'][1] = round(($monthly_subtotal * $tax_rate) / 100, 2);
+    $monthly_summary['grand_total'][1] = round($monthly_subtotal + $monthly_summary['taxes'][1], 2);
+    
+    // Calculate total deposits from upfront_summary (now using object keys)
+    $total_deposits = 0;
+    foreach ($upfront_summary as $key => $value) {
+        // Skip totals/subtotals/taxes
+        if (in_array($key, array('subtotal', 'taxes', 'grand_total'))) {
+            continue;
+        }
+        
+        // Check if this item has a deposit (now using 'Deposit Amount' key)
+        if (isset($value['Deposit Amount']) && is_numeric($value['Deposit Amount'])) {
+            $total_deposits += floatval($value['Deposit Amount']);
+            error_log("Added {$key} deposit to total: " . $value['Deposit Amount']);
+        }
+    }
+    
+    // Add Pay After deposit if it exists (using 'Amount' key)
+    if (isset($upfront_summary['deposit']) && isset($upfront_summary['deposit']['Amount'])) {
+        $total_deposits += floatval($upfront_summary['deposit']['Amount']);
+        error_log("Added Pay After deposit to total: " . $upfront_summary['deposit']['Amount']);
+    }
+    
+    // Insert total-deposits into upfront_summary after taxes but before grand_total
+    if ($total_deposits > 0) {
+        $reordered_upfront = array();
+        foreach ($upfront_summary as $key => $value) {
+            $reordered_upfront[$key] = $value;
+            
+            // After taxes, insert total-deposits
+            if ($key === 'taxes') {
+                $reordered_upfront['total-deposits'] = array(
+                    'Total Deposits',
+                    round($total_deposits, 2)
+                );
+                error_log("Total deposits calculated: " . round($total_deposits, 2));
+            }
+        }
+        $upfront_summary = $reordered_upfront;
+    }
     
     // Get customer data using the SAME method as thank you page
     $customer_info = dg_get_customer_info();
@@ -2291,14 +2419,14 @@ $monthly_summary['grand_total'][1] = round($monthly_subtotal + $monthly_summary[
         }
         
         // Include Cryptor class
-            $crypt_path = get_stylesheet_directory() . '/includes/crypt.php';
+        $crypt_path = get_stylesheet_directory() . '/includes/crypt.php';
 
-            if (!file_exists($crypt_path)) {
-                error_log('CRITICAL ERROR: crypt.php not found at: ' . $crypt_path);
-                return false;
-            }
+        if (!file_exists($crypt_path)) {
+            error_log('CRITICAL ERROR: crypt.php not found at: ' . $crypt_path);
+            return false;
+        }
 
-            require_once $crypt_path;  
+        require_once $crypt_path;  
         
         if ($monthly_method === 'cc') {
             // Collect credit card data from user meta
@@ -2326,6 +2454,20 @@ $monthly_summary['grand_total'][1] = round($monthly_subtotal + $monthly_summary[
             $cryptor = new Cryptor($encryption_key);
             $order_data['monthly_cc'] = $cryptor->encrypt(maybe_serialize($cc_data));
             $order_data['dg_user_hash'] = $encryption_key;
+            
+            // Format payment method display with last 4 digits
+            $payment_method_display = 'Credit Card';
+            
+            // Get last 4 digits from session (same way as thank you page)
+            if (WC()->session) {
+                $monthly_card_last_4 = WC()->session->get('monthly_payment_card_last_4');
+                if ($monthly_card_last_4) {
+                    $payment_method_display .= ' ending in ' . $monthly_card_last_4;
+                    error_log('Monthly card last 4 retrieved from session: ' . $monthly_card_last_4);
+                }
+            }
+            
+            $order_data['monthly_bill_payment_option'] = $payment_method_display;
             
         } elseif ($monthly_method === 'bank') {
             // Collect bank account data from user meta
@@ -2355,10 +2497,10 @@ $monthly_summary['grand_total'][1] = round($monthly_subtotal + $monthly_summary[
             $cryptor = new Cryptor($encryption_key);
             $order_data['monthly_bank'] = $cryptor->encrypt(maybe_serialize($bank_data));
             $order_data['dg_user_hash'] = $encryption_key;
+            
+            // Add payment method indicator for bank
+            $order_data['monthly_bill_payment_option'] = 'Bank Account - Pre-Authorized Debit (PAD)';
         }
-        
-        // Add the payment method indicator
-        $order_data['monthly_bill_payment_option'] = $monthly_method;
         
     } elseif ($monthly_method === 'payafter') {
         // Log Pay After selection
@@ -2370,7 +2512,7 @@ $monthly_summary['grand_total'][1] = round($monthly_subtotal + $monthly_summary[
         error_log('No encrypted monthly billing data is included for this method.');
         error_log('========================================');
         
-        $order_data['monthly_bill_payment_option'] = 'payafter';
+        $order_data['monthly_bill_payment_option'] = 'Pay After (Non Pre-Authorized)';
     }
     
     // ========== COMPREHENSIVE LOGGING FOR DIALLOG DEVELOPER ==========
@@ -2408,9 +2550,7 @@ $monthly_summary['grand_total'][1] = round($monthly_subtotal + $monthly_summary[
     return $order_data;
 }
 
-
-
-// =====Transform order data to flat keys rather than nested objects specifically for email templates
+// ======================Transform order data to flat keys rather than nested objects specifically for email templates =========
 
 function transform_order_data_for_email($diallog_order_data) {
     
