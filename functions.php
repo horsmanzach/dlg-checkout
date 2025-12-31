@@ -1945,6 +1945,7 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
  
     // Get summaries
     $upfront_summary = function_exists('get_upfront_fee_summary') ? get_upfront_fee_summary() : array();
+    $monthly_summary = function_exists('get_monthly_fee_summary') ? get_monthly_fee_summary() : array();
 
     // TRANSFORM FOR DIALLOG OUTPUT ONLY (doesn't affect thank you page/email)
     // Remove unnecessary fields
@@ -1992,14 +1993,14 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
                         error_log('✓ Added secondary date: ' . $installation_dates['secondary']);
                     }
                 }
+                break;
             }
-            break; // Found it, stop looking
         }
     }
 
-    // Add individual deposit info from ACF fields AND convert to objects
+    // Add individual deposit info from ACF fields AND convert to objects (FOR ALL PRODUCTS)
     foreach ($upfront_summary as $key => $value) {
-        // Skip totals/subtotals - keep these as arrays for consistency
+        // Skip totals/subtotals - keep these as arrays for now
         if (in_array($key, array('subtotal', 'taxes', 'grand_total', 'total-deposits'))) {
             continue;
         }
@@ -2038,7 +2039,7 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
                     );
                 }
                 
-                // Check for ACF deposit fields
+                // Check for ACF deposit fields (FOR ALL PRODUCTS, not just modems)
                 if (function_exists('get_field')) {
                     $deposit_title = get_field('deposit-title', $product_id);
                     $deposit_fee = get_field('deposit-fee', $product_id);
@@ -2047,6 +2048,7 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
                     if (!empty($deposit_title) || !empty($deposit_fee)) {
                         $upfront_summary[$key]['Deposit Title'] = $deposit_title ? $deposit_title : '';
                         $upfront_summary[$key]['Deposit Amount'] = $deposit_fee ? floatval($deposit_fee) : 0;
+                        error_log("Added deposit to {$key}: Title='{$deposit_title}', Amount={$deposit_fee}");
                     }
                 }
                 break;
@@ -2055,10 +2057,7 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
     }
 
     // Fix modem price for Diallog output only
-    // The helper function sets price to deposit amount, but Diallog needs actual product price (0)
-    // Now works with object format
     if (isset($upfront_summary['modems']) && isset($upfront_summary['modems']['Deposit Amount'])) {
-        // The Price was set to deposit amount in helper, change to actual product price (0)
         foreach (WC()->cart->get_cart() as $cart_item) {
             $product = $cart_item['data'];
             $product_cat_ids = $product->get_category_ids();
@@ -2078,7 +2077,6 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
     // Add Pay After Deposit to upfront_summary if selected
     $monthly_method = dg_get_user_meta('monthly_bill_payment_option');
     if ($monthly_method === 'payafter') {
-        // Get Pay After product to retrieve ACF deposit fields
         $payafter_product_id = 265827;
         
         $deposit_title = '';
@@ -2089,7 +2087,6 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
             $deposit_fee = get_field('deposit-fee', $payafter_product_id);
         }
         
-        // Use defaults if ACF fields are empty
         if (empty($deposit_title)) {
             $deposit_title = 'Pay After Deposit';
         }
@@ -2097,11 +2094,9 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
             $deposit_fee = 200;
         }
         
-        // Rebuild upfront_summary with deposit before subtotal (as object)
         $reordered = array();
         foreach ($upfront_summary as $key => $value) {
             if ($key === 'subtotal') {
-                // Insert deposit right before subtotal as object
                 $reordered['deposit'] = array(
                     'Title' => $deposit_title,
                     'Amount' => floatval($deposit_fee)
@@ -2111,12 +2106,8 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
         }
         $upfront_summary = $reordered;
     }
-    
-    $monthly_summary = function_exists('get_monthly_fee_summary') ? 
-        get_monthly_fee_summary() : array();
 
     // TRANSFORM MONTHLY SUMMARY FOR DIALLOG OUTPUT ONLY
-    // Replace regular prices with monthly_fee ACF values and ensure all products display
     $tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 0;
     $monthly_subtotal = 0;
 
@@ -2156,7 +2147,7 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
             if (isset($monthly_summary[$cat_slug])) {
                 $product_category = $cat_slug;
                 error_log('MATCH FOUND: ' . $cat_slug);
-                break; // Found a match, stop looking
+                break;
             }
         }
 
@@ -2166,7 +2157,6 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
             continue;
         }   
 
-        // Now process the product with the matched category
         $product_id = $product->get_id();
 
         // Get monthly_fee from ACF
@@ -2182,38 +2172,38 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
             'Monthly Fee' => round($monthly_fee, 2)
         );
 
-        // Special handling for internet-plan category - get the 'id' attribute
-        if ($product_category === 'internet-plan') {
+        // Add ID attribute for internet-plan, phone-plan, modems, tv-plan
+        if (in_array($product_category, array('internet-plan', 'phone-plan', 'modems', 'tv-plan'))) {
             $plan_id = $product->get_attribute('id');
             if (!empty($plan_id)) {
                 $monthly_summary[$product_category]['ID Attribute'] = $plan_id;
-                error_log('Added internet plan ID to monthly_summary: ' . $plan_id);
+                error_log("Added {$product_category} ID to monthly_summary: {$plan_id}");
             }
         }
-        // Special handling for modems category - check for modem_details
-        else if ($product_category === 'modems' && $product_id == 265769) {
-            // This is "I Have My Own Modem" product
+
+        // Special handling for "I Have My Own Modem" product (ID: 265769)
+        if ($product_category === 'modems' && $product_id == 265769) {
+            // Get modem details from CART META, not ACF
             if (isset($cart_item['modem_details']) && !empty($cart_item['modem_details'])) {
                 $monthly_summary[$product_category]['Modem Make & Model'] = $cart_item['modem_details'];
                 error_log('Added modem details to monthly_summary: ' . $cart_item['modem_details']);
             }
         }
-        // Check for promotional pricing ACF fields (for other products)
-        else if (function_exists('get_field')) {
+
+        // Check for promotional pricing ACF fields (for ALL products)
+        if (function_exists('get_field')) {
             $promo_blurb = get_field('monthly_promo_blurb', $product_id);
             $promo_fee = get_field('monthly_promo_fee', $product_id);
+            $promo_fee = is_numeric($promo_fee) ? floatval($promo_fee) : 0;
             
             // Add promo fields if they exist
-            if (!empty($promo_blurb) || !empty($promo_fee)) {
+            if (!empty($promo_blurb) || $promo_fee > 0) {
                 $monthly_summary[$product_category]['Promotional Blurb'] = $promo_blurb ? $promo_blurb : '';
-                $monthly_summary[$product_category]['Promotional Price'] = $promo_fee ? floatval($promo_fee) : 0;
+                $monthly_summary[$product_category]['Promotional Price'] = round($promo_fee, 2);
+                error_log("Added promo to {$product_category}: Blurb='{$promo_blurb}', Price={$promo_fee}");
                 
-                // Use promo fee for subtotal if available
-                if ($promo_fee > 0) {
-                    $monthly_subtotal += floatval($promo_fee);
-                } else {
-                    $monthly_subtotal += $monthly_fee;
-                }
+                // Use promo fee for subtotal if available, otherwise use regular monthly fee
+                $monthly_subtotal += ($promo_fee > 0) ? $promo_fee : $monthly_fee;
             } else {
                 // No promo - use regular monthly fee
                 $monthly_subtotal += $monthly_fee;
@@ -2221,11 +2211,8 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
         } else {
             $monthly_subtotal += $monthly_fee;
         }
-        
-        // Add to subtotal if not already added by promo logic
-        if (!isset($promo_fee) || $promo_fee <= 0) {
-            $monthly_subtotal += $monthly_fee;
-        }
+
+        error_log("Added to monthly subtotal for {$product_category}: " . (isset($promo_fee) && $promo_fee > 0 ? $promo_fee : $monthly_fee));
     }
 
     // Add tv-plan if not in summary but exists in cart
@@ -2245,6 +2232,19 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
                         $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
                     }
                     
+                    // Build tv-plan as object
+                    $tv_plan_object = array(
+                        'Title' => $product->get_name(),
+                        'Monthly Fee' => round($monthly_fee, 2)
+                    );
+                    
+                    // Add ID attribute if it exists
+                    $tv_id = $product->get_attribute('id');
+                    if (!empty($tv_id)) {
+                        $tv_plan_object['ID Attribute'] = $tv_id;
+                        error_log('Added TV plan ID to monthly_summary: ' . $tv_id);
+                    }
+                    
                     // Check for promo fields
                     $promo_blurb = '';
                     $promo_fee = 0;
@@ -2253,12 +2253,6 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
                         $promo_fee = get_field('monthly_promo_fee', $product_id);
                         $promo_fee = is_numeric($promo_fee) ? floatval($promo_fee) : 0;
                     }
-                    
-                    // Build tv-plan as object
-                    $tv_plan_object = array(
-                        'Title' => $product->get_name(),
-                        'Monthly Fee' => round($monthly_fee, 2)
-                    );
                     
                     // Add promo fields if they exist
                     if (!empty($promo_blurb) || $promo_fee > 0) {
@@ -2330,6 +2324,21 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
         $upfront_summary = $reordered_upfront;
     }
     
+    // Convert monthly_summary totals from arrays to objects
+    $monthly_summary['subtotal'] = array('Subtotal' => $monthly_summary['subtotal'][1]);
+    $monthly_summary['taxes'] = array('Tax' => $monthly_summary['taxes'][1]);
+    $monthly_summary['grand_total'] = array('MONTHLY TOTAL' => $monthly_summary['grand_total'][1]);
+    
+    // Convert upfront_summary totals from arrays to objects
+    $upfront_summary['subtotal'] = array('Subtotal' => $upfront_summary['subtotal'][1]);
+    $upfront_summary['taxes'] = array('Tax' => $upfront_summary['taxes'][1]);
+    $upfront_summary['grand_total'] = array('UPFRONT TOTAL' => $upfront_summary['grand_total'][1]);
+    
+    // Convert total-deposits to object format if it exists
+    if (isset($upfront_summary['total-deposits'])) {
+        $upfront_summary['total-deposits'] = array('Total Deposits' => $upfront_summary['total-deposits'][1]);
+    }
+    
     // Get customer data using the SAME method as thank you page
     $customer_info = dg_get_customer_info();
 
@@ -2363,7 +2372,6 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
         }
     }
 
-
     // Format timestamps for display
     $order_timestamp_formatted = '';
     $terms_timestamp_formatted = '';
@@ -2371,18 +2379,16 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
     if (function_exists('wp_timezone')) {
         $timezone = wp_timezone();
     
-        // Format order timestamp
         $order_date = new DateTime('now', $timezone);
         $order_timestamp_formatted = $order_date->format('F j, Y \a\t g:i A T');
     
-        // Format terms timestamp if exists
         if (!empty($terms_timestamp)) {
             try {
                 $terms_date = new DateTime($terms_timestamp, new DateTimeZone('UTC'));
                 $terms_date->setTimezone($timezone);
                 $terms_timestamp_formatted = $terms_date->format('F j, Y \a\t g:i A T');
             } catch (Exception $e) {
-                $terms_timestamp_formatted = $terms_timestamp; // Fallback to original
+                $terms_timestamp_formatted = $terms_timestamp;
             }
         }
     }
@@ -2411,14 +2417,12 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
     // ========== ADD ENCRYPTED MONTHLY BILLING DATA ==========
     
     if ($monthly_method === 'cc' || $monthly_method === 'bank') {
-        // Generate encryption key (same way as old system)
         if (is_user_logged_in()) {
             $encryption_key = md5(get_current_user_id());
         } else {
             $encryption_key = get_dg_user_id();
         }
         
-        // Include Cryptor class
         $crypt_path = get_stylesheet_directory() . '/includes/crypt.php';
 
         if (!file_exists($crypt_path)) {
@@ -2429,7 +2433,6 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
         require_once $crypt_path;  
         
         if ($monthly_method === 'cc') {
-            // Collect credit card data from user meta
             $cc_data = array(
                 'billing_full_name' => dg_get_user_meta('cc_monthly_billing_full_name'),
                 'billing_card_number' => dg_get_user_meta('cc_monthly_billing_card_number'),
@@ -2438,7 +2441,6 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
                 'billing_postcode' => dg_get_user_meta('cc_monthly_billing_postcode')
             );
             
-            // Log unencrypted CC data for developer reference
             error_log('========================================');
             error_log('MONTHLY CC DATA (UNENCRYPTED - FOR DIALLOG DEVELOPER REFERENCE)');
             error_log('========================================');
@@ -2450,15 +2452,12 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
             error_log('Then unserialize: $data = maybe_unserialize($decrypted);');
             error_log('========================================');
             
-            // Encrypt it
             $cryptor = new Cryptor($encryption_key);
             $order_data['monthly_cc'] = $cryptor->encrypt(maybe_serialize($cc_data));
             $order_data['dg_user_hash'] = $encryption_key;
             
-            // Format payment method display with last 4 digits
             $payment_method_display = 'Credit Card';
             
-            // Get last 4 digits from session (same way as thank you page)
             if (WC()->session) {
                 $monthly_card_last_4 = WC()->session->get('monthly_payment_card_last_4');
                 if ($monthly_card_last_4) {
@@ -2470,7 +2469,6 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
             $order_data['monthly_bill_payment_option'] = $payment_method_display;
             
         } elseif ($monthly_method === 'bank') {
-            // Collect bank account data from user meta
             $bank_data = array(
                 'billing_first_name' => dg_get_user_meta('bank_monthly_billing_first_name'),
                 'billing_last_name' => dg_get_user_meta('bank_monthly_billing_last_name'),
@@ -2481,7 +2479,6 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
                 'account_number' => dg_get_user_meta('bank_monthly_billing_account_number')
             );
             
-            // Log unencrypted bank data for developer reference
             error_log('========================================');
             error_log('MONTHLY BANK DATA (UNENCRYPTED - FOR DIALLOG DEVELOPER REFERENCE)');
             error_log('========================================');
@@ -2493,17 +2490,14 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
             error_log('Then unserialize: $data = maybe_unserialize($decrypted);');
             error_log('========================================');
             
-            // Encrypt it
             $cryptor = new Cryptor($encryption_key);
             $order_data['monthly_bank'] = $cryptor->encrypt(maybe_serialize($bank_data));
             $order_data['dg_user_hash'] = $encryption_key;
             
-            // Add payment method indicator for bank
             $order_data['monthly_bill_payment_option'] = 'Bank Account - Pre-Authorized Debit (PAD)';
         }
         
     } elseif ($monthly_method === 'payafter') {
-        // Log Pay After selection
         error_log('========================================');
         error_log('MONTHLY BILLING METHOD: PAY AFTER (NO ENCRYPTED DATA)');
         error_log('========================================');
@@ -3039,7 +3033,7 @@ function ajax_process_moneris_payment() {
                         error_log('WARNING: No terms timestamp in session');
                     }
                 }
-                
+
                 // STEP 4: Prepare order data for Diallog
                 error_log('Step 4: Preparing order data for Diallog...');
                 
