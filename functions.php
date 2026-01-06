@@ -486,6 +486,163 @@ function dg_get_thank_you_page_data() {
     return $data;
 }
 
+/**
+ * AJAX Handler: Confirm Customer Info and Send to Diallog
+ * Called when "Confirm Customer Info" button is clicked
+ * Saves data to WC session and sends to Diallog with state 50
+ */
+/**
+ * AJAX Handler: Confirm Customer Info and Send to Diallog
+ * Called when "Confirm Customer Info" button is clicked
+ * Saves data to WC session and sends to Diallog with state 50
+ */
+/**
+ * AJAX Handler: Confirm Customer Info and Send to Diallog
+ * Called when "Confirm Customer Info" button is clicked
+ * Saves data to WC session and sends to Diallog with state 50
+ */
+/**
+ * AJAX Handler: Confirm Customer Info and Send to Diallog
+ * Called when "Confirm Customer Info" button is clicked
+ * Saves data to WC session and sends to Diallog with state 50
+ */
+add_action('wp_ajax_confirm_customer_info', 'confirm_customer_info_handler');
+add_action('wp_ajax_nopriv_confirm_customer_info', 'confirm_customer_info_handler');
+
+function confirm_customer_info_handler() {
+    
+    // **TEST MODE TOGGLE** - Set to false to enable Diallog submission
+    $skip_diallog_submission = true; // Change to false when ready to send to Diallog
+    
+    try {
+        error_log('');
+        error_log('================================================================================');
+        error_log('============== CUSTOMER INFO CONFIRMATION STARTED (STATE 50) ==================');
+        error_log('Test Mode (Skip Diallog): ' . ($skip_diallog_submission ? 'YES' : 'NO'));
+        error_log('================================================================================');
+        error_log('');
+        
+        // Verify nonce
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'confirm_customer_info_nonce')) {
+            throw new Exception('Security verification failed');
+        }
+
+        // Initialize WC session
+        if (!WC()->session || !WC()->session->has_session()) {
+            WC()->session->set_customer_session_cookie(true);
+        }
+
+        // Get customer data using the SAME method as prepare_diallog_order_data
+        $customer_info = dg_get_customer_info();
+
+        error_log('--- 1) CUSTOMER INFO RETRIEVED ---');
+        error_log(json_encode($customer_info, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        error_log('');
+
+        // Get CCD from user meta
+        $ccd = '';
+        $ccd_encoded = dg_get_user_meta("ccd");
+        if (!empty($ccd_encoded)) {
+            $ccd_decoded = base64_decode($ccd_encoded);
+            if ($ccd_decoded !== false && !empty($ccd_decoded)) {
+                $ccd = strtoupper(trim($ccd_decoded));
+                error_log('--- CCD RETRIEVED FROM USER META ---');
+                error_log('CCD: ' . $ccd);
+                error_log('');
+            }
+        } else {
+            error_log('--- NO CCD FOUND ---');
+            error_log('');
+        }
+
+        // Build customer_data EXACTLY like prepare_diallog_order_data does
+        $customer_data = array(
+            'billing_first_name' => $customer_info['first_name'],
+            'billing_last_name' => $customer_info['last_name'],
+            'billing_email' => $customer_info['email'],
+            'billing_phone' => $customer_info['phone'],
+            'customer_service_address' => $customer_info['service_address_full'],
+            'customer_shipping_address' => $customer_info['shipping_address_full'],
+            'customer_ip' => $_SERVER['REMOTE_ADDR'] ?? '',
+            'ccd' => $ccd
+        );
+
+        error_log('--- 2) CUSTOMER DATA FORMATTED ---');
+        error_log(json_encode($customer_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        error_log('');
+
+        // Save to WooCommerce session
+        WC()->session->set('confirmed_customer_data', $customer_data);
+        error_log('✓ Customer data saved to WC session');
+        error_log('');
+        
+        // Get FORMATTED summaries (same formatting as state 100 call)
+        error_log('--- 3) FORMATTING SUMMARIES USING SHARED HELPER FUNCTION ---');
+        $formatted_summaries = format_summaries_for_diallog();
+        error_log('✓ Summaries formatted successfully');
+        error_log('');
+        
+        error_log('--- 4) UPFRONT SUMMARY (FORMATTED) ---');
+        error_log(json_encode($formatted_summaries['upfront_summary'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        error_log('');
+        
+        error_log('--- 5) MONTHLY SUMMARY (FORMATTED) ---');
+        error_log(json_encode($formatted_summaries['monthly_summary'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        error_log('');
+        
+        // Prepare data for Diallog API - order_state FIRST
+        $diallog_data = array(
+            'order_state' => 'not_completed', // First field in the data package
+            'customer_data' => $customer_data,
+            'upfront_summary' => $formatted_summaries['upfront_summary'],
+            'monthly_summary' => $formatted_summaries['monthly_summary']
+        );
+
+        error_log('--- 6) COMPLETE DATA PACKAGE FOR DIALLOG (STATE 50) ---');
+        error_log(json_encode($diallog_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        error_log('');
+
+        // Call send_customer_info_to_diallog with test mode toggle
+        error_log('--- 7) SENDING TO DIALLOG SERVER ---');
+        
+        $diallog_response = 'skipped';
+        if (!$skip_diallog_submission) {
+            $diallog_response = send_customer_info_to_diallog($diallog_data);
+            error_log('✓ Order sent to Diallog');
+        } else {
+            error_log('⊗ Test mode: Skipping Diallog submission');
+        }
+        error_log('');
+
+        error_log('================================================================================');
+        error_log('========== CUSTOMER INFO CONFIRMATION COMPLETED SUCCESSFULLY ==================');
+        error_log('================================================================================');
+        error_log('');
+
+        // Return success
+        wp_send_json_success(array(
+            'message' => 'Customer information confirmed and saved',
+            'customer_data' => $customer_data,
+            'diallog_response' => $diallog_response,
+            'ccd_included' => !empty($ccd) ? 'yes' : 'no',
+            'test_mode' => $skip_diallog_submission
+        ));
+
+    } catch (Exception $e) {
+        error_log('');
+        error_log('================================================================================');
+        error_log('ERROR IN CUSTOMER INFO CONFIRMATION');
+        error_log('================================================================================');
+        error_log('Error Message: ' . $e->getMessage());
+        error_log('Stack Trace: ' . $e->getTraceAsString());
+        error_log('================================================================================');
+        error_log('');
+        
+        wp_send_json_error(array(
+            'message' => $e->getMessage()
+        ));
+    }
+}
 
 /**
  * AJAX handler to store terms timestamp in WooCommerce session
@@ -616,8 +773,10 @@ function enqueue_billing_fields_formatting() {
 }
 add_action('wp_enqueue_scripts', 'enqueue_billing_fields_formatting');
 
-// Enqueue Customer Info Confirmation Script
 
+/**
+ * Enqueue Customer Info Confirmation Script with AJAX support
+ */
 function enqueue_customer_info_confirm_script() {
     // Only load on checkout page
     if (is_checkout() || is_page(264127)) {
@@ -625,15 +784,15 @@ function enqueue_customer_info_confirm_script() {
         wp_enqueue_script(
             'customer-info-confirm-js',
             get_stylesheet_directory_uri() . '/js/customer-info-confirm.js',
-            array('jquery'), // Depends on jQuery and shipping-address
-            '1.0.0',
+            array('jquery'),
+            '1.0.1', // Bumped version for API integration
             true
         );
         
-        // Localize script with AJAX data (for future API integration)
-        wp_localize_script('customer-info-confirm-js', 'customerInfoConfirm', array(
-            'ajaxUrl' => admin_url('admin-ajax.php'),
-            'nonce' => wp_create_nonce('customer_info_nonce')
+        // Localize script with AJAX data for API call
+        wp_localize_script('customer-info-confirm-js', 'diallog_ajax', array(
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('confirm_customer_info_nonce') // Matches handler verification
         ));
     }
 }
@@ -1934,26 +2093,22 @@ add_shortcode('moneris_complete_payment_button', 'moneris_complete_payment_butto
 
 
 /**
- * Prepare order data for Diallog database
+ * Format upfront and monthly summaries for Diallog
+ * Shared formatting logic used by both state 50 and state 100 API calls
+ * Returns array with formatted upfront_summary and monthly_summary
  */
-/**
- * Prepare order data for Diallog database
- * INCLUDES COMPREHENSIVE LOGGING FOR DIALLOG DEVELOPER
- */
-
-function prepare_diallog_order_data($payment_response, $cardholder_name, $moneris_config) {
- 
-    // Get summaries
+function format_summaries_for_diallog() {
+    // Get raw summaries
     $upfront_summary = function_exists('get_upfront_fee_summary') ? get_upfront_fee_summary() : array();
     $monthly_summary = function_exists('get_monthly_fee_summary') ? get_monthly_fee_summary() : array();
 
-    // TRANSFORM FOR DIALLOG OUTPUT ONLY (doesn't affect thank you page/email)
+    // TRANSFORM UPFRONT SUMMARY
     // Remove unnecessary fields
     unset($upfront_summary['ModemPurchaseOption']);
     unset($upfront_summary['internet-plan']);
     unset($upfront_summary['deposit']); // Remove total deposits line
 
-    // Get installation dates from cart - check for specific installation variation (ID: 265450)
+    // Get installation dates from cart
     $installation_dates = array(
         'preferred' => '',
         'secondary' => ''
@@ -1975,22 +2130,18 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
                 
                 error_log('Extracted dates - Preferred: ' . $installation_dates['preferred'] . ', Secondary: ' . $installation_dates['secondary']);
                 
-                // Add dates to installation object immediately if installation exists in summary
+                // Add dates to installation object immediately
                 if (isset($upfront_summary['installation'])) {
-                    // Convert to object
                     $upfront_summary['installation'] = array(
                         'Title' => $upfront_summary['installation'][0],
                         'Price' => $upfront_summary['installation'][1]
                     );
                     
-                    // Add dates
                     if (!empty($installation_dates['preferred'])) {
                         $upfront_summary['installation']['Preferred Installation Date'] = $installation_dates['preferred'];
-                        error_log('✓ Added preferred date: ' . $installation_dates['preferred']);
                     }
                     if (!empty($installation_dates['secondary'])) {
                         $upfront_summary['installation']['Secondary Installation Date'] = $installation_dates['secondary'];
-                        error_log('✓ Added secondary date: ' . $installation_dates['secondary']);
                     }
                 }
                 break;
@@ -1998,14 +2149,14 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
         }
     }
 
-    // Add individual deposit info from ACF fields AND convert to objects (FOR ALL PRODUCTS)
+    // Convert upfront items to objects and add ACF deposit info
     foreach ($upfront_summary as $key => $value) {
-        // Skip totals/subtotals - keep these as arrays for now
+        // Skip totals/subtotals
         if (in_array($key, array('subtotal', 'taxes', 'grand_total', 'total-deposits'))) {
             continue;
         }
     
-        // Get product ID from cart for this category
+        // Get product from cart for this category
         foreach (WC()->cart->get_cart() as $cart_item) {
             $product = $cart_item['data'];
             $product_cat_ids = $product->get_category_ids();
@@ -2024,11 +2175,11 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
                 $product_category = 'modems';
             }
             
-            // If this product matches the current summary key
+            // If this product matches current summary key
             if ($product_category === $key) {
                 $product_id = $product->get_id();
                 
-                // Convert to object with named keys (skip installation - already done above)
+                // Convert to object (skip installation - already done)
                 if ($key !== 'installation') {
                     $original_name = $upfront_summary[$key][0];
                     $original_price = $upfront_summary[$key][1];
@@ -2039,16 +2190,14 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
                     );
                 }
                 
-                // Check for ACF deposit fields (FOR ALL PRODUCTS, not just modems)
+                // Add ACF deposit fields
                 if (function_exists('get_field')) {
                     $deposit_title = get_field('deposit-title', $product_id);
                     $deposit_fee = get_field('deposit-fee', $product_id);
                     
-                    // Add deposit fields if they exist
                     if (!empty($deposit_title) || !empty($deposit_fee)) {
                         $upfront_summary[$key]['Deposit Title'] = $deposit_title ? $deposit_title : '';
                         $upfront_summary[$key]['Deposit Amount'] = $deposit_fee ? floatval($deposit_fee) : 0;
-                        error_log("Added deposit to {$key}: Title='{$deposit_title}', Amount={$deposit_fee}");
                     }
                 }
                 break;
@@ -2056,7 +2205,7 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
         }
     }
 
-    // Fix modem price for Diallog output only
+    // Fix modem price
     if (isset($upfront_summary['modems']) && isset($upfront_summary['modems']['Deposit Amount'])) {
         foreach (WC()->cart->get_cart() as $cart_item) {
             $product = $cart_item['data'];
@@ -2067,14 +2216,13 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
                 if (!is_wp_error($product_cat) && ($product_cat->slug === 'modems' || $product_cat->slug === 'modems-new')) {
                     $actual_price = round(floatval($product->get_price()), 2);
                     $upfront_summary['modems']['Price'] = $actual_price;
-                    error_log('Fixed modem price - was deposit amount, now actual price: ' . $actual_price);
                     break;
                 }
             }
         }
     }
 
-    // Add Pay After Deposit to upfront_summary if selected
+    // Add Pay After Deposit if selected
     $monthly_method = dg_get_user_meta('monthly_bill_payment_option');
     if ($monthly_method === 'payafter') {
         $payafter_product_id = 265827;
@@ -2107,27 +2255,19 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
         $upfront_summary = $reordered;
     }
 
-    // TRANSFORM MONTHLY SUMMARY FOR DIALLOG OUTPUT ONLY
+    // TRANSFORM MONTHLY SUMMARY
     $tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 0;
     $monthly_subtotal = 0;
-
-    error_log('=== MONTHLY SUMMARY DEBUG ===');
-    error_log('Monthly summary keys: ' . json_encode(array_keys($monthly_summary)));
 
     foreach (WC()->cart->get_cart() as $cart_item) {
         $product = $cart_item['data'];
         $product_cat_ids = $product->get_category_ids();
 
-        error_log('Processing product: ' . $product->get_name());
-        error_log('Product ID: ' . $product->get_id());
-        error_log('Category IDs: ' . json_encode($product_cat_ids));
-
         if (empty($product_cat_ids)) {
-            error_log('SKIPPED - No categories');
             continue;
         }
         
-        // Loop through ALL categories to find a match with monthly_summary keys
+        // Find matching category
         $product_category = null;
         foreach ($product_cat_ids as $cat_id) {
             $product_cat = get_term($cat_id, 'product_cat');
@@ -2136,26 +2276,19 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
             }
             
             $cat_slug = $product_cat->slug;
-            error_log('Checking category slug: ' . $cat_slug);
-            
-            // Handle modem category alias
             if ($cat_slug == 'modems-new') {
                 $cat_slug = 'modems';
             }
             
-            // Check if this category matches any key in monthly_summary
             if (isset($monthly_summary[$cat_slug])) {
                 $product_category = $cat_slug;
-                error_log('MATCH FOUND: ' . $cat_slug);
                 break;
             }
         }
 
-        // Skip if no matching category found
         if ($product_category === null) {
-            error_log('SKIPPED - No matching category in monthly_summary');
             continue;
-        }   
+        }
 
         $product_id = $product->get_id();
 
@@ -2166,53 +2299,43 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
             $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
         }
         
-        // Update the summary with product name and monthly fee AS OBJECT
+        // Update summary as object
         $monthly_summary[$product_category] = array(
             'Title' => $product->get_name(),
             'Monthly Fee' => round($monthly_fee, 2)
         );
 
-        // Add ID attribute for internet-plan, phone-plan, modems, tv-plan
+        // Add ID attribute for certain categories
         if (in_array($product_category, array('internet-plan', 'phone-plan', 'modems', 'tv-plan'))) {
             $plan_id = $product->get_attribute('id');
             if (!empty($plan_id)) {
                 $monthly_summary[$product_category]['ID Attribute'] = $plan_id;
-                error_log("Added {$product_category} ID to monthly_summary: {$plan_id}");
             }
         }
 
-        // Special handling for "I Have My Own Modem" product (ID: 265769)
+        // Special handling for "I Have My Own Modem"
         if ($product_category === 'modems' && $product_id == 265769) {
-            // Get modem details from CART META, not ACF
             if (isset($cart_item['modem_details']) && !empty($cart_item['modem_details'])) {
                 $monthly_summary[$product_category]['Modem Make & Model'] = $cart_item['modem_details'];
-                error_log('Added modem details to monthly_summary: ' . $cart_item['modem_details']);
             }
         }
 
-        // Check for promotional pricing ACF fields (for ALL products)
+        // Add promotional pricing
         if (function_exists('get_field')) {
             $promo_blurb = get_field('monthly_promo_blurb', $product_id);
             $promo_fee = get_field('monthly_promo_fee', $product_id);
             $promo_fee = is_numeric($promo_fee) ? floatval($promo_fee) : 0;
             
-            // Add promo fields if they exist
             if (!empty($promo_blurb) || $promo_fee > 0) {
                 $monthly_summary[$product_category]['Promotional Blurb'] = $promo_blurb ? $promo_blurb : '';
                 $monthly_summary[$product_category]['Promotional Price'] = round($promo_fee, 2);
-                error_log("Added promo to {$product_category}: Blurb='{$promo_blurb}', Price={$promo_fee}");
-                
-                // Use promo fee for subtotal if available, otherwise use regular monthly fee
                 $monthly_subtotal += ($promo_fee > 0) ? $promo_fee : $monthly_fee;
             } else {
-                // No promo - use regular monthly fee
                 $monthly_subtotal += $monthly_fee;
             }
         } else {
             $monthly_subtotal += $monthly_fee;
         }
-
-        error_log("Added to monthly subtotal for {$product_category}: " . (isset($promo_fee) && $promo_fee > 0 ? $promo_fee : $monthly_fee));
     }
 
     // Add tv-plan if not in summary but exists in cart
@@ -2232,20 +2355,16 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
                         $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
                     }
                     
-                    // Build tv-plan as object
                     $tv_plan_object = array(
                         'Title' => $product->get_name(),
                         'Monthly Fee' => round($monthly_fee, 2)
                     );
                     
-                    // Add ID attribute if it exists
                     $tv_id = $product->get_attribute('id');
                     if (!empty($tv_id)) {
                         $tv_plan_object['ID Attribute'] = $tv_id;
-                        error_log('Added TV plan ID to monthly_summary: ' . $tv_id);
                     }
                     
-                    // Check for promo fields
                     $promo_blurb = '';
                     $promo_fee = 0;
                     if (function_exists('get_field')) {
@@ -2254,18 +2373,15 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
                         $promo_fee = is_numeric($promo_fee) ? floatval($promo_fee) : 0;
                     }
                     
-                    // Add promo fields if they exist
                     if (!empty($promo_blurb) || $promo_fee > 0) {
                         $tv_plan_object['Promotional Blurb'] = $promo_blurb ? $promo_blurb : '';
                         $tv_plan_object['Promotional Price'] = round($promo_fee, 2);
-                        
-                        // Use promo fee for subtotal if available
                         $monthly_subtotal += ($promo_fee > 0) ? $promo_fee : $monthly_fee;
                     } else {
                         $monthly_subtotal += $monthly_fee;
                     }
                     
-                    // Add tv-plan before subtotal
+                    // Insert before subtotal
                     $reordered = array();
                     foreach ($monthly_summary as $key => $value) {
                         if ($key === 'subtotal') {
@@ -2280,69 +2396,80 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
         }
     }
 
-    // Recalculate totals based on monthly_fee values
+    // Recalculate monthly totals
     $monthly_summary['subtotal'][1] = round($monthly_subtotal, 2);
     $monthly_summary['taxes'][1] = round(($monthly_subtotal * $tax_rate) / 100, 2);
     $monthly_summary['grand_total'][1] = round($monthly_subtotal + $monthly_summary['taxes'][1], 2);
     
-    // Calculate total deposits from upfront_summary (now using object keys)
+    // Calculate total deposits
     $total_deposits = 0;
     foreach ($upfront_summary as $key => $value) {
-        // Skip totals/subtotals/taxes
         if (in_array($key, array('subtotal', 'taxes', 'grand_total'))) {
             continue;
         }
         
-        // Check if this item has a deposit (now using 'Deposit Amount' key)
         if (isset($value['Deposit Amount']) && is_numeric($value['Deposit Amount'])) {
             $total_deposits += floatval($value['Deposit Amount']);
-            error_log("Added {$key} deposit to total: " . $value['Deposit Amount']);
         }
     }
     
-    // Add Pay After deposit if it exists (using 'Amount' key)
     if (isset($upfront_summary['deposit']) && isset($upfront_summary['deposit']['Amount'])) {
         $total_deposits += floatval($upfront_summary['deposit']['Amount']);
-        error_log("Added Pay After deposit to total: " . $upfront_summary['deposit']['Amount']);
     }
     
-    // Insert total-deposits into upfront_summary after taxes but before grand_total
+    // Insert total-deposits
     if ($total_deposits > 0) {
         $reordered_upfront = array();
         foreach ($upfront_summary as $key => $value) {
             $reordered_upfront[$key] = $value;
-            
-            // After taxes, insert total-deposits
             if ($key === 'taxes') {
                 $reordered_upfront['total-deposits'] = array(
                     'Total Deposits',
                     round($total_deposits, 2)
                 );
-                error_log("Total deposits calculated: " . round($total_deposits, 2));
             }
         }
         $upfront_summary = $reordered_upfront;
     }
     
-    // Convert monthly_summary totals from arrays to objects
+    // Convert totals to objects
     $monthly_summary['subtotal'] = array('Subtotal' => $monthly_summary['subtotal'][1]);
     $monthly_summary['taxes'] = array('Tax' => $monthly_summary['taxes'][1]);
     $monthly_summary['grand_total'] = array('MONTHLY TOTAL' => $monthly_summary['grand_total'][1]);
     
-    // Convert upfront_summary totals from arrays to objects
     $upfront_summary['subtotal'] = array('Subtotal' => $upfront_summary['subtotal'][1]);
     $upfront_summary['taxes'] = array('Tax' => $upfront_summary['taxes'][1]);
     $upfront_summary['grand_total'] = array('UPFRONT TOTAL' => $upfront_summary['grand_total'][1]);
     
-    // Convert total-deposits to object format if it exists
     if (isset($upfront_summary['total-deposits'])) {
         $upfront_summary['total-deposits'] = array('Total Deposits' => $upfront_summary['total-deposits'][1]);
     }
     
+    return array(
+        'upfront_summary' => $upfront_summary,
+        'monthly_summary' => $monthly_summary
+    );
+}
+
+/**
+ * Prepare order data for Diallog database
+ */
+/**
+ * Prepare order data for Diallog database
+ * INCLUDES COMPREHENSIVE LOGGING FOR DIALLOG DEVELOPER
+ */
+
+function prepare_diallog_order_data($payment_response, $cardholder_name, $moneris_config) {
+ 
+    // Get formatted summaries using shared helper function
+    $formatted_summaries = format_summaries_for_diallog();
+    $upfront_summary = $formatted_summaries['upfront_summary'];
+    $monthly_summary = $formatted_summaries['monthly_summary'];
+    
     // Get customer data using the SAME method as thank you page
     $customer_info = dg_get_customer_info();
 
-    // Get CCD (coupon code) first
+    // Get CCD (coupon code)
     $ccd = '';
     $ccd_encoded = dg_get_user_meta("ccd");
     if (!empty($ccd_encoded)) {
@@ -2395,6 +2522,7 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
 
     // Build complete order data structure
     $order_data = array(
+        'order_state' => 'completed',
         'payment_info' => array(
             'transaction_id' => $payment_response->getTxnNumber(),
             'receipt_id' => $payment_response->getReceiptId(),
@@ -2415,6 +2543,8 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
     );
     
     // ========== ADD ENCRYPTED MONTHLY BILLING DATA ==========
+    
+    $monthly_method = dg_get_user_meta('monthly_bill_payment_option');
     
     if ($monthly_method === 'cc' || $monthly_method === 'bank') {
         if (is_user_logged_in()) {
@@ -3156,31 +3286,129 @@ if (!empty($customer_email)) {
 }
 
 
+
 /**
- * Send order data to Diallog database
- * Based on the pattern from your existing SendInfoToSignupServer function
+ * Send customer info to Diallog (state 50 - info confirmed but not completed)
+ */
+ function send_customer_info_to_diallog($data) {
+    error_log('--- PREPARING API PAYLOAD ---');
+    
+    // Prepare payload with order_state at the top
+    $payload_data = array(
+        'order_state' => 'not_completed',
+        'status' => 0,
+        'magic' => 'Sl2soDSpLAsHqetS',
+        'api' => '1.00',
+        'method' => 'newsignup',
+        'state' => 50,
+        'customer_data' => base64_encode(json_encode($data['customer_data'])),
+        'upfront_summary' => base64_encode(json_encode($data['upfront_summary'])),
+        'monthly_summary' => base64_encode(json_encode($data['monthly_summary'])),
+        'ip' => $_SERVER['REMOTE_ADDR'] ?? ''
+    );
+
+    error_log('Payload structure prepared:');
+    error_log('- order_state: not_completed (FIRST FIELD)');
+    error_log('- method: newsignup');
+    error_log('- state: 50');
+    error_log('');
+
+    $payload = json_encode($payload_data);
+    
+    error_log('--- RAW JSON PAYLOAD (WITH BASE64 ENCODED DATA) ---');
+    error_log($payload);
+    error_log('');
+    error_log('Payload size: ' . strlen($payload) . ' bytes');
+    error_log('');
+
+    error_log('--- DECODED PREVIEW (FOR VERIFICATION) ---');
+    error_log('Customer Data (decoded): ' . json_encode($data['customer_data'], JSON_PRETTY_PRINT));
+    error_log('');
+
+    // Initialize cURL
+    error_log('--- INITIATING CURL REQUEST ---');
+    error_log('Target URL: https://sg.diallog.com/signup'); // NEW URL
+    error_log('Method: POST');
+    error_log('SSL Verification: ENABLED');
+    error_log('');
+    
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, "https://sg.diallog.com/signup"); // NEW URL
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLINFO_HEADER_OUT, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2); // ENABLE SSL verification for production
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); // ENABLE SSL verification for production
+    curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+        'Content-Type: application/json',
+        'Content-Length: ' . strlen($payload)
+    ));
+
+    // Execute request
+    $response = curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curl_error = curl_error($ch);
+    $info = curl_getinfo($ch);
+    curl_close($ch);
+
+    error_log('--- CURL REQUEST COMPLETED ---');
+    error_log('HTTP Status Code: ' . $http_code);
+    
+    if ($curl_error) {
+        error_log('CURL Error: ' . $curl_error);
+    } else {
+        error_log('✓ No CURL errors');
+    }
+    
+    error_log('');
+    error_log('--- DIALLOG SERVER RESPONSE ---');
+    error_log('Raw Response: ' . $response);
+    error_log('');
+    
+    // Try to decode response if it's JSON
+    $decoded_response = json_decode($response, true);
+    if ($decoded_response !== null) {
+        error_log('Decoded Response (JSON):');
+        error_log(json_encode($decoded_response, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    } else {
+        error_log('Response is not JSON or could not be decoded');
+    }
+    error_log('');
+
+    return $response;
+}
+
+/**
+ * Send complete order to Diallog (state 100 - order completed with payment)
+ */
+/**
+ * Send complete order to Diallog (state 100 - order completed with payment)
  */
 function send_order_to_diallog($order_data) {
     $payload_data = array(
+        'order_state' => 'completed',
         'status' => 0,
-        'magic' => 'Sl2soDSpLAsHqetS', // Using same magic key from your existing code
+        'magic' => 'Sl2soDSpLAsHqetS',
         'api' => '1.00',
         'method' => 'complete_order',
-        'state' => 100, // Order complete state
+        'state' => 100,
         'order_data' => base64_encode(json_encode($order_data)),
         'ip' => $_SERVER['REMOTE_ADDR'] ?? ''
     );
     
     $payload = json_encode($payload_data);
     
+    error_log("Sending complete order to Diallog (state 100 - COMPLETED): " . $payload);
+    
     $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, "https://207.167.88.7/signup.php"); // Using URL from your existing code
+    curl_setopt($ch, CURLOPT_URL, "https://sg.diallog.com/signup"); // NEW URL
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLINFO_HEADER_OUT, true);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2); // ENABLE SSL verification for production
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); // ENABLE SSL verification for production
     curl_setopt($ch, CURLOPT_HTTPHEADER, array(
         'Content-Type: application/json',
         'Content-Length: ' . strlen($payload)
@@ -3190,7 +3418,7 @@ function send_order_to_diallog($order_data) {
     $info = curl_getinfo($ch);
     curl_close($ch);
     
-    error_log("Order sent to Diallog database. Response: " . $response);
+    error_log("Diallog API response (state 100 - COMPLETED): " . $response);
     
     return $response;
 }
