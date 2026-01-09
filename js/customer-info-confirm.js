@@ -31,7 +31,7 @@
                 '.woocommerce-billing-fields',
                 '.woocommerce-shipping-fields'
             ];
-
+            
             // Wait for ANY of these containers to be available
             const checkContainer = setInterval(function () {
                 let $container = null;
