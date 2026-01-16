@@ -2097,6 +2097,7 @@ add_shortcode('moneris_complete_payment_button', 'moneris_complete_payment_butto
  * Shared formatting logic used by both state 50 and state 100 API calls
  * Returns array with formatted upfront_summary and monthly_summary
  */
+
 function format_summaries_for_diallog() {
     // Get raw summaries
     $upfront_summary = function_exists('get_upfront_fee_summary') ? get_upfront_fee_summary() : array();
@@ -2114,6 +2115,9 @@ function format_summaries_for_diallog() {
         'secondary' => ''
     );
     
+    // NEW: Also get internet plan ID for dynamic install pricing
+    $internet_plan_id = null;
+    
     foreach (WC()->cart->get_cart() as $cart_item) {
         $product = $cart_item['data'];
         
@@ -2129,30 +2133,68 @@ function format_summaries_for_diallog() {
                     $cart_item['variation']['attribute_secondary-date'] : '';
                 
                 error_log('Extracted dates - Preferred: ' . $installation_dates['preferred'] . ', Secondary: ' . $installation_dates['secondary']);
-                
-                // Add dates to installation object immediately
-                if (isset($upfront_summary['installation'])) {
-                    $upfront_summary['installation'] = array(
-                        'Title' => $upfront_summary['installation'][0],
-                        'Price' => $upfront_summary['installation'][1]
-                    );
-                    
-                    if (!empty($installation_dates['preferred'])) {
-                        $upfront_summary['installation']['Preferred Installation Date'] = $installation_dates['preferred'];
-                    }
-                    if (!empty($installation_dates['secondary'])) {
-                        $upfront_summary['installation']['Secondary Installation Date'] = $installation_dates['secondary'];
-                    }
-                }
-                break;
             }
+        }
+        
+        // NEW: Also check for internet plan to get dynamic install price
+        $product_cat_ids = $product->get_category_ids();
+        if (!empty($product_cat_ids) && in_array(19, $product_cat_ids)) {
+            $internet_plan_id = $product->get_id();
+            error_log('Found internet plan in cart for Diallog: ' . $internet_plan_id);
+        }
+    }
+    
+    // Process installation with dynamic pricing
+    if (isset($upfront_summary['installation'])) {
+        // Check if we have promotional pricing info from get_upfront_fee_summary
+        $has_dynamic_pricing = isset($upfront_summary['installation'][3]) && isset($upfront_summary['installation'][4]);
+        
+        if ($has_dynamic_pricing) {
+            // Has dynamic pricing - show original price as "Price" and dynamic as "Dynamic Sale Price"
+            $original_price = $upfront_summary['installation'][3];
+            $sale_price = $upfront_summary['installation'][4];
+            
+            $upfront_summary['installation'] = array(
+                'Title' => $upfront_summary['installation'][0],
+                'Price' => $original_price  // Original price ($88.50)
+            );
+            
+            // Add installation dates
+            if (!empty($installation_dates['preferred'])) {
+                $upfront_summary['installation']['Preferred Installation Date'] = $installation_dates['preferred'];
+            }
+            if (!empty($installation_dates['secondary'])) {
+                $upfront_summary['installation']['Secondary Installation Date'] = $installation_dates['secondary'];
+            }
+            
+            // Add dynamic sale price at the end
+            $upfront_summary['installation']['Dynamic Sale Price'] = $sale_price;
+            
+            error_log('Diallog API - Installation with dynamic pricing: Original=' . $original_price . ', Sale=' . $sale_price);
+            
+        } else {
+            // No dynamic pricing - regular format
+            $upfront_summary['installation'] = array(
+                'Title' => $upfront_summary['installation'][0],
+                'Price' => $upfront_summary['installation'][1]
+            );
+            
+            // Add installation dates
+            if (!empty($installation_dates['preferred'])) {
+                $upfront_summary['installation']['Preferred Installation Date'] = $installation_dates['preferred'];
+            }
+            if (!empty($installation_dates['secondary'])) {
+                $upfront_summary['installation']['Secondary Installation Date'] = $installation_dates['secondary'];
+            }
+            
+            error_log('Diallog API - Installation without dynamic pricing: Price=' . $upfront_summary['installation']['Price']);
         }
     }
 
     // Convert upfront items to objects and add ACF deposit info
     foreach ($upfront_summary as $key => $value) {
-        // Skip totals/subtotals
-        if (in_array($key, array('subtotal', 'taxes', 'grand_total', 'total-deposits'))) {
+        // Skip totals/subtotals and installation (already processed above)
+        if (in_array($key, array('subtotal', 'taxes', 'grand_total', 'total-deposits', 'installation'))) {
             continue;
         }
     
@@ -2179,16 +2221,14 @@ function format_summaries_for_diallog() {
             if ($product_category === $key) {
                 $product_id = $product->get_id();
                 
-                // Convert to object (skip installation - already done)
-                if ($key !== 'installation') {
-                    $original_name = $upfront_summary[$key][0];
-                    $original_price = $upfront_summary[$key][1];
-                    
-                    $upfront_summary[$key] = array(
-                        'Title' => $original_name,
-                        'Price' => $original_price
-                    );
-                }
+                // Convert to object
+                $original_name = $upfront_summary[$key][0];
+                $original_price = $upfront_summary[$key][1];
+                
+                $upfront_summary[$key] = array(
+                    'Title' => $original_name,
+                    'Price' => $original_price
+                );
                 
                 // Add ACF deposit fields
                 if (function_exists('get_field')) {
@@ -2707,130 +2747,228 @@ function transform_order_data_for_email($diallog_order_data) {
     $customer_ip = $_SERVER['REMOTE_ADDR'] ?? '';
     
     // Transform upfront summary to email format
-$upfront_items_for_email = array();
-$upfront_deposit_items = array(); // Separate array for deposits
-$upfront_subtotal = 0;
-$upfront_tax = 0;
-$upfront_total = 0;
+    $upfront_items_for_email = array();
+    $upfront_deposit_items = array(); // Separate array for deposits
+    $upfront_subtotal = 0;
+    $upfront_tax = 0;
+    $upfront_total = 0;
 
-if (isset($diallog_order_data['upfront_summary']) && is_array($diallog_order_data['upfront_summary'])) {
-    $upfront = $diallog_order_data['upfront_summary'];
-    
-    // Process each item in upfront summary
-    foreach ($upfront as $key => $item) {
-        if (is_array($item) && isset($item[0], $item[1])) {
-            $name = $item[0];
-            $amount = $item[1];
-            
-            // NEW: Get installation dates if available (index [2] for Installation items)
-            $installation_dates = isset($item[2]) ? $item[2] : '';
-            
-            // Skip subtotal, tax, and grand_total - we'll handle those separately
-            if ($key === 'subtotal') {
-                $upfront_subtotal = $amount;
-            } elseif ($key === 'taxes') {
-                $upfront_tax = $amount;
-            } elseif ($key === 'grand_total') {
-                $upfront_total = $amount;
-            } else {
-                // IMPROVED: Check if this is a deposit item
-                // Check by key name OR by item name containing "deposit"
-                if ($key === 'deposit' || stripos($name, 'deposit') !== false) {
-                    // This is a deposit - add to separate array
-                    // Clean up the name for Pay After
-                    $clean_name = $name;
-                    if (stripos($name, 'pay-after') !== false || stripos($name, 'payafter') !== false) {
-                        $clean_name = 'Pay After Deposit';
+    if (isset($diallog_order_data['upfront_summary']) && is_array($diallog_order_data['upfront_summary'])) {
+        $upfront = $diallog_order_data['upfront_summary'];
+        
+        // Process each item in upfront summary
+        foreach ($upfront as $key => $item) {
+            // Handle both old array format [0], [1] and new object format
+            if (is_array($item)) {
+                // Check if it's numeric array format (old style) or associative array (new object style)
+                $is_object_format = isset($item['Title']) || isset($item['Subtotal']) || isset($item['Tax']) || isset($item['UPFRONT TOTAL']);
+                
+                if ($is_object_format) {
+                    // NEW OBJECT FORMAT from format_summaries_for_diallog
+                    
+                    // Handle special summary rows (subtotal, tax, total)
+                    if (isset($item['Subtotal'])) {
+                        $upfront_subtotal = $item['Subtotal'];
+                    } elseif (isset($item['Tax'])) {
+                        $upfront_tax = $item['Tax'];
+                    } elseif (isset($item['UPFRONT TOTAL'])) {
+                        $upfront_total = $item['UPFRONT TOTAL'];
+                    } elseif (isset($item['Total Deposits'])) {
+                        // Skip total deposits line - we show individual deposits
+                    } else {
+                        // Regular item (installation, modem, etc.)
+                        $name = isset($item['Title']) ? $item['Title'] : '';
+                        $amount = isset($item['Price']) ? $item['Price'] : 0;
+                        
+                        // NEW: Check for deposit items
+                        $is_deposit = isset($item['Deposit Title']) || isset($item['Deposit Amount']) || 
+                                     (isset($item['Amount']) && stripos($name, 'deposit') !== false);
+                        
+                        if ($is_deposit) {
+                            // This is a deposit - add to separate array
+                            $deposit_amount = isset($item['Amount']) ? $item['Amount'] : (isset($item['Deposit Amount']) ? $item['Deposit Amount'] : $amount);
+                            
+                            $upfront_deposit_items[] = array(
+                                'name' => $name,
+                                'total' => $deposit_amount
+                            );
+                        } else {
+                            // Regular item (installation, etc.)
+                            $item_data = array(
+                                'name' => $name,
+                                'total' => $amount
+                            );
+                            
+                            // NEW: Extract installation dates if available
+                            $installation_dates_parts = array();
+                            if (isset($item['Preferred Installation Date']) && !empty($item['Preferred Installation Date'])) {
+                                $installation_dates_parts[] = $item['Preferred Installation Date'];
+                            }
+                            if (isset($item['Secondary Installation Date']) && !empty($item['Secondary Installation Date'])) {
+                                $installation_dates_parts[] = $item['Secondary Installation Date'];
+                            }
+                            if (!empty($installation_dates_parts)) {
+                                $item_data['installation_dates'] = implode(', ', $installation_dates_parts);
+                            }
+                            
+                            // NEW: Extract dynamic sale price if available
+                            if (isset($item['Dynamic Sale Price']) && $item['Dynamic Sale Price'] > 0) {
+                                $item_data['original_price'] = $amount; // 'Price' is original when Dynamic Sale Price exists
+                                $item_data['promo_price'] = $item['Dynamic Sale Price'];
+                            }
+                            
+                            $upfront_items_for_email[] = $item_data;
+                        }
                     }
                     
-                    $upfront_deposit_items[] = array(
-                        'name' => $clean_name,
-                        'total' => $amount
-                    );
                 } else {
-                    // Regular item (installation, etc.)
-                    // NEW: Include installation_dates if available
-                    $item_data = array(
-                        'name' => $name,
-                        'total' => $amount
-                    );
+                    // OLD NUMERIC ARRAY FORMAT (fallback for compatibility)
+                    $name = $item[0];
+                    $amount = $item[1];
                     
-                    // Add installation dates if they exist (for Installation Fee items)
-                    if (!empty($installation_dates)) {
-                        $item_data['installation_dates'] = $installation_dates;
+                    // Get installation dates if available (index [2] for Installation items)
+                    $installation_dates = isset($item[2]) ? $item[2] : '';
+                    
+                    // Skip subtotal, tax, and grand_total - we'll handle those separately
+                    if ($key === 'subtotal') {
+                        $upfront_subtotal = $amount;
+                    } elseif ($key === 'taxes') {
+                        $upfront_tax = $amount;
+                    } elseif ($key === 'grand_total') {
+                        $upfront_total = $amount;
+                    } else {
+                        // Check if this is a deposit item
+                        if ($key === 'deposit' || stripos($name, 'deposit') !== false) {
+                            // This is a deposit - add to separate array
+                            $clean_name = $name;
+                            if (stripos($name, 'pay-after') !== false || stripos($name, 'payafter') !== false) {
+                                $clean_name = 'Pay After Deposit';
+                            }
+                            
+                            $upfront_deposit_items[] = array(
+                                'name' => $clean_name,
+                                'total' => $amount
+                            );
+                        } else {
+                            // Regular item (installation, etc.)
+                            $item_data = array(
+                                'name' => $name,
+                                'total' => $amount
+                            );
+                            
+                            // Add installation dates if they exist
+                            if (!empty($installation_dates)) {
+                                $item_data['installation_dates'] = $installation_dates;
+                            }
+                            
+                            // Check for promotional pricing (indexes [3] and [4])
+                            if (isset($item[3]) && isset($item[4]) && $item[3] > 0) {
+                                $item_data['original_price'] = $item[3];
+                                $item_data['promo_price'] = $item[4];
+                            }
+                            
+                            $upfront_items_for_email[] = $item_data;
+                        }
                     }
-                    
-                    $upfront_items_for_email[] = $item_data;
                 }
             }
         }
     }
-}
     
-// UPDATED: Transform monthly summary to email format WITH PROMOTIONAL INFO
-$monthly_items_for_email = array();
-$monthly_subtotal = 0;
-$monthly_tax = 0;
-$monthly_total = 0;
+    // UPDATED: Transform monthly summary to email format WITH PROMOTIONAL INFO
+    $monthly_items_for_email = array();
+    $monthly_subtotal = 0;
+    $monthly_tax = 0;
+    $monthly_total = 0;
 
-if (isset($diallog_order_data['monthly_summary']) && is_array($diallog_order_data['monthly_summary'])) {
-    $monthly = $diallog_order_data['monthly_summary'];
-    
-    // Process each item in monthly summary
-    foreach ($monthly as $key => $item) {
-        if (is_array($item) && isset($item[0], $item[1])) {
-            $name = $item[0];
-            $final_price = $item[1];
-            
-            // NEW: Extract promotional pricing info if available
-            $original_price = isset($item[2]) ? $item[2] : 0;
-            $promo_price = isset($item[3]) ? $item[3] : 0;
-            $promo_blurb = isset($item[4]) ? $item[4] : '';
-            $modem_details = isset($item[5]) ? $item[5] : '';
-            
-            // Skip subtotal, tax, and grand_total - we'll handle those separately
-            if ($key === 'subtotal') {
-                $monthly_subtotal = $final_price;
-            } elseif ($key === 'taxes') {
-                $monthly_tax = $final_price;
-            } elseif ($key === 'grand_total') {
-                $monthly_total = $final_price;
-            } else {
-                // NEW: Include promotional info in email items
-                $monthly_items_for_email[] = array(
-                    'name' => $name,
-                    'total' => $final_price,
-                    'original_price' => $original_price,
-                    'promo_price' => $promo_price,
-                    'promo_blurb' => $promo_blurb,
-                    'modem_details' => $modem_details
-                );
+    if (isset($diallog_order_data['monthly_summary']) && is_array($diallog_order_data['monthly_summary'])) {
+        $monthly = $diallog_order_data['monthly_summary'];
+        
+        // Process each item in monthly summary
+        foreach ($monthly as $key => $item) {
+            if (is_array($item)) {
+                // Check if object format or numeric array format
+                $is_object_format = isset($item['Title']) || isset($item['Subtotal']) || isset($item['Tax']) || isset($item['MONTHLY TOTAL']);
+                
+                if ($is_object_format) {
+                    // NEW OBJECT FORMAT
+                    if (isset($item['Subtotal'])) {
+                        $monthly_subtotal = $item['Subtotal'];
+                    } elseif (isset($item['Tax'])) {
+                        $monthly_tax = $item['Tax'];
+                    } elseif (isset($item['MONTHLY TOTAL'])) {
+                        $monthly_total = $item['MONTHLY TOTAL'];
+                    } else {
+                        // Regular monthly item
+                        $name = isset($item['Title']) ? $item['Title'] : '';
+                        $final_price = isset($item['Monthly Fee']) ? $item['Monthly Fee'] : 0;
+                        
+                        $monthly_items_for_email[] = array(
+                            'name' => $name,
+                            'total' => $final_price,
+                            'original_price' => $final_price, // Use final price as original if no promo
+                            'promo_price' => isset($item['Promotional Price']) ? $item['Promotional Price'] : 0,
+                            'promo_blurb' => isset($item['Promotional Blurb']) ? $item['Promotional Blurb'] : '',
+                            'modem_details' => isset($item['Modem Make & Model']) ? $item['Modem Make & Model'] : ''
+                        );
+                    }
+                    
+                } else {
+                    // OLD NUMERIC ARRAY FORMAT (fallback)
+                    if (isset($item[0], $item[1])) {
+                        $name = $item[0];
+                        $final_price = $item[1];
+                        
+                        // Extract promotional pricing info if available
+                        $original_price = isset($item[2]) ? $item[2] : 0;
+                        $promo_price = isset($item[3]) ? $item[3] : 0;
+                        $promo_blurb = isset($item[4]) ? $item[4] : '';
+                        $modem_details = isset($item[5]) ? $item[5] : '';
+                        
+                        // Skip subtotal, tax, and grand_total
+                        if ($key === 'subtotal') {
+                            $monthly_subtotal = $final_price;
+                        } elseif ($key === 'taxes') {
+                            $monthly_tax = $final_price;
+                        } elseif ($key === 'grand_total') {
+                            $monthly_total = $final_price;
+                        } else {
+                            $monthly_items_for_email[] = array(
+                                'name' => $name,
+                                'total' => $final_price,
+                                'original_price' => $original_price,
+                                'promo_price' => $promo_price,
+                                'promo_blurb' => $promo_blurb,
+                                'modem_details' => $modem_details
+                            );
+                        }
+                    }
+                }
             }
         }
     }
-}
     
     // Get monthly payment method from user meta (same way as thank you page)
-$monthly_payment_method = 'Not specified';
-$monthly_method_code = dg_get_user_meta('monthly_bill_payment_option');
+    $monthly_payment_method = 'Not specified';
+    $monthly_method_code = dg_get_user_meta('monthly_bill_payment_option');
 
-if ($monthly_method_code) {
-    if (strtolower($monthly_method_code) === 'cc') {
-        $monthly_payment_method = 'Credit Card';
-        
-        // Get last 4 from session with correct key
-        if (WC()->session) {
-            $monthly_card_last_4 = WC()->session->get('monthly_payment_card_last_4');
-            if ($monthly_card_last_4) {
-                $monthly_payment_method .= ' ending in ' . $monthly_card_last_4;
+    if ($monthly_method_code) {
+        if (strtolower($monthly_method_code) === 'cc') {
+            $monthly_payment_method = 'Credit Card';
+            
+            // Get last 4 from session with correct key
+            if (WC()->session) {
+                $monthly_card_last_4 = WC()->session->get('monthly_payment_card_last_4');
+                if ($monthly_card_last_4) {
+                    $monthly_payment_method .= ' ending in ' . $monthly_card_last_4;
+                }
             }
+        } elseif (in_array(strtolower($monthly_method_code), array('bank', 'pad'))) {
+            $monthly_payment_method = 'Bank Account - Pre-Authorized Debit (PAD)';
+        } elseif (strtolower($monthly_method_code) === 'payafter') {
+            $monthly_payment_method = 'Pay After (Non Pre-Authorized)';
         }
-    } elseif (in_array(strtolower($monthly_method_code), array('bank', 'pad'))) {
-        $monthly_payment_method = 'Bank Account - Pre-Authorized Debit (PAD)';
-    } elseif (strtolower($monthly_method_code) === 'payafter') {
-        $monthly_payment_method = 'Pay After (Non Pre-Authorized)';
     }
-}
     
     // Get payment details from session
     $auth_code = '';
@@ -3959,9 +4097,98 @@ function add_deposit_fees_to_cart() {
     }
 }
 
-// ----------- Automatically Add Internet Plan to Cart When Redirected to Product page
-// ----- Also Automatically Replace Old Internet Plan With New One if Different Internet Plan Page is Visited 
 
+
+/**
+ * DIAGNOSTIC FUNCTION - Test if we can detect dynamic_install_price
+ * Add this to functions.php temporarily for testing
+ */
+
+/**
+ * UPDATED DIAGNOSTIC FUNCTION - Check ALL categories
+ */
+
+
+/**
+ * Apply dynamic installation price based on internet plan in cart
+ * This overrides the installation product price when a promotional price exists
+ */
+function apply_dynamic_install_price($cart) {
+    // Prevent this from running multiple times during a single page load
+    if (did_action('woocommerce_before_calculate_totals') >= 2) {
+        return;
+    }
+    
+    // Don't run in admin
+    if (is_admin() && !defined('DOING_AJAX')) {
+        return;
+    }
+    
+    error_log('=== APPLY DYNAMIC INSTALL PRICE ===');
+    
+    // Step 1: Find internet plan in cart and get dynamic_install_price
+    $internet_plan_cat_id = 19;
+    $dynamic_install_price = 0;
+    $internet_plan_found = false;
+    
+    foreach ($cart->get_cart() as $cart_item) {
+        $product = $cart_item['data'];
+        $product_id = $product->get_id();
+        $product_cat_ids = $product->get_category_ids();
+        
+        // Check if this product has internet-plan category
+        if (in_array($internet_plan_cat_id, $product_cat_ids)) {
+            $internet_plan_found = true;
+            
+            // Get dynamic_install_price from this internet plan
+            if (function_exists('get_field')) {
+                $dynamic_install_price = get_field('dynamic_install_price', $product_id);
+                
+                if (empty($dynamic_install_price) && $dynamic_install_price !== '0') {
+                    $dynamic_install_price = get_field('dynamic_install_price', 'product_' . $product_id);
+                }
+                
+                $dynamic_install_price = is_numeric($dynamic_install_price) ? floatval($dynamic_install_price) : 0;
+            }
+            
+            error_log("Found internet plan (ID: $product_id) with dynamic_install_price: $dynamic_install_price");
+            break; // Found internet plan, stop looking
+        }
+    }
+    
+    // If no dynamic price or no internet plan, exit
+    if (!$internet_plan_found || $dynamic_install_price <= 0) {
+        error_log("No dynamic install price to apply (internet plan found: " . ($internet_plan_found ? 'yes' : 'no') . ", price: $dynamic_install_price)");
+        return;
+    }
+    
+    // Step 2: Find installation product and override its price
+    $installation_parent_id = 265084;
+    $installation_variation_id = 265450;
+    
+    foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
+        $product = $cart_item['data'];
+        $product_id = $product->get_id();
+        $parent_id = $product->get_parent_id();
+        
+        // Check if this is the installation product
+        $is_installation = ($product_id == $installation_parent_id || 
+                           $product_id == $installation_variation_id || 
+                           $parent_id == $installation_parent_id);
+        
+        if ($is_installation) {
+            $original_price = $product->get_price();
+            
+            // Set the new price
+            $product->set_price($dynamic_install_price);
+            
+            error_log("✓ Applied dynamic install price to product $product_id: $$original_price → $$dynamic_install_price");
+        }
+    }
+    
+    error_log('=== END APPLY DYNAMIC INSTALL PRICE ===');
+}
+add_action('woocommerce_before_calculate_totals', 'apply_dynamic_install_price', 10, 1);
 
 
 /*======Upfront Fee Summary Table - 
@@ -3984,7 +4211,33 @@ function upfront_fee_summary_shortcode() {
    $installation_found = false;
    $installation_dates = array();
    $installation_price = 0;
+   $original_installation_price = 0;
+   $dynamic_install_price = 0;
    $deposits = array(); // Store deposit information
+   
+   // NEW: Get dynamic install price from internet plan in cart
+   $internet_plan_cat_id = 19;
+   foreach ($cart->get_cart() as $cart_item) {
+       $product = $cart_item['data'];
+       $product_id = $product->get_id();
+       $product_cat_ids = $product->get_category_ids();
+       
+       // Check if this product has internet-plan category (check ALL categories)
+       if (in_array($internet_plan_cat_id, $product_cat_ids)) {
+           if (function_exists('get_field')) {
+               $dynamic_install_price = get_field('dynamic_install_price', $product_id);
+               
+               if (empty($dynamic_install_price) && $dynamic_install_price !== '0') {
+                   $dynamic_install_price = get_field('dynamic_install_price', 'product_' . $product_id);
+               }
+               
+               $dynamic_install_price = is_numeric($dynamic_install_price) ? floatval($dynamic_install_price) : 0;
+           }
+           
+           error_log('Upfront summary shortcode - Found internet plan: ' . $product_id . ', dynamic price: ' . $dynamic_install_price);
+           break;
+       }
+   }
    
    // First pass: Check for installation and store its details
    foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
@@ -3999,24 +4252,45 @@ function upfront_fee_summary_shortcode() {
        $is_installation = in_array($installation_category_id, $product_cats) || $parent_id == $installation_product_id;
        
        if ($is_installation) {
-           $installation_found = true;
-           $installation_price = $product->get_price();
-           
-           // Check for variation attributes
-           if (isset($cart_item['variation']) && is_array($cart_item['variation'])) {
-               $installation_dates = array(
-                   'preferred-date' => isset($cart_item['variation']['attribute_preferred-date']) ? 
-                       $cart_item['variation']['attribute_preferred-date'] : '',
-                   'secondary-date' => isset($cart_item['variation']['attribute_secondary-date']) ? 
-                       $cart_item['variation']['attribute_secondary-date'] : ''
-               );
-           }
-           break; // Only need to find one installation product
-       }
+    $installation_found = true;
+    
+    // NEW: Get ORIGINAL price from database, not cart (cart may be modified by hook)
+    $installation_product_db = wc_get_product($product_id);
+    $original_installation_price = $installation_product_db ? floatval($installation_product_db->get_regular_price()) : floatval($product->get_price());
+    
+    // Apply dynamic install price if available
+    if ($dynamic_install_price > 0) {
+        $installation_price = $dynamic_install_price;
+    } else {
+        $installation_price = $original_installation_price;
+    }
+    
+    // Check for variation attributes
+    if (isset($cart_item['variation']) && is_array($cart_item['variation'])) {
+        $installation_dates = array(
+            'preferred-date' => isset($cart_item['variation']['attribute_preferred-date']) ? 
+                $cart_item['variation']['attribute_preferred-date'] : '',
+            'secondary-date' => isset($cart_item['variation']['attribute_secondary-date']) ? 
+                $cart_item['variation']['attribute_secondary-date'] : ''
+        );
+    }
+    break; // Only need to find one installation product
+}
    }
    
    // Display installation first if found
    if ($installation_found) {
+       // Build pricing display for installation
+       $install_pricing_display = '';
+       if ($dynamic_install_price > 0 && $dynamic_install_price != $original_installation_price) {
+           // Show strikethrough original price and green bold sale price
+           $install_pricing_display = '<span style="text-decoration: line-through;">' . wc_price($original_installation_price) . '</span> ';
+           $install_pricing_display .= '<span style="color: green; font-weight: bold;">' . wc_price($dynamic_install_price) . '</span>';
+       } else {
+           // Show regular price
+           $install_pricing_display = wc_price($installation_price);
+       }
+       
        $output .= '<tr>';
        $output .= '<td>Installation';
        
@@ -4032,10 +4306,10 @@ function upfront_fee_summary_shortcode() {
        
        $output .= '</td>';
        $output .= '<td>Installation</td>';
-       $output .= '<td>' . wc_price($installation_price) . '</td>';
+       $output .= '<td>' . $install_pricing_display . '</td>';
        $output .= '</tr>';
        
-       $subtotal += $installation_price;
+       $subtotal += $installation_price; // Use final price (sale or regular) for calculations
    }
    
    // Get internet plan category for sorting
@@ -4213,8 +4487,6 @@ function upfront_fee_summary_shortcode() {
 }
 add_shortcode('upfront_fee_summary', 'upfront_fee_summary_shortcode');
 
-
-
 /*--------------DEBUG CART CONTENTS: SEPT. 30TH --------*/
 
 add_action('wp_ajax_debug_cart_contents', 'debug_cart_contents');
@@ -4237,9 +4509,6 @@ function debug_cart_contents() {
         'payafter_in_cart' => in_array(265827, wp_list_pluck($cart_items, 'id'))
     ));
 }
-
-
-/*-------*/
 
 
 // --------------------Monthly Fee Summary Table Shortcode with Internet Plan and Promotional Pricing
@@ -4274,7 +4543,7 @@ function monthly_fee_summary_shortcode() {
     error_log("Post ID: " . ($post ? $post->ID : 'NO POST'));
     
     // Check if we're on a product page and handle cart addition FIRST
-    if (is_product() && $post) {
+    if (is_product() && $post && !is_checkout() && !is_cart() && !(defined('DOING_AJAX') && DOING_AJAX)) {
         $current_product_id = $post->ID;
         error_log("Current product ID: " . $current_product_id);
         
@@ -5126,11 +5395,12 @@ function remove_all_except_items($cart_keys_to_keep) {
 }
 
 
-
 /**
  * Upfront Fee Total Shortcode
  * Displays only the total upfront fee amount
  */
+
+
 function upfront_fee_total_shortcode($atts) {
     // Get cart items
     $cart = WC()->cart;
@@ -5138,6 +5408,32 @@ function upfront_fee_total_shortcode($atts) {
     if ($cart->is_empty()) {
         $total_display = '$0.00';
     } else {
+        // NEW: Get dynamic install price from internet plan in cart
+        $internet_plan_cat_id = 19;
+        $dynamic_install_price = 0;
+        
+        foreach ($cart->get_cart() as $cart_item) {
+            $product = $cart_item['data'];
+            $product_id = $product->get_id();
+            $product_cat_ids = $product->get_category_ids();
+            
+            // Check if this product has internet-plan category (check ALL categories)
+            if (in_array($internet_plan_cat_id, $product_cat_ids)) {
+                if (function_exists('get_field')) {
+                    $dynamic_install_price = get_field('dynamic_install_price', $product_id);
+                    
+                    if (empty($dynamic_install_price) && $dynamic_install_price !== '0') {
+                        $dynamic_install_price = get_field('dynamic_install_price', 'product_' . $product_id);
+                    }
+                    
+                    $dynamic_install_price = is_numeric($dynamic_install_price) ? floatval($dynamic_install_price) : 0;
+                }
+                
+                error_log('Upfront total shortcode - Found internet plan: ' . $product_id . ', dynamic price: ' . $dynamic_install_price);
+                break;
+            }
+        }
+        
         $subtotal = 0;
         $deposit_total = 0;
         
@@ -5145,7 +5441,21 @@ function upfront_fee_total_shortcode($atts) {
         foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
             $product = $cart_item['data'];
             $product_id = $product->get_id();
+            $parent_id = $product->get_parent_id();
             $product_price = $product->get_price();
+            
+            $installation_category_id = 63;
+            $installation_parent_product_id = 265084;
+            $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'ids'));
+            $is_installation = in_array($installation_category_id, $product_cats) || 
+                   $parent_id == $installation_parent_product_id || 
+                   $product_id == $installation_parent_product_id;
+            
+            if ($is_installation && $dynamic_install_price > 0) {
+                $product_price = $dynamic_install_price;
+                error_log('Upfront total shortcode - Using dynamic install price: ' . $product_price);
+            }
+            
             $subtotal += $product_price;
             
             // Get deposit fee
@@ -5188,32 +5498,10 @@ function upfront_fee_total_shortcode($atts) {
 }
 add_shortcode('upfront_fee_total', 'upfront_fee_total_shortcode');
 
-
-
-//
-
-
-function update_fee_summary_tables() {
-    check_ajax_referer('modem_selection_nonce', 'nonce');
-    
-    // Get current product ID from AJAX request
-    $current_product_id = isset($_POST['current_product_id']) ? absint($_POST['current_product_id']) : 0;
-    
-    // Store current product ID in session for use in shortcodes
-    WC()->session->set('current_product_id', $current_product_id);
-    
-    $upfront_table = upfront_fee_summary_shortcode();
-    $monthly_table = monthly_fee_summary_shortcode();
-    
-    wp_send_json_success(array(
-        'upfront_table' => $upfront_table,
-        'monthly_table' => $monthly_table
-    ));
-    
-    wp_die();
-}
-add_action('wp_ajax_update_fee_tables', 'update_fee_summary_tables');
-add_action('wp_ajax_nopriv_update_fee_tables', 'update_fee_summary_tables');
+/**
+ * AJAX handler to get upfront fee total
+ * Used for dynamic updates
+ */
 
 /**
  * AJAX handler to get upfront fee total
@@ -5228,6 +5516,32 @@ function get_upfront_fee_total_ajax() {
     if ($cart->is_empty()) {
         $total_display = '$0.00';
     } else {
+        // NEW: Get dynamic install price from internet plan in cart
+        $internet_plan_cat_id = 19;
+        $dynamic_install_price = 0;
+        
+        foreach ($cart->get_cart() as $cart_item) {
+            $product = $cart_item['data'];
+            $product_id = $product->get_id();
+            $product_cat_ids = $product->get_category_ids();
+            
+            // Check if this product has internet-plan category (check ALL categories)
+            if (in_array($internet_plan_cat_id, $product_cat_ids)) {
+                if (function_exists('get_field')) {
+                    $dynamic_install_price = get_field('dynamic_install_price', $product_id);
+                    
+                    if (empty($dynamic_install_price) && $dynamic_install_price !== '0') {
+                        $dynamic_install_price = get_field('dynamic_install_price', 'product_' . $product_id);
+                    }
+                    
+                    $dynamic_install_price = is_numeric($dynamic_install_price) ? floatval($dynamic_install_price) : 0;
+                }
+                
+                error_log('AJAX Upfront total - Found internet plan: ' . $product_id . ', dynamic price: ' . $dynamic_install_price);
+                break;
+            }
+        }
+        
         $subtotal = 0;
         $deposit_total = 0;
         
@@ -5235,7 +5549,22 @@ function get_upfront_fee_total_ajax() {
         foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
             $product = $cart_item['data'];
             $product_id = $product->get_id();
+            $parent_id = $product->get_parent_id();
             $product_price = $product->get_price();
+            
+            // Check if this is installation and apply dynamic price if exists
+            $installation_category_id = 63;
+            $installation_parent_product_id = 265084;
+            $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'ids'));
+            $is_installation = in_array($installation_category_id, $product_cats) || 
+                               $parent_id == $installation_parent_product_id || 
+                               $product_id == $installation_parent_product_id;
+            
+            if ($is_installation && $dynamic_install_price > 0) {
+                $product_price = $dynamic_install_price;
+                error_log('AJAX - Using dynamic install price: ' . $product_price);
+            }
+            
             $subtotal += $product_price;
             
             // Get deposit fee
@@ -5304,7 +5633,33 @@ function get_upfront_fee_total_ajax() {
 add_action('wp_ajax_get_upfront_fee_total', 'get_upfront_fee_total_ajax');
 add_action('wp_ajax_nopriv_get_upfront_fee_total', 'get_upfront_fee_total_ajax');
 
-// AJAX handler to remove product from cart
+//
+
+function update_fee_summary_tables() {
+    check_ajax_referer('modem_selection_nonce', 'nonce');
+    
+    // Get current product ID from AJAX request
+    $current_product_id = isset($_POST['current_product_id']) ? absint($_POST['current_product_id']) : 0;
+    
+    // Store current product ID in session for use in shortcodes
+    WC()->session->set('current_product_id', $current_product_id);
+    
+    $upfront_table = upfront_fee_summary_shortcode();
+    $monthly_table = monthly_fee_summary_shortcode();
+    
+    wp_send_json_success(array(
+        'upfront_table' => $upfront_table,
+        'monthly_table' => $monthly_table
+    ));
+    
+    wp_die();
+}
+add_action('wp_ajax_update_fee_tables', 'update_fee_summary_tables');
+add_action('wp_ajax_nopriv_update_fee_tables', 'update_fee_summary_tables');
+
+
+// ========= AJAX handler to remove product from cart
+
 function modem_remove_from_cart_ajax() {
     // Check nonce for security
     check_ajax_referer('modem_selection_nonce', 'nonce');
@@ -8275,6 +8630,7 @@ function get_monthly_fee_summary() {
  * Returns individual cart items with their prices for display
  * UPDATED: Handles deposits with category-based naming only, Install Dates special handling
  */
+
 function get_upfront_cart_items_for_thank_you() {
     $items = array();
     $tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 13;
@@ -8284,6 +8640,32 @@ function get_upfront_cart_items_for_thank_you() {
     }
     
     error_log('=== GETTING UPFRONT CART ITEMS FOR THANK YOU PAGE ===');
+    
+    // NEW: Get dynamic install price from internet plan in cart
+    $internet_plan_cat_id = 19;
+    $dynamic_install_price = 0;
+    
+    foreach (WC()->cart->get_cart() as $cart_item) {
+        $product = $cart_item['data'];
+        $product_id = $product->get_id();
+        $product_cat_ids = $product->get_category_ids();
+        
+        // Check if this product has internet-plan category (check ALL categories)
+        if (in_array($internet_plan_cat_id, $product_cat_ids)) {
+            if (function_exists('get_field')) {
+                $dynamic_install_price = get_field('dynamic_install_price', $product_id);
+                
+                if (empty($dynamic_install_price) && $dynamic_install_price !== '0') {
+                    $dynamic_install_price = get_field('dynamic_install_price', 'product_' . $product_id);
+                }
+                
+                $dynamic_install_price = is_numeric($dynamic_install_price) ? floatval($dynamic_install_price) : 0;
+            }
+            
+            error_log('Thank you page - Found internet plan: ' . $product_id . ', dynamic price: ' . $dynamic_install_price);
+            break;
+        }
+    }
     
     foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
         $product = $cart_item['data'];
@@ -8318,16 +8700,33 @@ function get_upfront_cart_items_for_thank_you() {
                 }
             }
             
-            // Add with custom title and dates
-            if ($product_price > 0) {
-                $items[] = array(
+            // NEW: Get original price from database (cart price may be modified by hook)
+            $installation_product_db = wc_get_product($product_id);
+            $original_install_price = $installation_product_db ? floatval($installation_product_db->get_regular_price()) : floatval($product_price);
+            
+            // Determine final price (use dynamic if available, otherwise use cart price)
+            $final_install_price = ($dynamic_install_price > 0) ? $dynamic_install_price : $product_price;
+            
+            // Add installation item
+            if ($final_install_price > 0 || $original_install_price > 0) {
+                $install_item = array(
                     'name' => 'Installation Fee',
-                    'price' => $product_price,
+                    'price' => $final_install_price,
                     'type' => 'installation',
                     'category' => $primary_category,
                     'dates' => $installation_dates // Store dates for display
                 );
-                error_log("Added installation: Installation Fee = $$product_price with dates: $installation_dates");
+                
+                // NEW: Add promotional pricing if dynamic price exists
+                if ($dynamic_install_price > 0 && $dynamic_install_price != $original_install_price) {
+                    $install_item['original_price'] = $original_install_price;
+                    $install_item['promo_price'] = $dynamic_install_price;
+                    error_log("Added installation with promo: Installation Fee = $$final_install_price (original: $$original_install_price, promo: $$dynamic_install_price) with dates: $installation_dates");
+                } else {
+                    error_log("Added installation: Installation Fee = $$final_install_price with dates: $installation_dates");
+                }
+                
+                $items[] = $install_item;
             }
             continue; // Skip to next item
         }
@@ -8384,6 +8783,7 @@ function get_upfront_cart_items_for_thank_you() {
     error_log('Total items for thank you page: ' . count($items));
     return $items;
 }
+
 
 /**
  * Get detailed monthly cart items for thank you page
@@ -8513,6 +8913,15 @@ function get_upfront_summary_for_thank_you() {
                 $item['price'],
                 isset($item['dates']) ? $item['dates'] : '' // Pass dates if present
             );
+            
+            // NEW: Add optional original_price and promo_price fields if they exist
+            if (isset($item['original_price'])) {
+                $summary[$key][3] = $item['original_price'];
+            }
+            if (isset($item['promo_price'])) {
+                $summary[$key][4] = $item['promo_price'];
+            }
+            
             $subtotal += $item['price'];
         }
     }
@@ -8672,8 +9081,9 @@ function get_upfront_fee_json() {
 	
 }
 
+/*=======Upfront Fee Summary ======*/
 
-// COMPLETE FIX: Replace your get_upfront_fee_summary() function with this version
+
 function get_upfront_fee_summary() {
     
     $summary = array(
@@ -8696,8 +9106,35 @@ function get_upfront_fee_summary() {
     $phone_deposit = 0;
     $modem_deposit = 0;
     
+    // NEW: Get dynamic install price from internet plan in cart
+    $internet_plan_cat_id = 19;
+    $dynamic_install_price = 0;
+    
+    foreach (WC()->cart->get_cart() as $cart_item) {
+        $product = $cart_item['data'];
+        $product_id = $product->get_id();
+        $product_cat_ids = $product->get_category_ids();
+        
+        // Check if this product has internet-plan category (check ALL categories)
+        if (in_array($internet_plan_cat_id, $product_cat_ids)) {
+            if (function_exists('get_field')) {
+                $dynamic_install_price = get_field('dynamic_install_price', $product_id);
+                
+                if (empty($dynamic_install_price) && $dynamic_install_price !== '0') {
+                    $dynamic_install_price = get_field('dynamic_install_price', 'product_' . $product_id);
+                }
+                
+                $dynamic_install_price = is_numeric($dynamic_install_price) ? floatval($dynamic_install_price) : 0;
+            }
+            
+            error_log('get_upfront_fee_summary - Found internet plan: ' . $product_id . ', dynamic price: ' . $dynamic_install_price);
+            break;
+        }
+    }
+    
     error_log("=== FIXED UPFRONT FEE SUMMARY DEBUG ===");
     error_log("Cart item count: " . WC()->cart->get_cart_contents_count());
+    error_log("Dynamic install price: " . $dynamic_install_price);
     
     foreach ( WC()->cart->get_cart() as $cart_item_key => $cart_item ) {
          
@@ -8834,10 +9271,25 @@ function get_upfront_fee_summary() {
             
         } else {
             // FIX: Handle installation category specifically
-            if ($product_category == 'installation' || $product_id == 265084) {
-                $product_price = $_product->get_price();
+            if ($product_category == 'installation' || $product_id == 265084 || in_array(63, $product_cat_ids)) {
+                // NEW: Get ORIGINAL price from database, not cart (cart may already be modified by hook)
+                $installation_product_db = wc_get_product($product_id);
+                $original_install_price = $installation_product_db ? floatval($installation_product_db->get_regular_price()) : floatval($_product->get_price());
+                
+                // Determine final price to use
+                $final_install_price = ($dynamic_install_price > 0) ? $dynamic_install_price : $original_install_price;
+                
                 $summary['installation'][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
-                $summary['installation'][1] = round(floatval($product_price), 2);
+                $summary['installation'][1] = round($final_install_price, 2);
+                
+                // NEW: Add promotional pricing info if dynamic price exists
+                if ($dynamic_install_price > 0 && $dynamic_install_price != $original_install_price) {
+                    $summary['installation'][2] = ''; // Placeholder for dates (added later)
+                    $summary['installation'][3] = round($original_install_price, 2); // Original price
+                    $summary['installation'][4] = round($dynamic_install_price, 2); // Sale price
+                    error_log("Installation with promo: Original $original_install_price, Sale $dynamic_install_price");
+                }
+                
                 $summary['taxes'][1] += round( floatval ( ($summary['installation'][1] * $tax_rate ) / 100 ) , 2 );
                 error_log("Installation product: " . $summary['installation'][0] . " = $" . $summary['installation'][1]);
             } else {
