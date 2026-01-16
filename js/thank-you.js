@@ -183,7 +183,7 @@ jQuery(document).ready(function ($) {
     }
 
     // Function to populate upfront summary table (2 columns)
-    // UPDATED: Now accepts data parameter for tax rate
+    // UPDATED: Now accepts data parameter for tax rate and handles promotional pricing
     function populateUpfrontSummary(summary, data) {
         console.log('Populating upfront summary:', summary);
 
@@ -203,8 +203,12 @@ jQuery(document).ready(function ($) {
                     return true; // continue to next iteration
                 }
 
-                var itemAmount = formatCurrency(value[1]);
                 var itemDates = value[2] || '';
+
+                // NEW: Check for promotional pricing (indexes [3] and [4])
+                var originalPrice = value[3] || 0;  // [3] = original_price
+                var promoPrice = value[4] || 0;     // [4] = promo_price
+                var hasPromo = (originalPrice > 0 && promoPrice > 0);
 
                 var row = '<tr>' +
                     '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">' + itemName;
@@ -217,8 +221,23 @@ jQuery(document).ready(function ($) {
                 }
 
                 row += '</td>' +
-                    '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">' + itemAmount + '</td>' +
-                    '</tr>';
+                    '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">';
+
+                // NEW: Display promotional pricing if exists
+                if (hasPromo) {
+                    // Show strikethrough original price and green promo price
+                    row += '<span style="text-decoration: line-through; color: grey; font-size: 0.9em;">' +
+                        formatCurrency(originalPrice) +
+                        '</span><br>' +
+                        '<span style="color: green;">' +
+                        formatCurrency(promoPrice) +
+                        '</span>';
+                } else {
+                    // Regular price display
+                    row += formatCurrency(value[1]);
+                }
+
+                row += '</td></tr>';
 
                 $tbody.append(row);
             }
