@@ -254,8 +254,8 @@ function generate_order_confirmation_email_html($order_data) {
                 
             
            <!-- Upfront Payment Summary Section -->
-            <div class="section-title">Upfront Payment Summary</div>
-            <table class="items-table">
+<div class="section-title">Upfront Payment Summary</div>
+<table class="items-table">
     <tbody>
         <?php if (!empty($upfront_items)): ?>
             <?php foreach ($upfront_items as $item): ?>
@@ -263,7 +263,7 @@ function generate_order_confirmation_email_html($order_data) {
                 <td>
                     <?php echo esc_html($item['name']); ?>
                     <?php 
-                    // NEW: Display installation dates if this is an Installation Fee item
+                    // Display installation dates if this is an Installation Fee item
                     if (!empty($item['installation_dates'])): 
                     ?>
                         <br><em style="font-style: italic; font-size: 0.9em; color: #666;">
@@ -271,7 +271,28 @@ function generate_order_confirmation_email_html($order_data) {
                         </em>
                     <?php endif; ?>
                 </td>
-                <td>$<?php echo esc_html(number_format($item['total'], 2)); ?></td>
+                <td>
+                    <?php 
+                    // NEW: Check if this item has promotional pricing
+                    $has_promo = !empty($item['promo_price']) && $item['promo_price'] > 0 && 
+                                 !empty($item['original_price']) && $item['original_price'] > 0;
+                    
+                    if ($has_promo): 
+                        // Show strikethrough original price and green promo price
+                    ?>
+                        <span style="text-decoration: line-through; color: grey; font-size: 0.9em;">
+                            $<?php echo esc_html(number_format($item['original_price'], 2)); ?>
+                        </span>
+                        <br>
+                        <span style="color: green;">
+                            $<?php echo esc_html(number_format($item['promo_price'], 2)); ?>
+                        </span>
+                    <?php else: 
+                        // Regular price display
+                    ?>
+                        $<?php echo esc_html(number_format($item['total'], 2)); ?>
+                    <?php endif; ?>
+                </td>
             </tr>
             <?php endforeach; ?>
             <tr class="subtotal-row">
