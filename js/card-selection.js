@@ -6,27 +6,30 @@
 jQuery(document).ready(function ($) {
     // Store the product IDs for each row
     const modemRows = {
-        'modem-0': 265104,
-        'modem-1': 265105,
-        'modem-2': 265107,
-        'modem-3': 265108,
-        'modem-4': 265769
+        'modem-0': 267980,
+        'modem-1': 267981,
+        'modem-2': 267983,
+        'modem-3': 267984,
+        'modem-4': 267979
     };
 
     const phoneRows = {
         'phone-0': 304,
         'phone-1': 305,
-        'phone-2': 265475
+        'phone-2': 267991
     };
 
     const tvRows = {
-        'tv-0': 264269,
-        'tv-1': 264270,
-        'tv-2': 265476
+        'tv-0': 267996,
+        'tv-1': 267997,
+        'tv-2': 267993
     };
 
     // Get current page product ID (for internet plan)
     const currentPageProductId = $('input[name="add-to-cart"]').val() || 0;
+
+    // declare Modem Details
+    let lastSavedModemDetails = ''; // Track what we last sent to server
 
     // Check if any product is already in cart and highlight that row
     checkCartAndHighlight();
@@ -70,8 +73,8 @@ jQuery(document).ready(function ($) {
 
         const productId = modemRows[rowClass];
 
-        // Special handling for "own modem" product (265769)
-        if (productId === 265769) {
+        // Special handling for "own modem" product (267979)
+        if (productId === 267979) {
             const $input = $this.find('.own-modem-input');
             const modemDetails = $input.val().trim();
 
@@ -165,13 +168,14 @@ jQuery(document).ready(function ($) {
         }
     });
 
-    // Enhanced input validation handler for modem details
+    // Enhanced input validation handler for modem details - VISUAL FEEDBACK ONLY
     $(document).on('input', '.own-modem-input', function () {
         console.log('=== INPUT HANDLER TRIGGERED ===');
 
         const $input = $(this);
         const $row = $input.closest('.modem-4');
         const modemDetails = $input.val().trim();
+        const productId = 267979; // Own modem product ID
 
         console.log('Input value:', modemDetails);
         console.log('Input length:', modemDetails.length);
@@ -193,14 +197,9 @@ jQuery(document).ready(function ($) {
             $input.removeClass('error');
             $row.find('.own-modem-error').hide();
 
-            // Convert from pending to selected (visual state only)
-            if ($row.hasClass('own-modem-pending') || !$row.hasClass('modem-row-selected')) {
-                console.log('Converting to selected state');
-                $row.removeClass('own-modem-pending');
-                $row.addClass('modem-row-selected');
-            }
-
-            // DO NOT ADD TO CART HERE - we'll do it on Next button click
+            // Convert from pending to selected (visual state only - NO AJAX)
+            $row.removeClass('own-modem-pending');
+            $row.addClass('modem-row-selected');
 
         } else if (modemDetails.length < 5 && modemDetails.length > 0) {
             console.log('VALIDATION FAILED - too short');
@@ -226,14 +225,49 @@ jQuery(document).ready(function ($) {
         // Trigger button state update after changes
         setTimeout(function () {
             console.log('Row classes AFTER:', $row.attr('class'));
-            console.log('Pending count:', $('.own-modem-pending').length);
-            console.log('Selected count:', $('.modem-row-selected').length);
 
             // Trigger validation update
             if (typeof revalidateButtonStates === 'function') {
                 revalidateButtonStates();
             }
         }, 50);
+    });
+
+    // NEW: Blur handler - saves to cart when user leaves the field
+    $(document).on('blur', '.own-modem-input', function () {
+        const $input = $(this);
+        const $row = $input.closest('.modem-4');
+        const modemDetails = $input.val().trim();
+        const productId = 267979;
+
+        console.log('=== BLUR EVENT - Checking if we need to save ===');
+        console.log('Current value:', modemDetails);
+        console.log('Last saved value:', lastSavedModemDetails);
+
+        // Only send AJAX if:
+        // 1. Validation passes AND
+        // 2. Value has changed since last save
+        if (modemDetails.length >= 5 && modemDetails.length <= 100) {
+            if (modemDetails !== lastSavedModemDetails) {
+                console.log('Value changed and valid - saving to cart');
+                addOwnModemToCart(productId, modemDetails);
+                lastSavedModemDetails = modemDetails;
+            } else {
+                console.log('Value unchanged - no save needed');
+            }
+        } else if (modemDetails.length === 0 && lastSavedModemDetails) {
+            // User cleared the field - remove from cart
+            console.log('Field cleared - removing from cart');
+            removeFromCart(productId);
+            lastSavedModemDetails = '';
+        } else if (modemDetails.length > 0 && modemDetails.length < 5) {
+            // Invalid input - if we had saved something before, remove it
+            if (lastSavedModemDetails) {
+                console.log('Invalid input - removing previously saved data from cart');
+                removeFromCart(productId);
+                lastSavedModemDetails = '';
+            }
+        }
     });
 
     // Make phone rows clickable
@@ -363,8 +397,8 @@ jQuery(document).ready(function ($) {
                         if (cartItems.includes(productId)) {
                             $(`.${rowClass}`).addClass('modem-row-selected');
 
-                            // If this is the "I Have My Own Modem" product (265769), populate the input field
-                            if (productId === 265769 && modemDetails) {
+                            // If this is the "I Have My Own Modem" product (267979), populate the input field
+                            if (productId === 267979 && modemDetails) {
                                 $(`.${rowClass} .own-modem-input`).val(modemDetails);
                             }
                         }
@@ -388,8 +422,14 @@ jQuery(document).ready(function ($) {
         });
     }
 
+
     // Function to add own modem to cart with details
     function addOwnModemToCart(productId, modemDetails) {
+            console.log('=== AJAX CALL DEBUG ===');
+    console.log('modemDetails parameter:', modemDetails);
+    console.log('modemDetails length:', modemDetails.length);
+    console.log('modemDetails type:', typeof modemDetails);
+
         $.ajax({
             type: 'POST',
             url: modem_selection_vars.ajax_url,
@@ -402,8 +442,17 @@ jQuery(document).ready(function ($) {
             success: function (response) {
                 if (response.success) {
                     console.log('Own modem added to cart with details');
+
+                    // CRITICAL FIX A: Trigger cart fragment refresh
                     $(document.body).trigger('wc_fragment_refresh');
-                    updateFeeTables();
+
+                    // CRITICAL FIX A: Update upfront total immediately
+                    setTimeout(function () {
+                        updateUpfrontTotal();
+                    }, 100);
+
+                    // Note: We don't update fee tables here because own modem 
+                    // doesn't appear in monthly summary (it's $0)
                 } else {
                     console.error('Error:', response.data.message);
                 }
@@ -416,11 +465,18 @@ jQuery(document).ready(function ($) {
 
     // Function to update upfront fee total with preloader
     function updateUpfrontTotal() {
-        // Simply check if the global preloader function exists and use it
-        if (typeof window.updateFeesWithPreloader === 'function') {
-            window.updateFeesWithPreloader();
+        const upfrontContainer = $('.upfront-fee-total-container, [data-shortcode="upfront_fee_total"]');
+
+        // CRITICAL: Show preloader BEFORE any AJAX
+        if (upfrontContainer.length && typeof showPreloaderManually === 'function') {
+            showPreloaderManually(upfrontContainer);
+        }
+
+        // Check if the global preloader function exists
+        if (typeof window.updateUpfrontFeeWithPreloader === 'function') {
+            window.updateUpfrontFeeWithPreloader();
         } else {
-            // Fallback to original method
+            // Fallback: Make AJAX call directly
             $.ajax({
                 type: "POST",
                 url: modem_selection_vars.ajax_url,
@@ -430,7 +486,19 @@ jQuery(document).ready(function ($) {
                 },
                 success: function (response) {
                     if (response.success) {
-                        $(".upfront-fee-total-container").html(response.data.total);
+                        upfrontContainer.find('.upfront-fee-content').html(response.data.total);
+
+                        // Hide preloader after update
+                        setTimeout(function () {
+                            if (typeof hidePreloaderManually === 'function') {
+                                hidePreloaderManually(upfrontContainer);
+                            }
+                        }, 250);
+                    }
+                },
+                error: function () {
+                    if (typeof hidePreloaderManually === 'function') {
+                        hidePreloaderManually(upfrontContainer);
                     }
                 }
             });
@@ -439,6 +507,12 @@ jQuery(document).ready(function ($) {
 
     // Function to update fee tables
     function updateFeeTables() {
+        // CRITICAL: Show preloader for upfront total BEFORE updating tables
+        const upfrontContainer = $('.upfront-fee-total-container, [data-shortcode="upfront_fee_total"]');
+        if (upfrontContainer.length && typeof showPreloaderManually === 'function') {
+            showPreloaderManually(upfrontContainer);
+        }
+
         $.ajax({
             type: "POST",
             url: modem_selection_vars.ajax_url,
@@ -452,10 +526,16 @@ jQuery(document).ready(function ($) {
                     $(".upfront-fee-summary-container").html(response.data.upfront_table);
                     $(".monthly-fee-summary-container").html(response.data.monthly_table);
 
-                    // Update upfront fee total if that function exists
-                    if (typeof updateUpfrontTotal === 'function') {
+                    // CRITICAL: Update upfront total AFTER tables are updated
+                    setTimeout(function () {
                         updateUpfrontTotal();
-                    }
+                    }, 100);
+                }
+            },
+            error: function () {
+                // Hide preloader on error
+                if (typeof hidePreloaderManually === 'function') {
+                    hidePreloaderManually(upfrontContainer);
                 }
             }
         });
@@ -463,7 +543,7 @@ jQuery(document).ready(function ($) {
 
     // ===== INSTALLATION DATE SELECTION =====
     const installationRow = $('.installation-row');
-    const installationProductId = 265084; // Parent product ID
+    const installationProductId = 267986; // Parent product ID
     let preferredDate = '';
     let secondaryDate = '';
 
@@ -643,6 +723,12 @@ jQuery(document).ready(function ($) {
                 secondary: secondaryDate
             });
 
+            // CRITICAL: Show preloader BEFORE AJAX call
+            const upfrontContainer = $('.upfront-fee-total-container, [data-shortcode="upfront_fee_total"]');
+            if (upfrontContainer.length && typeof showPreloaderManually === 'function') {
+                showPreloaderManually(upfrontContainer);
+            }
+
             $.ajax({
                 type: 'POST',
                 url: modem_selection_vars.ajax_url,
@@ -658,9 +744,17 @@ jQuery(document).ready(function ($) {
                     if (response.success) {
                         console.log('Installation dates added to cart');
                         $(document.body).trigger('wc_fragment_refresh');
-                        updateFeeTables();
+
+                        // CRITICAL: Small delay before updating tables
+                        setTimeout(function () {
+                            updateFeeTables();
+                        }, 100);
                     } else {
                         console.error('Error adding installation dates:', response.data?.message || 'Unknown error');
+                        // Hide preloader on error
+                        if (typeof hidePreloaderManually === 'function') {
+                            hidePreloaderManually(upfrontContainer);
+                        }
                     }
                 },
                 error: function (xhr, status, error) {
@@ -669,6 +763,10 @@ jQuery(document).ready(function ($) {
                         error: error,
                         response: xhr.responseText
                     });
+                    // Hide preloader on error
+                    if (typeof hidePreloaderManually === 'function') {
+                        hidePreloaderManually(upfrontContainer);
+                    }
                 }
             });
         }

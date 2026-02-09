@@ -1,0 +1,134 @@
+<div class="thank-you-page-container">
+    <h1>Thank You for Your Order!</h1>
+    <p>Your order has been successfully completed. Below are your order details:</p>
+     <br>   
+    
+    <!-- Order Information Table -->
+    <table class="thankyou-info-table" style="width: 100%; table-layout: fixed; border-collapse: collapse;">
+        <thead>
+            <tr>
+                <th colspan="2" style="border: 1px solid #ddd; padding: 10px;">Order Information</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Order Date & Time:</strong></td>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="order-timestamp"></td>
+            </tr>
+            <!-- NEW: Terms & Conditions Confirmed Timestamp -->
+            <tr id="terms-timestamp-row">
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Terms & Conditions Confirmed at:</strong></td>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="terms-timestamp"></td>
+            </tr>
+            <tr>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Customer IP Address:</strong></td>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="customer-ip"></td>
+            </tr>
+        </tbody>
+    </table>
+    
+    <!-- Customer Information Table -->
+    <table class="thankyou-info-table" style="width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 20px;">
+        <thead>
+            <tr>
+                <th colspan="2" style="border: 1px solid #ddd; padding: 10px;">Customer Information</th>
+            </tr>
+        </thead>
+        <tbody>
+            <!-- UPDATED: Combined Name row (replaces separate First Name and Last Name rows) -->
+            <tr>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Name:</strong></td>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="customer-name"></td>
+            </tr>
+            
+            <!-- Email row (unchanged) -->
+            <tr>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Email:</strong></td>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="customer-email"></td>
+            </tr>
+            
+            <!-- Phone row (unchanged) -->
+            <tr>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Phone:</strong></td>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="customer-phone"></td>
+            </tr>
+            
+            <!-- UPDATED: Service Address row (now shows full address on one line with street #, city, province, postal) -->
+            <tr>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Service Address:</strong></td>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="customer-service-address"></td>
+            </tr>
+            
+            <!-- NEW: Shipping Address row (shows below Service Address) -->
+            <!-- By default same as Service Address, unless "Ship to Different Address" was checked -->
+            <tr>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Shipping Address:</strong></td>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="customer-shipping-address"></td>
+            </tr>
+            
+            <!--- Populate CCD Row with CCD value if one is entered in URL -->
+            <tr id="customer-ccd-row" style="display: none;">
+                <td class="label-column" style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>CCD:</strong></td>
+                <td class="value-column" style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="customer-ccd"></td>
+            </tr>
+        </tbody>
+    </table>
+    
+    <!-- Upfront Payment Summary Table -->
+    <table class="thankyou-payment-table" style="width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 20px;">
+        <thead>
+            <tr>
+                <th colspan="2" style="border: 1px solid #ddd; padding: 10px;">Upfront Payment Summary</th>
+            </tr>
+        </thead>
+        <tbody id="upfront-items">
+            <!-- Products, Subtotal, Tax, and Deposits will be populated here by JavaScript -->
+        </tbody>
+        <tfoot>
+            <tr class="thankyou-total-row">
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Total Paid Today:</strong></td>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="upfront-total"></td>
+            </tr>
+            <tr>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Authorization Code:</strong></td>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="auth-code">-</td>
+            </tr>
+            <tr>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Transaction Number:</strong></td>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="reference-num">-</td>
+            </tr>
+            <tr>
+                <td colspan="2" style="border: 1px solid #ddd; padding: 10px;"><strong>Payment Method:</strong> Credit Card ending in <span id="card-last-4">****</span></td>
+            </tr>
+        </tfoot>
+    </table>
+    
+    <!-- Monthly Billing Summary Table -->
+    <table class="thankyou-payment-table" style="width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 20px;">
+        <thead>
+            <tr>
+                <th colspan="2" style="border: 1px solid #ddd; padding: 10px;">Monthly Billing Summary</th>
+            </tr>
+        </thead>
+        <tbody id="monthly-items">
+            <!-- Monthly items will be populated here -->
+        </tbody>
+        <tfoot>
+            <tr class="subtotal-row">
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Subtotal:</strong></td>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="monthly-subtotal"></td>
+            </tr>
+            <tr class="tax-row">
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Tax:</strong></td>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="monthly-tax"></td>
+            </tr>
+            <tr class="thankyou-total-row">
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Total Monthly Recurring:</strong></td>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="monthly-total"></td>
+            </tr>
+            <tr>
+                <td colspan="2" style="border: 1px solid #ddd; padding: 10px;"><strong>Monthly Payment Method:</strong> <span id="monthly-payment-method"></span></td>
+            </tr>
+        </tfoot>
+    </table>
+</div>

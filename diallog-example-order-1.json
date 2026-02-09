@@ -1,0 +1,47 @@
+{
+  "payment_info": {
+    "transaction_id": "272315-0_1326",
+    "receipt_id": "test-298199-398",
+    "amount": "140.00",
+    "date": "2025-12-09",
+    "time": "11:36:39",
+    "card_type": "M",
+    "auth_code": "T44852",
+    "reference_num": "660053720015630440",
+    "test_mode": true,
+    "order_timestamp": "December 9, 2025 at 11:36 AM EST",
+    "order_source": "website_checkout",
+    "terms_acceptance_timestamp": "December 9, 2025 at 11:36 AM EST"
+  },
+  "customer_data": {
+    "billing_first_name": "Zach",
+    "billing_last_name": "Horsman",
+    "billing_email": "zachary.horsman@gmail.com",
+    "billing_phone": "(306) 530-0767",
+    "customer_service_address": "1 Blue Jays WAY, Toronto, ON, M5V 1J1",
+    "customer_shipping_address": "1 Blue Jays WAY, Toronto, ON, M5V 1J1",
+    "customer_ip": "174.2.255.21",
+    "ccd": "MOVINGWALDO"
+  },
+  "upfront_summary": {
+    "modems": ["Modem With 2 Extenders ", 0, "Modem Deposit", 50],
+    "installation": ["Installation Date ", 44.25],
+    "phone-plan": ["CANADA+US ", 0, "Phone Deposit", 20],
+    "tv-plan": ["TV Plan Example 1 ", 0, "TV Deposit", 20],
+    "subtotal": ["Subtotal", 44.25],
+    "taxes": ["Tax", 5.75],
+    "grand_total": ["UPFRONT TOTAL", 140]
+  },
+  "monthly_summary": {
+    "internet-plan": ["Cable Plus 100/30", 50],
+    "modems": ["Modem With 2 Extenders", 10, "50% off first 3 months!", 7],
+    "phone-plan": ["CANADA+US", 41],
+    "tv-plan": ["TV Plan Example 1", 21],
+    "subtotal": ["Subtotal", 119],
+    "taxes": ["Tax", 15.47],
+    "grand_total": ["MONTHLY TOTAL", 134.47]
+  },
+  "monthly_cc": "d47fb00022b49c8e296ffb84e184054b+MbGKstE2cZgtHt2JN1VquLd+EkjjUPRq8RhaEpuC9SiDmY6htO8rvYzgMZAr6az3jE/CJvMmqK/HObKqtyBc9fnB0yjLRXLlMoigMPK3BeCWCuf1RFmdf1H0LCNX7Bk+KaruX1U2856SXxZ5CchrI4BS9MsCS21qs+tt/4Xq+Zst2Bztep0YxkwdKUTHBuS9OFSMMoDr6/vvw/DNw4RMWKc0Lilz9dNsas3g54qyeKcC+uw8lYMKJzubvv4hPuXcl0qVd1rnGaRp1mYb/hCakNsYjD9BDy4",
+  "dg_user_hash": "c81e728d9d4c2f636f067f89cc14862c",
+  "monthly_bill_payment_option": "cc"
+}

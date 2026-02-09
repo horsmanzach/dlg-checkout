@@ -1,5 +1,20 @@
 <?php 
 
+// Completely disable magnific_popup.css
+add_action('init', 'completely_disable_magnific_popup', 1);
+function completely_disable_magnific_popup() {
+    $request_uri = $_SERVER['REQUEST_URI'] ?? '';
+    
+    // Block ALL magnific popup CSS requests site-wide
+    if (strpos($request_uri, 'magnific_popup.css') !== false) {
+        header('Content-Type: text/css');
+        header('Cache-Control: max-age=86400'); // Cache for 24 hours
+        echo '/* Magnific popup disabled site-wide */';
+        exit;
+    }
+}
+
+
 include_once("includes/crypt.php");
 include_once("includes/hubspot.php");
 include_once("includes/availability_check.php");
@@ -13,108 +28,28 @@ function add_step8_script() {
 }
 */ 
 
-/*Block Hubspot*/
 
-function completely_block_hubspot_on_staging() {
-    // Check if staging site
-    $staging_domains = array('diallog.magnaprototype.com');
-    
-    if (in_array($_SERVER['HTTP_HOST'], $staging_domains)) {
-        add_action('wp_head', function() {
-            echo '<script>
-                // Complete HubSpot blocking
-                (function() {
-                    // Block all HubSpot functions immediately
-                    window._hsq = [];
-                    window._hsq.push = function() { return false; };
-                    window.hbspt = { 
-                        forms: { create: function() { return false; } },
-                        cta: { load: function() { return false; } },
-                        chat: { 
-                            load: function() { return false; },
-                            widget: { load: function() { return false; } }
-                        }
-                    };
-                    
-                    // Block HubSpot tracking
-                    window.hubspot = function() { return false; };
-                    window._hsp = [];
-                    
-                    // Override XMLHttpRequest to block HubSpot requests
-                    var originalOpen = XMLHttpRequest.prototype.open;
-                    XMLHttpRequest.prototype.open = function(method, url) {
-                        if (url.includes("hubspot.com") || 
-                            url.includes("hsappstatic.net") || 
-                            url.includes("hs-scripts.com") ||
-                            url.includes("hsforms.com")) {
-                            return false;
-                        }
-                        return originalOpen.apply(this, arguments);
-                    };
-                    
-                    // Override fetch to block HubSpot requests
-                    var originalFetch = window.fetch;
-                    window.fetch = function(url, options) {
-                        if (typeof url === "string" && 
-                            (url.includes("hubspot.com") || 
-                             url.includes("hsappstatic.net") || 
-                             url.includes("hs-scripts.com") ||
-                             url.includes("hsforms.com"))) {
-                            return Promise.reject(new Error("HubSpot blocked"));
-                        }
-                        return originalFetch.apply(this, arguments);
-                    };
-                    
-                    // Remove HubSpot elements continuously
-                    function removeHubSpotElements() {
-                        // Remove chat widget
-                        var chatWidget = document.querySelector("#hubspot-messages-iframe-container, [id*=hubspot], [class*=hubspot], [data-hubspot-rendered], .hs-richtext");
-                        if (chatWidget) {
-                            chatWidget.remove();
-                        }
-                        
-                        // Remove all HubSpot scripts
-                        var hsScripts = document.querySelectorAll("script[src*=\"hubspot\"], script[src*=\"hs-scripts\"], script[src*=\"hsforms\"], script[src*=\"hsappstatic\"]");
-                        hsScripts.forEach(function(script) {
-                            script.remove();
-                        });
-                        
-                        // Remove HubSpot iframes
-                        var hsIframes = document.querySelectorAll("iframe[src*=\"hubspot\"], iframe[id*=\"hubspot\"]");
-                        hsIframes.forEach(function(iframe) {
-                            iframe.remove();
-                        });
-                    }
-                    
-                    // Run removal on page load and continuously
-                    document.addEventListener("DOMContentLoaded", removeHubSpotElements);
-                    setInterval(removeHubSpotElements, 1000);
-                    
-                })();
-            </script>';
-        }, 1);
-        
-        // Also add CSS to hide any remaining HubSpot elements
-        add_action('wp_head', function() {
-            echo '<style>
-                [id*="hubspot"], 
-                [class*="hubspot"], 
-                [data-hubspot-rendered],
-                .hs-richtext,
-                #hubspot-messages-iframe-container {
-                    display: none !important;
-                    visibility: hidden !important;
-                    opacity: 0 !important;
-                }
-            </style>';
-        });
+/*Fix Encoding Issue*/
+
+// Fix for apostrophes and special characters in Divi modules
+add_filter('do_shortcode_tag', 'fix_divi_special_characters', 10, 4);
+function fix_divi_special_characters($output, $tag, $attr, $m) {
+    // Check for various Divi modules that might have text with apostrophes
+    if ('et_pb_text' === $tag || 'et_pb_button' === $tag || 'et_pb_toggle' === $tag 
+        || 'et_pb_accordion_item' === $tag || 'et_pb_blurb' === $tag) {
+        // Decode HTML entities to proper characters
+        $output = html_entity_decode($output, ENT_QUOTES, 'UTF-8');
     }
+    return $output;
 }
-add_action('init', 'completely_block_hubspot_on_staging');
 
-/*---------
-----------New Functions Created to Fetch Necessary Order Info & Populate on Thank You Page------
------------*/
+
+/*==============
+================
+================ NEW FUNCTIONS CREATED FOR REVAMPED VERSION OF SITE JANUARY 2026 ================
+===============
+================ */
+
 
 // Get customer IP address
 function dg_get_customer_ip() {
@@ -143,7 +78,34 @@ function dg_get_order_timestamp($format = 'Y-m-d H:i:s T') {
     return $order_datetime->format($format);
 }
 
-// Get customer info from WooCommerce checkout
+
+/**
+ * AJAX handler to store terms timestamp in WooCommerce session
+ */
+add_action('wp_ajax_store_terms_timestamp', 'ajax_store_terms_timestamp');
+add_action('wp_ajax_nopriv_store_terms_timestamp', 'ajax_store_terms_timestamp');
+
+function ajax_store_terms_timestamp() {
+    // Verify nonce
+    check_ajax_referer('checkout_nonce', 'nonce');
+    
+    if (!isset($_POST['timestamp'])) {
+        wp_send_json_error(array('message' => 'No timestamp provided'));
+        return;
+    }
+    
+    $timestamp = sanitize_text_field($_POST['timestamp']);
+    
+    // Store in WooCommerce session
+    if (WC()->session) {
+        WC()->session->set('terms_timestamp', $timestamp);
+        error_log('Terms timestamp stored in session: ' . $timestamp);
+        wp_send_json_success(array('message' => 'Timestamp stored successfully'));
+    } else {
+        wp_send_json_error(array('message' => 'WooCommerce session not available'));
+    }
+}
+
 /**
  * Get customer info from WooCommerce checkout and stored address data
  */
@@ -271,6 +233,7 @@ function dg_get_customer_info() {
     );
 }
 
+
 /**
  * Get the invoice number from the Moneris payment session
  * The invoice number is the order_id that was generated during payment
@@ -338,10 +301,8 @@ function save_monthly_payment_method_to_session($order_id) {
 }
 add_action('woocommerce_checkout_update_order_meta', 'save_monthly_payment_method_to_session', 10, 1);
 
-/**
- * Get all Thank You page data in one function call
- * Returns an array with all the information needed for the Thank You page
- */
+
+
 /**
  * Get all Thank You page data in one function call
  * Returns an array with all the information needed for the Thank You page
@@ -491,23 +452,10 @@ function dg_get_thank_you_page_data() {
  * Called when "Confirm Customer Info" button is clicked
  * Saves data to WC session and sends to Diallog with state 50
  */
-/**
- * AJAX Handler: Confirm Customer Info and Send to Diallog
- * Called when "Confirm Customer Info" button is clicked
- * Saves data to WC session and sends to Diallog with state 50
- */
-/**
- * AJAX Handler: Confirm Customer Info and Send to Diallog
- * Called when "Confirm Customer Info" button is clicked
- * Saves data to WC session and sends to Diallog with state 50
- */
-/**
- * AJAX Handler: Confirm Customer Info and Send to Diallog
- * Called when "Confirm Customer Info" button is clicked
- * Saves data to WC session and sends to Diallog with state 50
- */
+
 add_action('wp_ajax_confirm_customer_info', 'confirm_customer_info_handler');
 add_action('wp_ajax_nopriv_confirm_customer_info', 'confirm_customer_info_handler');
+
 
 function confirm_customer_info_handler() {
     
@@ -531,7 +479,14 @@ function confirm_customer_info_handler() {
         if (!WC()->session || !WC()->session->has_session()) {
             WC()->session->set_customer_session_cookie(true);
         }
-
+        
+            // NEW: Save phone to WooCommerce customer BEFORE getting customer info
+    if (isset($_POST['phone']) && !empty($_POST['phone'])) {
+        $phone_digits = preg_replace('/\D/', '', $_POST['phone']); // Strip formatting
+        WC()->customer->set_billing_phone($phone_digits);
+        error_log('Phone saved to WC customer: ' . $phone_digits);
+    }
+    
         // Get customer data using the SAME method as prepare_diallog_order_data
         $customer_info = dg_get_customer_info();
 
@@ -644,32 +599,6 @@ function confirm_customer_info_handler() {
     }
 }
 
-/**
- * AJAX handler to store terms timestamp in WooCommerce session
- */
-add_action('wp_ajax_store_terms_timestamp', 'ajax_store_terms_timestamp');
-add_action('wp_ajax_nopriv_store_terms_timestamp', 'ajax_store_terms_timestamp');
-
-function ajax_store_terms_timestamp() {
-    // Verify nonce
-    check_ajax_referer('checkout_nonce', 'nonce');
-    
-    if (!isset($_POST['timestamp'])) {
-        wp_send_json_error(array('message' => 'No timestamp provided'));
-        return;
-    }
-    
-    $timestamp = sanitize_text_field($_POST['timestamp']);
-    
-    // Store in WooCommerce session
-    if (WC()->session) {
-        WC()->session->set('terms_timestamp', $timestamp);
-        error_log('Terms timestamp stored in session: ' . $timestamp);
-        wp_send_json_success(array('message' => 'Timestamp stored successfully'));
-    } else {
-        wp_send_json_error(array('message' => 'WooCommerce session not available'));
-    }
-}
 
 /**
  * Get the tax rate percentage based on customer's state/province
@@ -718,6 +647,7 @@ function get_customer_tax_rate_percentage() {
     
     return $tax_percentage;
 }
+
 /**
  * AJAX handler to get Thank You page data
  */
@@ -740,7 +670,7 @@ function ajax_get_thank_you_data() {
  */
 function enqueue_thank_you_scripts() {
     // Only load on the Thank You page 
-    if (is_page(266785)) { // Thank You page ID
+    if (is_page(267294)) { // Thank You page ID
         wp_enqueue_script(
             'thank-you-js',
             get_stylesheet_directory_uri() . '/js/thank-you.js',
@@ -756,6 +686,7 @@ function enqueue_thank_you_scripts() {
         ));
     }
 }
+
 add_action('wp_enqueue_scripts', 'enqueue_thank_you_scripts');
 
 
@@ -779,7 +710,7 @@ add_action('wp_enqueue_scripts', 'enqueue_billing_fields_formatting');
  */
 function enqueue_customer_info_confirm_script() {
     // Only load on checkout page
-    if (is_checkout() || is_page(264127)) {
+    if (is_checkout() || is_page(267950)) {
         
         wp_enqueue_script(
             'customer-info-confirm-js',
@@ -797,6 +728,21 @@ function enqueue_customer_info_confirm_script() {
     }
 }
 add_action('wp_enqueue_scripts', 'enqueue_customer_info_confirm_script', 14);
+
+// Enqueue CustoomAJAX JS File - contains preloader functionality when dynamically updating upfront total shortcode
+
+function enqueue_custom_scripts() {
+    wp_enqueue_script(
+        'custom-ajax-script', 
+        get_stylesheet_directory_uri() . '/js/custom-ajax.js', 
+        array('jquery'), 
+        '1.0.4',  // Bump version to clear cache
+        true
+    );
+    
+    // No need to localize - already done by card-selection.js enqueue
+}
+add_action('wp_enqueue_scripts', 'enqueue_custom_scripts');
 
 
 /**
@@ -836,64 +782,6 @@ add_action('wp_ajax_store_customer_info_confirmation', 'ajax_store_customer_info
 add_action('wp_ajax_nopriv_store_customer_info_confirmation', 'ajax_store_customer_info_confirmation');
 
 
-/*----------*/
-
-
-function verify_card_ex($payment_info) {
-
-	$mpg_response = VerifyCard( $payment_info );
-	error_log( "Got verify response back " . $mpg_response->getComplete() );
-
-	if( $mpg_response == false ||
-		strcmp( $mpg_response->getComplete(), "true") ||
-		$mpg_response->getResponseCode() == false ||
-		$mpg_response->getResponseCode() == null ||
-		$mpg_response->getResponseCode() >= 50 ) {
-
-		$msg = "Invalid credit card number. Please double check the card number entered " . $mpg_response->getMessage();
-		$response['status'] = "failed";
-		$response['msg'] = $msg;
-		$response['code'] = $mpg_response->getResponseCode();
-		$response['ref'] = $mpg_response->getReferenceNum();
-
-		$data_response = json_encode( $response );
-		error_log( $data_response );
-		die( $data_response );
-	}
-
-	error_log( "Got verify cvd result code " . $mpg_response->getCvdResultCode() );
-	if( $mpg_response->getCvdResultCode() != "1M" ) {
-		$response['status'] = "failed";
-
-		$msg = "Invalid expiry date or CVV. Please double check the information entered " . $mpg_response->getMessage();
-
-		$response['msg'] = $msg;
-		$response['code'] = $mpg_response->getResponseCode();
-		$response['ref'] = $mpg_response->getReferenceNum();
-
-		$data_response = json_encode( $response );
-		error_log( $data_response );
-		die( $data_response );
-	}
-
-	error_log( "Got verify avs result code " . $mpg_response->getAvsResultCode() );
-	if( $mpg_response->getAvsResultCode() == "N" ) {
-		$response['status'] = "failed";
-
-		$msg = "Invalid postal code. Please provide the billing postal code from your recent credit card statement (may be different from the service address postal code).";
-
-		$response['msg'] = $msg;
-		$response['code'] = $mpg_response->getResponseCode();
-		$response['ref'] = $mpg_response->getReferenceNum();
-
-		$data_response = json_encode( $response );
-		error_log( $data_response );
-		die( $data_response );
-	}
-
-	error_log( "Got response back " . $mpg_response->getComplete() );
-}
-
 /************
  ---------------Billing Field Formatting---------------
  ***********/
@@ -916,6 +804,7 @@ function dg_enqueue_phone_formatting_js() {
     }
 }
 add_action('wp_enqueue_scripts', 'dg_enqueue_phone_formatting_js');
+
 
 // ============================================
 // PART 2: Add custom CSS to update the label
@@ -1004,7 +893,7 @@ function ajax_remove_monthly_billing_deposits() {
             $product_id = $cart_item['product_id'];
             
             // Remove the specific Pay After deposit product
-            if ($product_id == 265827) {
+            if ($product_id == 267989) {
                 WC()->cart->remove_cart_item($cart_item_key);
                 continue;
             }
@@ -1059,7 +948,7 @@ function ajax_remove_monthly_billing_deposits() {
             $product_id = $cart_item['product_id'];
             
             // Remove the specific Pay After deposit product
-            if ($product_id == 265827) {
+            if ($product_id == 267989) {
                 WC()->cart->remove_cart_item($cart_item_key);
                 continue;
             }
@@ -1117,6 +1006,7 @@ function ajax_remove_monthly_billing_deposits() {
     ));
 }
 
+
 // ----  Simple validation state check - used in confirm-terms.js for both monthly billing and terms and condition validation check
 
 
@@ -1131,7 +1021,7 @@ function simple_validation_check() {
     // Check for Pay After deposit in cart
     if (WC()->cart) {
         foreach (WC()->cart->get_cart() as $cart_item) {
-            if ($cart_item['product_id'] == 265827) { // Pay After product ID
+            if ($cart_item['product_id'] == 267989) { // Pay After product ID
                 $has_payafter = true;
                 break;
             }
@@ -1170,12 +1060,13 @@ function ajax_refresh_upfront_summary_shortcode() {
 }
 
 // AJAX handler to update Moneris payment amount
-
 add_action('wp_ajax_update_moneris_payment_amount', 'ajax_update_moneris_payment_amount');
 add_action('wp_ajax_nopriv_update_moneris_payment_amount', 'ajax_update_moneris_payment_amount');
 
 function ajax_update_moneris_payment_amount() {
     check_ajax_referer('checkout_nonce', 'nonce');
+    
+    error_log('=== AJAX UPDATE MONERIS PAYMENT AMOUNT CALLED ===');
     
     // Get updated total amount (same logic as moneris_payment_form_shortcode)
     $total_amount = 0;
@@ -1183,15 +1074,24 @@ function ajax_update_moneris_payment_amount() {
         $summary = get_upfront_fee_summary();
         $total_amount = $summary['grand_total'][1];
         $total_display = wc_price($total_amount);
+        
+        error_log('AJAX - Upfront summary grand total: ' . $total_amount);
+        error_log('AJAX - Installation price in summary: ' . $summary['installation'][1]);
     } else if (function_exists('WC') && WC()->cart) {
         $total_amount = WC()->cart->get_total('edit');
         $total_display = wc_price($total_amount);
     }
     
+    // Build the complete HTML to match the original shortcode
+    $payment_amount_html = '<h3>Amount Due Today: ' . $total_display . '</h3>';
+    $payment_amount_html .= '<p>If you do not have access to a credit card and would like to send a payment via e-transfer please email us @ <a href="mailto:customercare@diallog.com">customercare@diallog.com</a> and we will assist in completing your order.</p>';
+    
+    error_log('=== END AJAX UPDATE ===');
+    
     wp_send_json_success(array(
         'total_amount' => $total_amount,
         'total_display' => $total_display,
-        'payment_amount_html' => '<h3>Payment Amount: ' . $total_display . '</h3>'
+        'payment_amount_html' => $payment_amount_html
     ));
 }
 
@@ -1210,8 +1110,8 @@ function ajax_get_selected_monthly_billing_method() {
         foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
             $product_id = $cart_item['product_id'];
             
-            // Check if Pay Later deposit product is in cart (product ID 265827)
-            if ($product_id == 265827) {
+            // Check if Pay Later deposit product is in cart (product ID 267989)
+            if ($product_id == 267989) {
                 $selected_method = 'payafter';
                 break;
             }
@@ -1269,7 +1169,7 @@ function ajax_save_monthly_billing_selection() {
     ));
 }
 
-// -----
+
 
 // MINIMAL UPDATE: Replace your existing ajax_validate_credit_card function with this
 
@@ -1365,7 +1265,7 @@ function ajax_add_payafter_deposit() {
     }
     
     // Add the Pay After deposit product to cart
-    $payafter_product_id = 265827; // Your Pay After product ID
+    $payafter_product_id = 267989; // Your Pay After product ID
     $added = WC()->cart->add_to_cart($payafter_product_id, 1);
     
     if ($added) {
@@ -1382,6 +1282,7 @@ function ajax_add_payafter_deposit() {
         ));
     }
 }
+
 
 /**
  * Enqueue shipping address JavaScript 
@@ -1441,14 +1342,13 @@ function shipping_address_checkbox_shortcode() {
 add_shortcode('shipping_address_checkbox', 'shipping_address_checkbox_shortcode');
 
 
-
 // ----- 4 Updated Enqueueing Functions for monthly_billing_assets, confirm_terms_script, mneris_payment_assets and checkout_cc_copy_script
 
 // ===== UPDATED: Enqueue monthly-billing.js file with proper versioning
 function enqueue_monthly_billing_assets() {
     // Only load on checkout page or pages with monthly billing functionality
     if (is_checkout() || 
-        is_page(264127) || // Your checkout page ID
+        is_page(267950) || // Your checkout page ID
         (is_singular() && has_shortcode(get_post()->post_content, 'monthly_billing_section'))) {
         
         wp_enqueue_script(
@@ -1474,7 +1374,7 @@ add_action('wp_enqueue_scripts', 'enqueue_monthly_billing_assets');
 function enqueue_confirm_terms_script() {
     // Only load on checkout page or pages with Moneris payment shortcodes
     if (is_checkout() || 
-        is_page(264127) || // Your checkout page ID
+        is_page(267950) || // Your checkout page ID
         (is_singular() && (
             has_shortcode(get_post()->post_content, 'moneris_payment_form') ||
             has_shortcode(get_post()->post_content, 'moneris_complete_payment_button')
@@ -1492,7 +1392,7 @@ function enqueue_confirm_terms_script() {
         wp_localize_script('confirm-terms-js', 'confirmTerms', array(
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('checkout_nonce'),
-            'checkoutPageId' => 264127,
+            'checkoutPageId' => 267950,
             'validationEnabled' => true
         ));
     }
@@ -1538,6 +1438,7 @@ function enqueue_checkout_cc_copy_script() {
 }
 add_action('wp_enqueue_scripts', 'enqueue_checkout_cc_copy_script');
 
+
 /**
  * Dynamic Terms and Conditions - PHP Logic Only
  * Add this to your functions.php file
@@ -1572,6 +1473,8 @@ function enqueue_provider_terms_script() {
 }
 add_action('wp_enqueue_scripts', 'enqueue_provider_terms_script');
 
+
+
 /**
  * Get the CSS class for the current provider terms module
  */
@@ -1586,11 +1489,11 @@ function get_current_provider_terms_class() {
     
     // Provider category IDs mapping to CSS classes
     $provider_categories = array(
-        65 => 'bell-terms-module',      // Bell
-        66 => 'rogers-terms-module',    // Rogers
-        67 => 'cogeco-terms-module',    // Cogeco
-        68 => 'telus-terms-module',     // Telus
-        69 => 'shaw-terms-module'       // Shaw
+        62 => 'bell-terms-module',      // Bell
+        64 => 'rogers-terms-module',    // Rogers
+        63 => 'cogeco-terms-module',    // Cogeco
+        66 => 'telus-terms-module',     // Telus
+        65 => 'shaw-terms-module'       // Shaw
     );
     
     // Loop through cart items to find internet plan
@@ -1619,6 +1522,7 @@ function get_current_provider_terms_class() {
     
     return ''; // No provider found
 }
+
 
 /**
  * Optional: AJAX handler for dynamic updates if cart changes
@@ -1715,7 +1619,7 @@ function exclude_payafter_from_monthly_summary($visible, $cart_item, $cart_item_
         $product_id = $cart_item['product_id'];
         
         // Exclude the Pay After deposit product from monthly calculations
-        if ($product_id == 265827) {
+        if ($product_id == 267989) {
             return false;
         }
         
@@ -1729,109 +1633,7 @@ function exclude_payafter_from_monthly_summary($visible, $cart_item, $cart_item_
     return $visible;
 }
 
-/*=====Handle Deposit payments better======*/
-/*========MAY NOT BE REQUIRED ANYMORE - TEST COMMNETED OUT FIRST=========*/
 
-
-// IMPROVED FIX: Add this to your functions.php
-/*function get_upfront_fee_summary_with_deposits() {
-    $summary = array(
-        'ModemPurchaseOption'=>true,
-        'internet-plan'=>array('',0.0),
-        'modems'=>array('Modem Security Deposit',0.0),
-        'fixed-fee'=>array('Installation Fee',0.0),
-        'deposit'=>array('Pay-after Deposit',0.0),
-        'phone-plan'=>array('Phone Plan',0.0),
-        'tv-plan'=>array('TV Plan',0.0),
-        'subtotal'=>array('Subtotal',0.0),
-        'taxes'=>array('Taxes',0.0),
-        'grand_total'=>array('UPFRONT TOTAL',0.0)
-    );
-
-    $tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 13;
-    $show_included_taxes = wc_tax_enabled() && WC()->cart->display_prices_including_tax();
-    $total_deposits = 0;
-    
-    foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
-        $_product = apply_filters('woocommerce_cart_item_product', $cart_item['data'], $cart_item, $cart_item_key);
-        
-        if (!$_product || !$_product->exists() || $cart_item['quantity'] <= 0) {
-            continue;
-        }
-        
-        $product_id = $_product->get_id();
-        $product_price = $_product->get_price();
-        
-        // Get category safely
-        $product_cat_ids = $_product->get_category_ids();
-        $product_category = 'uncategorized';
-        
-        if (!empty($product_cat_ids) && isset($product_cat_ids[0])) {
-            $product_cat = get_term($product_cat_ids[0], 'product_cat');
-            if ($product_cat && !is_wp_error($product_cat) && isset($product_cat->slug)) {
-                $product_category = $product_cat->slug;
-            }
-        }
-        
-        error_log("Processing: " . $_product->get_name() . " | Category: " . $product_category . " | Price: $" . $product_price);
-        
-        // Handle the main product categories
-        if (array_key_exists($product_category, $summary)) {
-            $summary[$product_category][0] = $_product->get_title();
-            $summary[$product_category][1] = round(floatval($product_price), 2);
-            
-            // Add tax for taxable items (not deposits)
-            if ($product_category !== 'deposit') {
-                $summary['taxes'][1] += round(floatval(($summary[$product_category][1] * $tax_rate) / 100), 2);
-            }
-        }
-        
-        // CHECK FOR ACF DEPOSIT FIELDS on this product
-        $deposit_title = get_field('deposit-title', $product_id);
-        $deposit_amount = get_field('deposit-fee', $product_id);
-        
-        // Alternative ACF field names (in case they're different)
-        if (empty($deposit_title)) {
-            $deposit_title = get_field('deposit_title', $product_id);
-        }
-        if (empty($deposit_amount)) {
-            $deposit_amount = get_field('deposit_amount', $product_id);
-        }
-        
-        if (!empty($deposit_title) && is_numeric($deposit_amount) && $deposit_amount > 0) {
-            error_log("Found ACF deposit: " . $deposit_title . " = $" . $deposit_amount);
-            $total_deposits += floatval($deposit_amount);
-        }
-    }
-    
-    // Add total deposits to the deposit category
-    if ($total_deposits > 0) {
-        $summary['deposit'][0] = 'Deposits';
-        $summary['deposit'][1] = $total_deposits;
-        error_log("Total deposits: $" . $total_deposits);
-    }
-    
-    // Calculate totals
-    $summary['subtotal'][1] = $summary['internet-plan'][1] + $summary['modems'][1] + $summary['fixed-fee'][1] + $summary['phone-plan'][1] + $summary['tv-plan'][1];
-    
-    if (wc_tax_enabled() && !$show_included_taxes) {
-        $summary['taxes'][0] = esc_html(WC()->countries->tax_or_vat());
-        $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['taxes'][1] + $summary['deposit'][1];
-    } else {
-        $summary['taxes'][0] = "Tax";
-        $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['deposit'][1];
-    }
-    
-    error_log("=== FINAL SUMMARY ===");
-    error_log("Subtotal: $" . $summary['subtotal'][1]);
-    error_log("Tax: $" . $summary['taxes'][1]);
-    error_log("Deposits: $" . $summary['deposit'][1]);
-    error_log("Grand Total: $" . $summary['grand_total'][1]);
-    
-    return $summary;
-}
-
-*/
 
 /*========Auto Fill Checkout Fields with previously collected order data======*/
 
@@ -1851,54 +1653,55 @@ function auto_fill_checkout_from_address_lookup($value, $key) {
     // Map the checkout fields to your stored address data
     switch($key) {
         case 'billing_address_1':
-            // Build full street address from components
-            $street_num = isset($searched_address['streetNumber']) ? $searched_address['streetNumber'] : '';
-            $street_name = isset($searched_address['streetName']) ? $searched_address['streetName'] : '';
-            $street_dir = isset($searched_address['streetDirection']) ? $searched_address['streetDirection'] : '';
-            $street_type = isset($searched_address['streetType']) ? $searched_address['streetType'] : '';
-            $unit_num = isset($searched_address['unitNumber']) ? $searched_address['unitNumber'] : '';
+            // Build full street address from components - UPDATED TO NEW KEY NAMES
+            $street_num = isset($searched_address['street_number']) ? $searched_address['street_number'] : '';
+            $street_name = isset($searched_address['street_name']) ? $searched_address['street_name'] : '';
+            $street_dir = isset($searched_address['street_dir']) ? $searched_address['street_dir'] : '';
+            $street_type = isset($searched_address['street_type']) ? $searched_address['street_type'] : '';
+            $unit_num = isset($searched_address['unit_number']) ? $searched_address['unit_number'] : '';
             
             $address = trim($street_num . ' ' . $street_name . ' ' . $street_dir . ' ' . $street_type);
             if (!empty($unit_num)) {
-                $address = 'Unit ' . $unit_num . ' ' . $address;
+                $address = 'Unit ' . $unit_num . ', ' . $address;
             }
             return !empty($address) ? $address : $value;
             
         case 'billing_city':
-            return isset($searched_address['municipalityCity']) ? $searched_address['municipalityCity'] : $value;
-            
+            return isset($searched_address['locality']) ? $searched_address['locality'] : $value;
+    
         case 'billing_postcode':
-            return isset($searched_address['postalCode']) ? $searched_address['postalCode'] : $value;
-            
+            return isset($searched_address['postal_code']) ? $searched_address['postal_code'] : $value;
+    
         case 'billing_state':
-            return isset($searched_address['provinceOrState']) ? $searched_address['provinceOrState'] : $value;
+            return isset($searched_address['administrative_area_level_1']) ? $searched_address['administrative_area_level_1'] : $value;
             
-        // Also fill shipping fields if they exist
+        // Also fill shipping fields if they exist - UPDATED TO NEW KEY NAMES
         case 'shipping_address_1':
-            $street_num = isset($searched_address['streetNumber']) ? $searched_address['streetNumber'] : '';
-            $street_name = isset($searched_address['streetName']) ? $searched_address['streetName'] : '';
-            $street_dir = isset($searched_address['streetDirection']) ? $searched_address['streetDirection'] : '';
-            $street_type = isset($searched_address['streetType']) ? $searched_address['streetType'] : '';
-            $unit_num = isset($searched_address['unitNumber']) ? $searched_address['unitNumber'] : '';
+            $street_num = isset($searched_address['street_number']) ? $searched_address['street_number'] : '';
+            $street_name = isset($searched_address['street_name']) ? $searched_address['street_name'] : '';
+            $street_dir = isset($searched_address['street_dir']) ? $searched_address['street_dir'] : '';
+            $street_type = isset($searched_address['street_type']) ? $searched_address['street_type'] : '';
+            $unit_num = isset($searched_address['unit_number']) ? $searched_address['unit_number'] : '';
             
             $address = trim($street_num . ' ' . $street_name . ' ' . $street_dir . ' ' . $street_type);
             if (!empty($unit_num)) {
-                $address = 'Unit ' . $unit_num . ' ' . $address;
+                $address = 'Unit ' . $unit_num . ', ' . $address;
             }
             return !empty($address) ? $address : $value;
             
         case 'shipping_city':
-            return isset($searched_address['municipalityCity']) ? $searched_address['municipalityCity'] : $value;
+            return isset($searched_address['locality']) ? $searched_address['locality'] : $value;
             
         case 'shipping_postcode':
-            return isset($searched_address['postalCode']) ? $searched_address['postalCode'] : $value;
+            return isset($searched_address['postal_code']) ? $searched_address['postal_code'] : $value;
             
         case 'shipping_state':
-            return isset($searched_address['provinceOrState']) ? $searched_address['provinceOrState'] : $value;
+            return isset($searched_address['administrative_area_level_1']) ? $searched_address['administrative_area_level_1'] : $value;
     }
     
     return $value;
 }
+
 
 // Hide the address fields since they're now auto-populated
 add_filter('woocommerce_checkout_fields', 'hide_auto_filled_address_fields', 99);
@@ -1948,9 +1751,6 @@ function hide_auto_filled_address_fields($fields) {
     return $fields;
 }
 
-/*=======================NEW MONERIS PAYMENT GATEWAY INTEGRATION VIA SHORTCODE=======================*/
-
-
 
 /**
  * Moneris Payment Gateway Functions for functions.php
@@ -1966,15 +1766,15 @@ function get_moneris_config() {
     if (is_moneris_test_mode()) {
         // TEST ENVIRONMENT CREDENTIALS
         return array(
-            'store_id' => 'store5',     // test store ID tomorrow
-            'api_token' => 'yesguy',   // test API token tomorrow
+            'store_id' => 'store5',     // test store ID 
+            'api_token' => 'yesguy',   // test API token
             'test_mode' => true
         );
     } else {
-        // PRODUCTION ENVIRONMENT CREDENTIALS (from your existing processpayment.php)
+        // PRODUCTION ENVIRONMENT CREDENTIALS (from existing processpayment.php)
         return array(
-            'store_id' => 'store5',                 // current production store ID
-            'api_token' => 'yesguy',               // current production API token
+             'store_id' => 'monca07419',             
+            'api_token' => 'G5F7TE7rzrM21OVzkCQD',  
             'test_mode' => false
         );
     }
@@ -1984,6 +1784,7 @@ function get_moneris_config() {
 /**
  *================================== UPDATED: Moneris Payment Form Shortcode (WITHOUT submit button)
  */
+
 function moneris_payment_form_shortcode($atts) {
     $atts = shortcode_atts(array(
         'show_amount' => 'true',
@@ -2061,6 +1862,7 @@ function moneris_payment_form_shortcode($atts) {
 }
 add_shortcode('moneris_payment_form', 'moneris_payment_form_shortcode');
 
+
 /**
  * ===================== NEW: Moneris Complete Payment Button Shortcode
  */
@@ -2093,6 +1895,359 @@ add_shortcode('moneris_complete_payment_button', 'moneris_complete_payment_butto
 
 
 /**
+ * AJAX handler for processing Moneris payments
+ */
+add_action('wp_ajax_process_moneris_payment', 'ajax_process_moneris_payment');
+add_action('wp_ajax_nopriv_process_moneris_payment', 'ajax_process_moneris_payment');
+
+
+function ajax_process_moneris_payment() {
+    // Verify nonce
+    check_ajax_referer('moneris_payment_nonce', 'nonce');
+    
+    // Get and sanitize form data
+    $cardholder_name = sanitize_text_field($_POST['cardholder_name']);
+    $card_number = sanitize_text_field($_POST['card_number']);
+    $expiry_date = sanitize_text_field($_POST['expiry_date']);
+    $cvv = sanitize_text_field($_POST['cvv']);
+    $postal_code = sanitize_text_field($_POST['postal_code']);
+    $success_message = sanitize_text_field($_POST['success_message']);
+    $redirect_url = esc_url_raw($_POST['redirect_url']);
+    
+    // Validate required fields
+    if (empty($cardholder_name) || empty($card_number) || empty($expiry_date) || empty($cvv) || empty($postal_code)) {
+        wp_send_json_error(array(
+            'message' => 'Please fill in all required fields.'
+        ));
+        return;
+    }
+    
+    // Format card number (remove spaces)
+    $clean_card_number = preg_replace('/\s+/', '', $card_number);
+    
+    // Format expiry date (convert MM/YY to YYMM for Moneris)
+    if (strpos($expiry_date, '/') !== false) {
+        list($month, $year) = explode('/', $expiry_date);
+        $formatted_expiry = $year . $month;
+    } else {
+        wp_send_json_error(array(
+            'message' => 'Invalid expiry date format. Please use MM/YY.'
+        ));
+        return;
+    }
+    
+    // Format postal code (remove spaces and convert to uppercase)
+    $clean_postal_code = strtoupper(preg_replace('/\s+/', '', $postal_code));
+    
+    // Get payment amount from upfront fee summary
+    $amount = 0;
+    
+    // Debug: Check what we're getting
+    error_log('=== MONERIS PAYMENT DEBUG ===');
+    error_log('Cart exists: ' . (function_exists('WC') && WC()->cart ? 'YES' : 'NO'));
+    error_log('Cart empty: ' . (WC()->cart && WC()->cart->is_empty() ? 'YES' : 'NO'));
+    error_log('Cart item count: ' . (WC()->cart ? WC()->cart->get_cart_contents_count() : '0'));
+    
+    // Try the improved version that includes ACF deposits
+    if (function_exists('get_upfront_fee_summary_with_deposits')) {
+        $summary = get_upfront_fee_summary_with_deposits();
+        error_log('Using IMPROVED upfront summary with deposits');
+        if (isset($summary['grand_total'][1])) {
+            $amount = $summary['grand_total'][1];
+            error_log('Amount from IMPROVED summary: ' . $amount);
+        }
+    } elseif (function_exists('get_upfront_fee_summary_fixed')) {
+        $summary = get_upfront_fee_summary_fixed();
+        error_log('Using FIXED upfront summary');
+        if (isset($summary['grand_total'][1])) {
+            $amount = $summary['grand_total'][1];
+            error_log('Amount from FIXED summary: ' . $amount);
+        }
+    } elseif (function_exists('get_upfront_fee_summary')) {
+        $summary = get_upfront_fee_summary();
+        error_log('Using original upfront summary');
+        if (isset($summary['grand_total'][1])) {
+            $amount = $summary['grand_total'][1];
+            error_log('Amount from original summary: ' . $amount);
+        }
+    } else {
+        error_log('No upfront summary function available');
+        if (function_exists('WC') && WC()->cart) {
+            $amount = WC()->cart->get_total('edit');
+            error_log('Amount from WC cart: ' . $amount);
+        }
+    }
+    
+    error_log('Final amount: ' . $amount);
+    error_log('=== END DEBUG ===');
+    
+    if ($amount <= 0) {
+        wp_send_json_error(array(
+            'message' => 'Invalid payment amount: ' . $amount . '. Please ensure you have items in your cart with proper categories assigned.'
+        ));
+        return;
+    }
+    
+    // Get Moneris configuration (test or production)
+    $moneris_config = get_moneris_config();
+    
+    // Generate unique order ID
+    $timestamp = substr(time(), -6);
+    $order_id = ($moneris_config['test_mode'] ? 'test-' : 'web-') . $timestamp . '-' . wp_rand(100, 999);
+
+    // Store order_id in session for Thank You page
+    if (WC()->session) {
+        WC()->session->set('payment_order_id', $order_id);
+    }
+    
+    // Get customer ID from session or generate one
+    $customer_id = '';
+    if (WC()->session) {
+        $customer_id = WC()->session->get('customer_id');
+    }
+    if (empty($customer_id)) {
+        $customer_id = 'guest-' . wp_rand(10000, 99999);
+        if (WC()->session) {
+            WC()->session->set('customer_id', $customer_id);
+        }
+    }
+    
+    // Prepare payment data with dynamic credentials
+    $payment_data = array(
+        'type' => 'purchase',
+        'custid' => $customer_id,
+        'orderid' => $order_id,
+        'amount' => $amount,
+        'cardno' => $clean_card_number,
+        'expdate' => $formatted_expiry,
+        'cvd' => $cvv,
+        'postal_code' => $clean_postal_code,
+        'store_id' => $moneris_config['store_id'],
+        'api_token' => $moneris_config['api_token'],
+        'test_mode' => $moneris_config['test_mode']
+    );
+    
+    try {
+        // Skip card verification in test mode due to routing issues
+        if (!$moneris_config['test_mode']) {
+            // Only verify card in production mode
+            $verify_data = $payment_data;
+            $verify_data['amount'] = '0.01';
+            $verify_data['orderid'] = 'verify-' . time();
+            
+            if (function_exists('VerifyCard')) {
+                $verify_response = VerifyCard($verify_data);
+                
+                if (!$verify_response || $verify_response->getResponseCode() >= 50) {
+                    $error_msg = $verify_response ? $verify_response->getMessage() : 'Unknown error';
+                    wp_send_json_error(array(
+                        'message' => 'Card verification failed: ' . $error_msg
+                    ));
+                    return;
+                }
+            }
+        } else {
+            error_log('Test mode: Skipping card verification due to routing issues');
+        }
+        
+        // Process the actual payment
+        if (function_exists('ProcessPayment')) {
+            $payment_response = ProcessPayment($payment_data);
+            
+            if ($payment_response && $payment_response->getResponseCode() < 50 && 
+                strcasecmp($payment_response->getComplete(), 'true') == 0) {
+                
+                // ========== CRITICAL FIX STARTS HERE ==========
+                error_log('=== PAYMENT SUCCESS - STORING ALL DATA BEFORE CART IS EMPTIED ===');
+                
+                // STEP 1: Store detailed cart items FIRST (CRITICAL - must be before cart is emptied)
+                error_log('Step 1: Storing detailed cart summaries for thank you page...');
+
+                // Initialize variables that will be used later
+                $stored_upfront = array();
+                $stored_monthly = array();
+                
+                // Use new helper functions to get itemized cart data
+                if (function_exists('get_upfront_summary_for_thank_you')) {
+                    $stored_upfront = get_upfront_summary_for_thank_you();
+                    WC()->session->set('stored_upfront_summary', $stored_upfront);
+                    error_log('Upfront summary stored (itemized): ' . json_encode($stored_upfront));
+                } elseif (function_exists('get_upfront_fee_summary_with_deposits')) {
+                    $stored_upfront = get_upfront_fee_summary_with_deposits();
+                    WC()->session->set('stored_upfront_summary', $stored_upfront);
+                    error_log('Upfront summary stored with deposits: ' . json_encode($stored_upfront));
+                } elseif (function_exists('get_upfront_fee_summary')) {
+                    $stored_upfront = get_upfront_fee_summary();
+                    WC()->session->set('stored_upfront_summary', $stored_upfront);
+                    error_log('Upfront summary stored (fallback): ' . json_encode($stored_upfront));
+                } else {
+                    error_log('WARNING: No upfront summary function available!');
+                }
+                
+                // Store monthly summary with new helper function
+                if (function_exists('get_monthly_summary_for_thank_you')) {
+                    $stored_monthly = get_monthly_summary_for_thank_you();
+                    WC()->session->set('stored_monthly_summary', $stored_monthly);
+                    error_log('Monthly summary stored (itemized): ' . json_encode($stored_monthly));
+                } elseif (function_exists('get_monthly_fee_summary')) {
+                    $stored_monthly = get_monthly_fee_summary();
+                    WC()->session->set('stored_monthly_summary', $stored_monthly);
+                    error_log('Monthly summary stored: ' . json_encode($stored_monthly));
+                } else {
+                    error_log('WARNING: No monthly summary function available!');
+                }
+                
+                // STEP 2: Store payment details in session
+                error_log('Step 2: Storing payment details...');
+                
+                if (WC()->session) {
+                    WC()->session->set('payment_status', 'completed');
+                    WC()->session->set('payment_transaction_id', $payment_response->getTxnNumber());
+                    WC()->session->set('payment_auth_code', $payment_response->getAuthCode());
+                    WC()->session->set('payment_reference_num', $payment_response->getReferenceNum());
+                    WC()->session->set('payment_receipt_id', $payment_response->getReceiptId());
+                    WC()->session->set('payment_amount', $payment_response->getTransAmount());
+                    WC()->session->set('payment_date', $payment_response->getTransDate());
+                    WC()->session->set('order_complete_timestamp', time());
+                    WC()->session->set('cardholder_name', $cardholder_name);
+                    WC()->session->set('payment_test_mode', $moneris_config['test_mode']);
+                    WC()->session->set('payment_card_last_4', substr($clean_card_number, -4));
+                    error_log('Payment details stored in session');
+                }
+                
+                // STEP 3: Get and store terms timestamp
+                error_log('Step 3: Getting terms timestamp...');
+                
+                $terms_timestamp = '';
+                if (WC()->session) {
+                    $terms_timestamp = WC()->session->get('terms_timestamp');
+                    if ($terms_timestamp) {
+                        error_log('Terms timestamp found: ' . $terms_timestamp);
+                    } else {
+                        error_log('WARNING: No terms timestamp in session');
+                    }
+                }
+
+                // STEP 4: Prepare order data for Diallog
+                error_log('Step 4: Preparing order data for Diallog...');
+                
+                $order_data = prepare_diallog_order_data($payment_response, $cardholder_name, $moneris_config);
+                error_log('Order data prepared');
+                
+                // STEP 5: Send to Diallog database
+error_log('Step 5: Sending to Diallog database...');
+
+$diallog_response = 'skipped';
+
+    // NEW: Allow Diallog submission in Moneris test mode
+// Set this to true when you want to send test orders to Diallog
+$send_to_diallog_in_test_mode = true; // Change to false to skip Diallog in test mode
+
+if (!$moneris_config['test_mode'] || $send_to_diallog_in_test_mode) {
+    $diallog_response = send_order_to_diallog($order_data);
+    
+    if ($moneris_config['test_mode']) {
+        error_log('TEST MODE: Order sent to Diallog (test transaction): ' . $diallog_response);
+    } else {
+        error_log('PRODUCTION: Order sent to Diallog: ' . $diallog_response);
+    }
+} else {
+    error_log('Test mode: Skipping Diallog submission (send_to_diallog_in_test_mode = false)');
+}
+                
+               // STEP 6: Send custom order confirmation email
+error_log('Step 6: Sending customer order confirmation email...');
+
+// Build the order data structure that transform_order_data_for_email expects
+$diallog_order_data = array(
+    'upfront_summary' => isset($stored_upfront) ? $stored_upfront : array(),
+    'monthly_summary' => isset($stored_monthly) ? $stored_monthly : array(),
+    'order_timestamp' => time(),
+    'terms_acceptance_timestamp' => $terms_timestamp
+);
+
+// Transform the order data to the format expected by email template
+$email_order_data = transform_order_data_for_email($diallog_order_data);
+
+// Extract customer email
+$customer_email = isset($email_order_data['customer_email']) ? $email_order_data['customer_email'] : '';
+
+if (!empty($customer_email)) {
+    // Handle multiple emails (comma-separated) or single email
+    $email_addresses = array_map('trim', explode(',', $customer_email));
+    $valid_emails = array_filter($email_addresses, 'is_email');
+    
+    if (!empty($valid_emails)) {
+        // Rejoin valid emails back into comma-separated string for wp_mail
+        $customer_email = implode(',', $valid_emails);
+        
+        // Send the order confirmation email using our custom template
+        $email_sent = send_customer_order_confirmation_email($customer_email, $email_order_data);
+        
+        if ($email_sent) {
+            error_log('Order confirmation email sent successfully to: ' . $customer_email);
+        } else {
+            error_log('Failed to send order confirmation email to: ' . $customer_email);
+        }
+    } else {
+        error_log('No valid email addresses found. Cannot send confirmation email.');
+    }
+} else {
+    error_log('Invalid or missing customer email. Cannot send confirmation email.');
+}
+                
+                // STEP 7: Empty cart ONLY AFTER all data has been captured
+                error_log('Step 7: Emptying cart...');
+                
+                if (function_exists('WC') && WC()->cart) {
+                    WC()->cart->empty_cart();
+                    error_log('Cart emptied successfully');
+                }
+                
+                error_log('=== ALL DATA STORED AND CART EMPTIED SUCCESSFULLY ===');
+                // ========== CRITICAL FIX ENDS HERE ==========
+                
+                $success_msg = $success_message;
+                if ($moneris_config['test_mode']) {
+                    $success_msg .= ' (Test Transaction)';
+                }
+                
+                wp_send_json_success(array(
+                    'message' => $success_msg,
+                    'transaction_id' => $payment_response->getTxnNumber(),
+                    'receipt_id' => $payment_response->getReceiptId(),
+                    'redirect_url' => $redirect_url,
+                    'diallog_status' => $diallog_response,
+                    'test_mode' => $moneris_config['test_mode']
+                ));
+                
+            } else {
+                $error_msg = 'Payment failed: ' . ($payment_response ? $payment_response->getMessage() : 'Unknown error');
+                if ($moneris_config['test_mode']) {
+                    $error_msg .= ' (Test Mode)';
+                }
+                wp_send_json_error(array(
+                    'message' => $error_msg
+                ));
+            }
+        } else {
+            wp_send_json_error(array(
+                'message' => 'Payment processing function not available.'
+            ));
+        }
+        
+    } catch (Exception $e) {
+        error_log('Moneris payment error: ' . $e->getMessage());
+        wp_send_json_error(array(
+            'message' => 'Payment processing error. Please try again.'
+        ));
+    }
+    
+    wp_die();
+}
+
+
+/**
  * Format upfront and monthly summaries for Diallog
  * Shared formatting logic used by both state 50 and state 100 API calls
  * Returns array with formatted upfront_summary and monthly_summary
@@ -2121,9 +2276,9 @@ function format_summaries_for_diallog() {
     foreach (WC()->cart->get_cart() as $cart_item) {
         $product = $cart_item['data'];
         
-        // Check if this is THE installation variation (ID: 265450)
-        if ($product->get_id() == 265450) {
-            error_log('Found installation variation 265450 in cart');
+        // Check if this is THE installation variation (ID: 267988)
+        if ($product->get_id() == 267988) {
+            error_log('Found installation variation 267988 in cart');
             
             // Get dates from variation attributes
             if (isset($cart_item['variation']) && is_array($cart_item['variation'])) {
@@ -2265,7 +2420,7 @@ function format_summaries_for_diallog() {
     // Add Pay After Deposit if selected
     $monthly_method = dg_get_user_meta('monthly_bill_payment_option');
     if ($monthly_method === 'payafter') {
-        $payafter_product_id = 265827;
+        $payafter_product_id = 267989;
         
         $deposit_title = '';
         $deposit_fee = 0;
@@ -2354,7 +2509,7 @@ function format_summaries_for_diallog() {
         }
 
         // Special handling for "I Have My Own Modem"
-        if ($product_category === 'modems' && $product_id == 265769) {
+        if ($product_category === 'modems' && $product_id == 267979) {
             if (isset($cart_item['modem_details']) && !empty($cart_item['modem_details'])) {
                 $monthly_summary[$product_category]['Modem Make & Model'] = $cart_item['modem_details'];
             }
@@ -2491,9 +2646,7 @@ function format_summaries_for_diallog() {
     );
 }
 
-/**
- * Prepare order data for Diallog database
- */
+
 /**
  * Prepare order data for Diallog database
  * INCLUDES COMPREHENSIVE LOGGING FOR DIALLOG DEVELOPER
@@ -2713,6 +2866,8 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
     
     return $order_data;
 }
+
+
 
 // ======================Transform order data to flat keys rather than nested objects specifically for email templates =========
 
@@ -3068,362 +3223,6 @@ function transform_order_data_for_email($diallog_order_data) {
     return $email_order_data;
 }
 
-/**
- * AJAX handler for processing Moneris payments
- */
-add_action('wp_ajax_process_moneris_payment', 'ajax_process_moneris_payment');
-add_action('wp_ajax_nopriv_process_moneris_payment', 'ajax_process_moneris_payment');
-
-
-function ajax_process_moneris_payment() {
-    // Verify nonce
-    check_ajax_referer('moneris_payment_nonce', 'nonce');
-    
-    // Get and sanitize form data
-    $cardholder_name = sanitize_text_field($_POST['cardholder_name']);
-    $card_number = sanitize_text_field($_POST['card_number']);
-    $expiry_date = sanitize_text_field($_POST['expiry_date']);
-    $cvv = sanitize_text_field($_POST['cvv']);
-    $postal_code = sanitize_text_field($_POST['postal_code']);
-    $success_message = sanitize_text_field($_POST['success_message']);
-    $redirect_url = esc_url_raw($_POST['redirect_url']);
-    
-    // Validate required fields
-    if (empty($cardholder_name) || empty($card_number) || empty($expiry_date) || empty($cvv) || empty($postal_code)) {
-        wp_send_json_error(array(
-            'message' => 'Please fill in all required fields.'
-        ));
-        return;
-    }
-    
-    // Format card number (remove spaces)
-    $clean_card_number = preg_replace('/\s+/', '', $card_number);
-    
-    // Format expiry date (convert MM/YY to YYMM for Moneris)
-    if (strpos($expiry_date, '/') !== false) {
-        list($month, $year) = explode('/', $expiry_date);
-        $formatted_expiry = $year . $month;
-    } else {
-        wp_send_json_error(array(
-            'message' => 'Invalid expiry date format. Please use MM/YY.'
-        ));
-        return;
-    }
-    
-    // Format postal code (remove spaces and convert to uppercase)
-    $clean_postal_code = strtoupper(preg_replace('/\s+/', '', $postal_code));
-    
-    // Get payment amount from upfront fee summary
-    $amount = 0;
-    
-    // Debug: Check what we're getting
-    error_log('=== MONERIS PAYMENT DEBUG ===');
-    error_log('Cart exists: ' . (function_exists('WC') && WC()->cart ? 'YES' : 'NO'));
-    error_log('Cart empty: ' . (WC()->cart && WC()->cart->is_empty() ? 'YES' : 'NO'));
-    error_log('Cart item count: ' . (WC()->cart ? WC()->cart->get_cart_contents_count() : '0'));
-    
-    // Try the improved version that includes ACF deposits
-    if (function_exists('get_upfront_fee_summary_with_deposits')) {
-        $summary = get_upfront_fee_summary_with_deposits();
-        error_log('Using IMPROVED upfront summary with deposits');
-        if (isset($summary['grand_total'][1])) {
-            $amount = $summary['grand_total'][1];
-            error_log('Amount from IMPROVED summary: ' . $amount);
-        }
-    } elseif (function_exists('get_upfront_fee_summary_fixed')) {
-        $summary = get_upfront_fee_summary_fixed();
-        error_log('Using FIXED upfront summary');
-        if (isset($summary['grand_total'][1])) {
-            $amount = $summary['grand_total'][1];
-            error_log('Amount from FIXED summary: ' . $amount);
-        }
-    } elseif (function_exists('get_upfront_fee_summary')) {
-        $summary = get_upfront_fee_summary();
-        error_log('Using original upfront summary');
-        if (isset($summary['grand_total'][1])) {
-            $amount = $summary['grand_total'][1];
-            error_log('Amount from original summary: ' . $amount);
-        }
-    } else {
-        error_log('No upfront summary function available');
-        if (function_exists('WC') && WC()->cart) {
-            $amount = WC()->cart->get_total('edit');
-            error_log('Amount from WC cart: ' . $amount);
-        }
-    }
-    
-    error_log('Final amount: ' . $amount);
-    error_log('=== END DEBUG ===');
-    
-    if ($amount <= 0) {
-        wp_send_json_error(array(
-            'message' => 'Invalid payment amount: ' . $amount . '. Please ensure you have items in your cart with proper categories assigned.'
-        ));
-        return;
-    }
-    
-    // Get Moneris configuration (test or production)
-    $moneris_config = get_moneris_config();
-    
-    // Generate unique order ID
-    $timestamp = substr(time(), -6);
-    $order_id = ($moneris_config['test_mode'] ? 'test-' : 'web-') . $timestamp . '-' . wp_rand(100, 999);
-
-    // Store order_id in session for Thank You page
-    if (WC()->session) {
-        WC()->session->set('payment_order_id', $order_id);
-    }
-    
-    // Get customer ID from session or generate one
-    $customer_id = '';
-    if (WC()->session) {
-        $customer_id = WC()->session->get('customer_id');
-    }
-    if (empty($customer_id)) {
-        $customer_id = 'guest-' . wp_rand(10000, 99999);
-        if (WC()->session) {
-            WC()->session->set('customer_id', $customer_id);
-        }
-    }
-    
-    // Prepare payment data with dynamic credentials
-    $payment_data = array(
-        'type' => 'purchase',
-        'custid' => $customer_id,
-        'orderid' => $order_id,
-        'amount' => $amount,
-        'cardno' => $clean_card_number,
-        'expdate' => $formatted_expiry,
-        'cvd' => $cvv,
-        'postal_code' => $clean_postal_code,
-        'store_id' => $moneris_config['store_id'],
-        'api_token' => $moneris_config['api_token'],
-        'test_mode' => $moneris_config['test_mode']
-    );
-    
-    try {
-        // Skip card verification in test mode due to routing issues
-        if (!$moneris_config['test_mode']) {
-            // Only verify card in production mode
-            $verify_data = $payment_data;
-            $verify_data['amount'] = '0.01';
-            $verify_data['orderid'] = 'verify-' . time();
-            
-            if (function_exists('VerifyCard')) {
-                $verify_response = VerifyCard($verify_data);
-                
-                if (!$verify_response || $verify_response->getResponseCode() >= 50) {
-                    $error_msg = $verify_response ? $verify_response->getMessage() : 'Unknown error';
-                    wp_send_json_error(array(
-                        'message' => 'Card verification failed: ' . $error_msg
-                    ));
-                    return;
-                }
-            }
-        } else {
-            error_log('Test mode: Skipping card verification due to routing issues');
-        }
-        
-        // Process the actual payment
-        if (function_exists('ProcessPayment')) {
-            $payment_response = ProcessPayment($payment_data);
-            
-            if ($payment_response && $payment_response->getResponseCode() < 50 && 
-                strcasecmp($payment_response->getComplete(), 'true') == 0) {
-                
-                // ========== CRITICAL FIX STARTS HERE ==========
-                error_log('=== PAYMENT SUCCESS - STORING ALL DATA BEFORE CART IS EMPTIED ===');
-                
-                // STEP 1: Store detailed cart items FIRST (CRITICAL - must be before cart is emptied)
-                error_log('Step 1: Storing detailed cart summaries for thank you page...');
-
-                // Initialize variables that will be used later
-                $stored_upfront = array();
-                $stored_monthly = array();
-                
-                // Use new helper functions to get itemized cart data
-                if (function_exists('get_upfront_summary_for_thank_you')) {
-                    $stored_upfront = get_upfront_summary_for_thank_you();
-                    WC()->session->set('stored_upfront_summary', $stored_upfront);
-                    error_log('Upfront summary stored (itemized): ' . json_encode($stored_upfront));
-                } elseif (function_exists('get_upfront_fee_summary_with_deposits')) {
-                    $stored_upfront = get_upfront_fee_summary_with_deposits();
-                    WC()->session->set('stored_upfront_summary', $stored_upfront);
-                    error_log('Upfront summary stored with deposits: ' . json_encode($stored_upfront));
-                } elseif (function_exists('get_upfront_fee_summary')) {
-                    $stored_upfront = get_upfront_fee_summary();
-                    WC()->session->set('stored_upfront_summary', $stored_upfront);
-                    error_log('Upfront summary stored (fallback): ' . json_encode($stored_upfront));
-                } else {
-                    error_log('WARNING: No upfront summary function available!');
-                }
-                
-                // Store monthly summary with new helper function
-                if (function_exists('get_monthly_summary_for_thank_you')) {
-                    $stored_monthly = get_monthly_summary_for_thank_you();
-                    WC()->session->set('stored_monthly_summary', $stored_monthly);
-                    error_log('Monthly summary stored (itemized): ' . json_encode($stored_monthly));
-                } elseif (function_exists('get_monthly_fee_summary')) {
-                    $stored_monthly = get_monthly_fee_summary();
-                    WC()->session->set('stored_monthly_summary', $stored_monthly);
-                    error_log('Monthly summary stored: ' . json_encode($stored_monthly));
-                } else {
-                    error_log('WARNING: No monthly summary function available!');
-                }
-                
-                // STEP 2: Store payment details in session
-                error_log('Step 2: Storing payment details...');
-                
-                if (WC()->session) {
-                    WC()->session->set('payment_status', 'completed');
-                    WC()->session->set('payment_transaction_id', $payment_response->getTxnNumber());
-                    WC()->session->set('payment_auth_code', $payment_response->getAuthCode());
-                    WC()->session->set('payment_reference_num', $payment_response->getReferenceNum());
-                    WC()->session->set('payment_receipt_id', $payment_response->getReceiptId());
-                    WC()->session->set('payment_amount', $payment_response->getTransAmount());
-                    WC()->session->set('payment_date', $payment_response->getTransDate());
-                    WC()->session->set('order_complete_timestamp', time());
-                    WC()->session->set('cardholder_name', $cardholder_name);
-                    WC()->session->set('payment_test_mode', $moneris_config['test_mode']);
-                    WC()->session->set('payment_card_last_4', substr($clean_card_number, -4));
-                    error_log('Payment details stored in session');
-                }
-                
-                // STEP 3: Get and store terms timestamp
-                error_log('Step 3: Getting terms timestamp...');
-                
-                $terms_timestamp = '';
-                if (WC()->session) {
-                    $terms_timestamp = WC()->session->get('terms_timestamp');
-                    if ($terms_timestamp) {
-                        error_log('Terms timestamp found: ' . $terms_timestamp);
-                    } else {
-                        error_log('WARNING: No terms timestamp in session');
-                    }
-                }
-
-                // STEP 4: Prepare order data for Diallog
-                error_log('Step 4: Preparing order data for Diallog...');
-                
-                $order_data = prepare_diallog_order_data($payment_response, $cardholder_name, $moneris_config);
-                error_log('Order data prepared');
-                
-                // STEP 5: Send to Diallog database
-                error_log('Step 5: Sending to Diallog database...');
-                
-                $diallog_response = 'skipped';
-                if (!$moneris_config['test_mode']) {
-                    $diallog_response = send_order_to_diallog($order_data);
-                    error_log('Order sent to Diallog: ' . $diallog_response);
-                } else {
-                    error_log('Test mode: Skipping Diallog submission');
-                }
-                
-               // STEP 6: Send custom order confirmation email
-error_log('Step 6: Sending customer order confirmation email...');
-
-// Build the order data structure that transform_order_data_for_email expects
-$diallog_order_data = array(
-    'upfront_summary' => isset($stored_upfront) ? $stored_upfront : array(),
-    'monthly_summary' => isset($stored_monthly) ? $stored_monthly : array(),
-    'order_timestamp' => time(),
-    'terms_acceptance_timestamp' => $terms_timestamp
-);
-
-// Transform the order data to the format expected by email template
-$email_order_data = transform_order_data_for_email($diallog_order_data);
-
-// Extract customer email
-$customer_email = isset($email_order_data['customer_email']) ? $email_order_data['customer_email'] : '';
-
-// Override email address in test mode for development
-if ($moneris_config['test_mode']) {
-    $original_customer_email = $customer_email;
-    
-    // OPTION A: Send to a single test email
-    // $customer_email = 'your-test-email@example.com';
-    
-    // OPTION B: Send to multiple test emails (comma-separated)
-    $customer_email = 'zachary.horsman@gmail.com';  // UPDATE THIS WITH YOUR EMAILS
-    
-    error_log('TEST MODE: Redirecting email from ' . $original_customer_email . ' to ' . $customer_email);
-}
-
-if (!empty($customer_email)) {
-    // Handle multiple emails (comma-separated) or single email
-    $email_addresses = array_map('trim', explode(',', $customer_email));
-    $valid_emails = array_filter($email_addresses, 'is_email');
-    
-    if (!empty($valid_emails)) {
-        // Rejoin valid emails back into comma-separated string for wp_mail
-        $customer_email = implode(',', $valid_emails);
-        
-        // Send the order confirmation email using our custom template
-        $email_sent = send_customer_order_confirmation_email($customer_email, $email_order_data);
-        
-        if ($email_sent) {
-            error_log('Order confirmation email sent successfully to: ' . $customer_email);
-        } else {
-            error_log('Failed to send order confirmation email to: ' . $customer_email);
-        }
-    } else {
-        error_log('No valid email addresses found. Cannot send confirmation email.');
-    }
-} else {
-    error_log('Invalid or missing customer email. Cannot send confirmation email.');
-}
-                
-                // STEP 7: Empty cart ONLY AFTER all data has been captured
-                error_log('Step 7: Emptying cart...');
-                
-                if (function_exists('WC') && WC()->cart) {
-                    WC()->cart->empty_cart();
-                    error_log('Cart emptied successfully');
-                }
-                
-                error_log('=== ALL DATA STORED AND CART EMPTIED SUCCESSFULLY ===');
-                // ========== CRITICAL FIX ENDS HERE ==========
-                
-                $success_msg = $success_message;
-                if ($moneris_config['test_mode']) {
-                    $success_msg .= ' (Test Transaction)';
-                }
-                
-                wp_send_json_success(array(
-                    'message' => $success_msg,
-                    'transaction_id' => $payment_response->getTxnNumber(),
-                    'receipt_id' => $payment_response->getReceiptId(),
-                    'redirect_url' => $redirect_url,
-                    'diallog_status' => $diallog_response,
-                    'test_mode' => $moneris_config['test_mode']
-                ));
-                
-            } else {
-                $error_msg = 'Payment failed: ' . ($payment_response ? $payment_response->getMessage() : 'Unknown error');
-                if ($moneris_config['test_mode']) {
-                    $error_msg .= ' (Test Mode)';
-                }
-                wp_send_json_error(array(
-                    'message' => $error_msg
-                ));
-            }
-        } else {
-            wp_send_json_error(array(
-                'message' => 'Payment processing function not available.'
-            ));
-        }
-        
-    } catch (Exception $e) {
-        error_log('Moneris payment error: ' . $e->getMessage());
-        wp_send_json_error(array(
-            'message' => 'Payment processing error. Please try again.'
-        ));
-    }
-    
-    wp_die();
-}
-
-
 
 /**
  * Send customer info to Diallog (state 50 - info confirmed but not completed)
@@ -3561,25 +3360,6 @@ function send_order_to_diallog($order_data) {
     return $response;
 }
 
-/**
- * Trigger WooCommerce email notifications using existing WooCommerce email system
- */
-/*  -------------------DELETE SOON
-
-function trigger_woocommerce_emails($order_data) {
-    // Store order data in session for WooCommerce email templates to access
-    if (WC()->session) {
-        WC()->session->set('moneris_order_data', $order_data);
-    }
-    
-    // Trigger WooCommerce email hooks that you can customize in your email templates
-    do_action('moneris_payment_completed', $order_data);
-    
-    // You can now customize your existing WooCommerce email templates to use:
-    // $order_data = WC()->session->get('moneris_order_data');
-    // to access all the payment and order information
-} */
-
 
 /**
  * Helper function to validate credit card number using Luhn algorithm
@@ -3612,6 +3392,8 @@ function validate_credit_card_number($number) {
     return ($sum % 10 == 0);
 }
 
+
+
 /**
  * Helper function to get card type from number
  */
@@ -3641,8 +3423,6 @@ if (!function_exists('ProcessPayment')) {
     include_once(get_stylesheet_directory() . '/includes/ProcessPayment.php');
 }
 
-
-/*=================ZACH NEW EDITS AS OF MARCH 31=================*/
 
 /*==========Updated display_monthly_fee shortcode with promotional pricing support========*/
 
@@ -3694,6 +3474,7 @@ function display_monthly_fee_shortcode($atts) {
     }
 }
 add_shortcode('display_monthly_fee', 'display_monthly_fee_shortcode');
+
 
 /*==========New shortcode for displaying promotional fee blurb========*/
 
@@ -3785,7 +3566,6 @@ function display_deposit_fee_shortcode($atts) {
 add_shortcode('display_deposit_fee', 'display_deposit_fee_shortcode');
 
 
-
 /*==========Register installation-date sale shortcode========*/
 
 function display_installation_sale_shortcode($atts) {
@@ -3824,7 +3604,7 @@ add_shortcode('display_installation_sale', 'display_installation_sale_shortcode'
 function display_installation_variation_price_shortcode($atts) {
     // Extract shortcode attributes
     $atts = shortcode_atts(array(
-        'variation_id' => 265450, // Default to the installation variation ID
+        'variation_id' => 267988, // Default to the installation variation ID
     ), $atts);
     
     // Get the variation product
@@ -3852,7 +3632,6 @@ function display_installation_variation_price_shortcode($atts) {
 }
 add_shortcode('display_installation_variation_price', 'display_installation_variation_price_shortcode');
 
-/*==========ADDRESS LOOKUP SHORTCODES======================*/
 
 /*==========Fixed Address Display Shortcode that always shows========*/
 
@@ -3906,6 +3685,7 @@ function address_display_shortcode($atts) {
 // Register the shortcode (make sure this replaces any existing registration)
 add_shortcode('address_display', 'address_display_shortcode');
 
+
 function enqueue_address_lookup_script() {
     if (!is_admin()) {
         wp_enqueue_script(
@@ -3925,23 +3705,199 @@ function enqueue_address_lookup_script() {
 }
 add_action('wp_enqueue_scripts', 'enqueue_address_lookup_script');
 
+/*==========Final Fixed AJAX Function - Provides data in expected format========*/
+
+add_action( 'wp_ajax_nopriv_find_address_with_redirect', 'ajax_find_address_with_redirect_client_geocoded' );
+add_action( 'wp_ajax_find_address_with_redirect', 'ajax_find_address_with_redirect_client_geocoded' );
+
+function ajax_find_address_with_redirect_client_geocoded() {
+    error_log("=== CLIENT GEOCODED: ajax_find_address_with_redirect called ===");
+    error_log("POST data: " . print_r($_POST, true));
+    
+    $ccd = "";
+    
+    // Handle CCD parameter
+    if (isset($_POST["ccd_param"])) {
+        $ccd = $_POST["ccd_param"];
+        if (strlen($ccd) > 0) {
+            dg_set_user_meta("ccd", $ccd);
+        }
+    }
+    
+    // Check if this is a redirect request
+    $redirect_to_plans = isset($_POST['redirect_to_plans']) && $_POST['redirect_to_plans'] === 'true';
+    error_log("Redirect to plans: " . ($redirect_to_plans ? 'yes' : 'no'));
+    
+    if ($redirect_to_plans) {
+        error_log("Processing redirect request...");
+        
+        // CRITICAL: Get the address data from the AJAX request
+        $street_address = isset($_POST['streetAddress']) ? sanitize_text_field($_POST['streetAddress']) : '';
+        $unit_number = isset($_POST['unitNumber']) ? sanitize_text_field($_POST['unitNumber']) : '';
+        $buzzer_code = isset($_POST['buzzerCode']) ? sanitize_text_field($_POST['buzzerCode']) : '';
+        $geocoded_address = isset($_POST['geocoded_address']) ? $_POST['geocoded_address'] : null;
+        
+        error_log("Street Address: " . $street_address);
+        error_log("Geocoded Address: " . print_r($geocoded_address, true));
+        
+        if (empty($street_address)) {
+            wp_send_json_error(array(
+                'message' => 'No street address provided.'
+            ));
+            return;
+        }
+        
+        if (!$geocoded_address || !is_array($geocoded_address)) {
+            wp_send_json_error(array(
+                'message' => 'Address geocoding failed. Please try selecting a different address.'
+            ));
+            return;
+        }
+        
+        // Ensure all required keys are present with defaults
+        $searched_address = array_merge(array(
+            'street_number' => '',
+            'route' => '',
+            'street_name' => '',
+            'street_type' => '',
+            'street_dir' => '',
+            'sublocality_level_1' => '',
+            'locality' => '',
+            'administrative_area_level_2' => '',
+            'administrative_area_level_1' => '',
+            'country' => '',
+            'postal_code' => '',
+            'manual_search' => 0
+        ), $geocoded_address);
+        
+        // Parse the route into street components if needed
+        if (!empty($searched_address['route']) && empty($searched_address['street_name'])) {
+            if (function_exists('parse_street_components')) {
+                $route_components = parse_street_components($searched_address['route']);
+                if (isset($route_components['street_name'])) {
+                    $searched_address['street_name'] = $route_components['street_name'];
+                }
+                if (isset($route_components['street_type'])) {
+                    $searched_address['street_type'] = $route_components['street_type'];
+                }
+                if (isset($route_components['street_dir'])) {
+                    $searched_address['street_dir'] = $route_components['street_dir'];
+                }
+            }
+        }
+        
+        error_log("Final searched_address: " . print_r($searched_address, true));
+        
+        // Set up the user_data array
+        $user_data = array(
+            'full_name' => '',
+            'email' => '',
+            'lead_status' => '',
+            'onboarding_stage' => 'address_search'
+        );
+        
+        // CRITICAL: Set up POST data that ppget_internet_plans expects
+        $_POST['streetAddress'] = $street_address;
+        $_POST['unitNumber'] = $unit_number;
+        $_POST['buzzerCode'] = $buzzer_code;
+        $_POST['unitType'] = ''; // Required to prevent undefined index
+        $_POST['searched_address'] = $searched_address;
+        $_POST['user_data'] = $user_data;
+        
+        error_log("POST data set up, now calling ppget_internet_plans...");
+        
+        // Suppress WordPress errors for cleaner JSON response
+        $original_error_reporting = error_reporting();
+        error_reporting(E_ERROR | E_PARSE);
+        
+        try {
+            // Call the main internet plans function
+            $response = ppget_internet_plans(1, $ccd);
+            error_log("ppget_internet_plans response length: " . strlen($response));
+            error_log("Response preview: " . substr($response, 0, 200));
+            
+            // Restore error reporting
+            error_reporting($original_error_reporting);
+            
+            // Log address data after the function runs
+            AddressCheckLog(0);
+            
+            // Get the API response to check if service is available
+            $apiResponse = dg_get_user_meta("_api_response");
+            error_log("API Response after ppget_internet_plans: " . print_r($apiResponse, true));
+            
+            // Check if we found plans - the response contains product HTML if successful
+            $no_service_found = (strpos($response, 'Check Service Availability in Your Area') !== false);
+            $is_not_available = (strpos($response, 'not available') !== false || 
+                                 strpos($response, 'No service') !== false);
+            
+            error_log("Response analysis: no_service_found=" . 
+                      ($no_service_found ? 'true' : 'false') . 
+                      ", is_not_available=" . ($is_not_available ? 'true' : 'false'));
+            
+            if (!$no_service_found && !$is_not_available) {
+                // Success - service is available at this address
+                error_log("SUCCESS: Internet service available, sending redirect response");
+                
+                wp_send_json_success(array(
+                    'redirect' => true,
+                    'redirect_url' => home_url('/residential/internet#panel-showinternetplans'),
+                    'message' => 'Address updated successfully'
+                ));
+            } else {
+                // No service available at this address
+                error_log("ERROR: No internet service available at this address");
+                
+                $error_message = 'No internet service available at this address.';
+                if ($apiResponse && isset($apiResponse['errorType']) && !empty($apiResponse['errorType'])) {
+                    $error_message .= ' (' . $apiResponse['errorType'] . ')';
+                }
+                
+                wp_send_json_error(array(
+                    'message' => $error_message . ' Please try selecting a different address from the autocomplete suggestions.'
+                ));
+            }
+            
+        } catch (Exception $e) {
+            error_reporting($original_error_reporting);
+            error_log("Exception in ppget_internet_plans: " . $e->getMessage());
+            wp_send_json_error(array(
+                'message' => 'An error occurred while checking address availability. Please try again.'
+            ));
+        }
+        
+    } else {
+        // Original behavior for the main internet page
+        error_log("Non-redirect request, using original behavior");
+        $response = ppget_internet_plans(1, $ccd);
+        AddressCheckLog(0);
+        wp_die($response);
+    }
+}
+
 
 /*======Add Modem Details to 'I have my own Modem' product=====*/
 
 function save_modem_details_to_cart() {
     check_ajax_referer('modem_selection_nonce', 'nonce');
+
+       // DEBUG: Check what PHP receives
+    error_log("========== MODEM DETAILS DEBUG ==========");
+    error_log("RAW _POST data: " . print_r($_POST, true));
+    error_log("RAW modem_details: '" . ($_POST['modem_details'] ?? 'NOT SET') . "'");
+    error_log("RAW length: " . strlen($_POST['modem_details'] ?? ''));
     
     $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
-    $modem_details = isset($_POST['modem_details']) ? sanitize_text_field($_POST['modem_details']) : '';
+    $modem_details = isset($_POST['modem_details']) ? sanitize_textarea_field($_POST['modem_details']) : '';
     
-    if ($product_id !== 265769 || strlen($modem_details) < 5 || strlen($modem_details) > 100) {
+    if ($product_id !== 267979 || strlen($modem_details) < 5 || strlen($modem_details) > 100) {
         error_log("VALIDATION FAILED - product_id: $product_id, length: " . strlen($modem_details));
         wp_send_json_error(array('message' => 'Invalid modem details'));
         return;
     }
     
     // Remove any existing modems from cart
-    $modem_category_id = 62;
+    $modem_category_id = 59;
     
     foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
         $cart_product_id = $cart_item['product_id'];
@@ -3965,7 +3921,7 @@ function save_modem_details_to_cart() {
     if ($added) {
         // DEBUG: Check what was actually saved to cart
         foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
-            if ($cart_item['product_id'] == 265769) {
+            if ($cart_item['product_id'] == 267979) {
                 error_log("SAVED TO CART - modem_details: " . ($cart_item['modem_details'] ?? 'NOT SET'));
                 error_log("SAVED TO CART - LENGTH: " . strlen($cart_item['modem_details'] ?? ''));
             }
@@ -3980,7 +3936,6 @@ function save_modem_details_to_cart() {
 }
 add_action('wp_ajax_save_modem_details', 'save_modem_details_to_cart');
 add_action('wp_ajax_nopriv_save_modem_details', 'save_modem_details_to_cart');
-
 
 // Display modem details in cart
 
@@ -3997,7 +3952,6 @@ function display_modem_details_in_cart($item_data, $cart_item) {
 add_filter('woocommerce_get_item_data', 'display_modem_details_in_cart', 10, 2);
 
 
-
 // Save modem details to order (NO SHIPPING DATA)
 function save_modem_details_to_order($item, $cart_item_key, $values, $order) {
     if (isset($values['modem_details'])) {
@@ -4007,12 +3961,8 @@ function save_modem_details_to_order($item, $cart_item_key, $values, $order) {
 add_action('woocommerce_checkout_create_order_line_item', 'save_modem_details_to_order', 10, 4);
 
 
-
-/*Create Clickable Rows Instead of Add to Cart Buttons*/
-
 /**
  * Clickable Modem Rows - Add to Cart Functionality
- * Add this to your theme's functions.php or a custom plugin
  */
 
 // Enqueue the JavaScript
@@ -4046,6 +3996,7 @@ function enqueue_product_selection_scripts() {
 }
 add_action('wp_enqueue_scripts', 'enqueue_product_selection_scripts');
 
+
 // Function to get cart items - useful for checking currently selected modem
 function get_cart_items_ajax() {
     check_ajax_referer('modem_selection_nonce', 'nonce');
@@ -4057,7 +4008,7 @@ function get_cart_items_ajax() {
         $items[] = $cart_item['product_id'];
         
         // Check if this is the "I Have My Own Modem" product and get the details
-        if ($cart_item['product_id'] == 265769 && isset($cart_item['modem_details'])) {
+        if ($cart_item['product_id'] == 267979 && isset($cart_item['modem_details'])) {
             $modem_details = $cart_item['modem_details'];
         }
     }
@@ -4072,7 +4023,6 @@ function get_cart_items_ajax() {
 
 add_action('wp_ajax_get_cart_items', 'get_cart_items_ajax');
 add_action('wp_ajax_nopriv_get_cart_items', 'get_cart_items_ajax');
-
 
 
 /*========Add Deposit Fees As Payable Items=======*/
@@ -4098,21 +4048,11 @@ function add_deposit_fees_to_cart() {
 }
 
 
-
-/**
- * DIAGNOSTIC FUNCTION - Test if we can detect dynamic_install_price
- * Add this to functions.php temporarily for testing
- */
-
-/**
- * UPDATED DIAGNOSTIC FUNCTION - Check ALL categories
- */
-
-
 /**
  * Apply dynamic installation price based on internet plan in cart
  * This overrides the installation product price when a promotional price exists
  */
+
 function apply_dynamic_install_price($cart) {
     // Prevent this from running multiple times during a single page load
     if (did_action('woocommerce_before_calculate_totals') >= 2) {
@@ -4128,7 +4068,7 @@ function apply_dynamic_install_price($cart) {
     
     // Step 1: Find internet plan in cart and get dynamic_install_price
     $internet_plan_cat_id = 19;
-    $dynamic_install_price = 0;
+    $dynamic_install_price = null;
     $internet_plan_found = false;
     
     foreach ($cart->get_cart() as $cart_item) {
@@ -4144,27 +4084,30 @@ function apply_dynamic_install_price($cart) {
             if (function_exists('get_field')) {
                 $dynamic_install_price = get_field('dynamic_install_price', $product_id);
                 
-                if (empty($dynamic_install_price) && $dynamic_install_price !== '0') {
+                if ($dynamic_install_price === '' || $dynamic_install_price === null || $dynamic_install_price === false) {
                     $dynamic_install_price = get_field('dynamic_install_price', 'product_' . $product_id);
                 }
                 
-                $dynamic_install_price = is_numeric($dynamic_install_price) ? floatval($dynamic_install_price) : 0;
+                // Convert to float if we have a value (including 0)
+                if ($dynamic_install_price !== '' && $dynamic_install_price !== null && $dynamic_install_price !== false) {
+                    $dynamic_install_price = floatval($dynamic_install_price);
+                }
             }
             
-            error_log("Found internet plan (ID: $product_id) with dynamic_install_price: $dynamic_install_price");
+            error_log("Found internet plan (ID: $product_id) with dynamic_install_price: " . ($dynamic_install_price !== null ? $dynamic_install_price : 'not set'));
             break; // Found internet plan, stop looking
         }
     }
     
-    // If no dynamic price or no internet plan, exit
-    if (!$internet_plan_found || $dynamic_install_price <= 0) {
-        error_log("No dynamic install price to apply (internet plan found: " . ($internet_plan_found ? 'yes' : 'no') . ", price: $dynamic_install_price)");
+    // If no dynamic price set or no internet plan, exit
+    if (!$internet_plan_found || $dynamic_install_price === null) {
+        error_log("No dynamic install price to apply (internet plan found: " . ($internet_plan_found ? 'yes' : 'no') . ", price: " . ($dynamic_install_price !== null ? $dynamic_install_price : 'not set') . ")");
         return;
     }
     
     // Step 2: Find installation product and override its price
-    $installation_parent_id = 265084;
-    $installation_variation_id = 265450;
+    $installation_parent_id = 267986;
+    $installation_variation_id = 267988;
     
     foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
         $product = $cart_item['data'];
@@ -4179,7 +4122,7 @@ function apply_dynamic_install_price($cart) {
         if ($is_installation) {
             $original_price = $product->get_price();
             
-            // Set the new price
+            // Set the new price (can now be 0)
             $product->set_price($dynamic_install_price);
             
             error_log("✓ Applied dynamic install price to product $product_id: $$original_price → $$dynamic_install_price");
@@ -4190,9 +4133,7 @@ function apply_dynamic_install_price($cart) {
 }
 add_action('woocommerce_before_calculate_totals', 'apply_dynamic_install_price', 10, 1);
 
-
 /*======Upfront Fee Summary Table - 
-Last Edited Fri, August 15-
 Removed 'Installation' & 'Extras' row headers =========*/
 
 function upfront_fee_summary_shortcode() {
@@ -4222,21 +4163,26 @@ function upfront_fee_summary_shortcode() {
        $product_id = $product->get_id();
        $product_cat_ids = $product->get_category_ids();
        
-       // Check if this product has internet-plan category (check ALL categories)
-       if (in_array($internet_plan_cat_id, $product_cat_ids)) {
-           if (function_exists('get_field')) {
-               $dynamic_install_price = get_field('dynamic_install_price', $product_id);
-               
-               if (empty($dynamic_install_price) && $dynamic_install_price !== '0') {
-                   $dynamic_install_price = get_field('dynamic_install_price', 'product_' . $product_id);
-               }
-               
-               $dynamic_install_price = is_numeric($dynamic_install_price) ? floatval($dynamic_install_price) : 0;
-           }
-           
-           error_log('Upfront summary shortcode - Found internet plan: ' . $product_id . ', dynamic price: ' . $dynamic_install_price);
-           break;
-       }
+      // Check if this product has internet-plan category (check ALL categories)
+    if (in_array($internet_plan_cat_id, $product_cat_ids)) {
+        if (function_exists('get_field')) {
+            $dynamic_install_price = get_field('dynamic_install_price', $product_id);
+        
+        if ($dynamic_install_price === '' || $dynamic_install_price === null || $dynamic_install_price === false) {
+            $dynamic_install_price = get_field('dynamic_install_price', 'product_' . $product_id);
+        }
+        
+        // Convert to float, but only if we actually have a value (including 0)
+        if ($dynamic_install_price !== '' && $dynamic_install_price !== null && $dynamic_install_price !== false) {
+            $dynamic_install_price = floatval($dynamic_install_price);
+        } else {
+            $dynamic_install_price = null; // No promotional price set
+        }
+    }
+    
+    error_log('Upfront summary shortcode - Found internet plan: ' . $product_id . ', dynamic price: ' . $dynamic_install_price);
+    break;
+}
    }
    
    // First pass: Check for installation and store its details
@@ -4246,8 +4192,8 @@ function upfront_fee_summary_shortcode() {
        $parent_id = $product->get_parent_id();
        
        // Check if this is an installation product
-       $installation_category_id = 63; // Installation category ID
-       $installation_product_id = 265084; // Parent product ID
+       $installation_category_id = 60; // Installation category ID
+       $installation_product_id = 267986; // Parent product ID
        $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'ids'));
        $is_installation = in_array($installation_category_id, $product_cats) || $parent_id == $installation_product_id;
        
@@ -4259,7 +4205,8 @@ function upfront_fee_summary_shortcode() {
     $original_installation_price = $installation_product_db ? floatval($installation_product_db->get_regular_price()) : floatval($product->get_price());
     
     // Apply dynamic install price if available
-    if ($dynamic_install_price > 0) {
+   // Apply dynamic install price if available
+    if ($dynamic_install_price !== null) {
         $installation_price = $dynamic_install_price;
     } else {
         $installation_price = $original_installation_price;
@@ -4282,7 +4229,7 @@ function upfront_fee_summary_shortcode() {
    if ($installation_found) {
        // Build pricing display for installation
        $install_pricing_display = '';
-       if ($dynamic_install_price > 0 && $dynamic_install_price != $original_installation_price) {
+       if ($dynamic_install_price !== null && $dynamic_install_price != $original_installation_price) {
            // Show strikethrough original price and green bold sale price
            $install_pricing_display = '<span style="text-decoration: line-through;">' . wc_price($original_installation_price) . '</span> ';
            $install_pricing_display .= '<span style="color: green; font-weight: bold;">' . wc_price($dynamic_install_price) . '</span>';
@@ -4329,8 +4276,8 @@ function upfront_fee_summary_shortcode() {
        $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'ids'));
        
        // Skip installation (already displayed)
-       $installation_category_id = 63;
-       $installation_product_id = 265084;
+       $installation_category_id = 60;
+       $installation_product_id = 267986;
        $is_installation = in_array($installation_category_id, $product_cats) || $parent_id == $installation_product_id;
        
        if ($is_installation) {
@@ -4487,6 +4434,7 @@ function upfront_fee_summary_shortcode() {
 }
 add_shortcode('upfront_fee_summary', 'upfront_fee_summary_shortcode');
 
+
 /*--------------DEBUG CART CONTENTS: SEPT. 30TH --------*/
 
 add_action('wp_ajax_debug_cart_contents', 'debug_cart_contents');
@@ -4500,15 +4448,16 @@ function debug_cart_contents() {
         $cart_items[] = array(
             'id' => $product_id,
             'name' => $product_name,
-            'is_payafter' => ($product_id == 265827)
+            'is_payafter' => ($product_id == 267989)
         );
     }
     
     wp_send_json_success(array(
         'cart_items' => $cart_items,
-        'payafter_in_cart' => in_array(265827, wp_list_pluck($cart_items, 'id'))
+        'payafter_in_cart' => in_array(267989, wp_list_pluck($cart_items, 'id'))
     ));
 }
+
 
 
 // --------------------Monthly Fee Summary Table Shortcode with Internet Plan and Promotional Pricing
@@ -4528,8 +4477,8 @@ function monthly_fee_summary_shortcode() {
     $current_product_id = 0;
     
     // Installation category ID to exclude from monthly fee table
-    $installation_category_id = 63;
-    $installation_product_id = 265084;
+    $installation_category_id = 60;
+    $installation_product_id = 267986;
     $deposit_category_id = get_term_by('slug', 'deposit', 'product_cat');
     $deposit_category_id = $deposit_category_id ? $deposit_category_id->term_id : null;
     
@@ -4696,7 +4645,7 @@ function monthly_fee_summary_shortcode() {
         }
         
         // Check if this is the Pay After Service deposit product - SKIP if it is
-        if ($product_id == 265827) {
+        if ($product_id == 267989) {
             continue; // Skip Pay After Service deposit
         }
         
@@ -4870,9 +4819,9 @@ function edit_order_popup_shortcode() {
     // Categories to exclude (Pay After Deposit only)
     $deposit_category_id = get_term_by('slug', 'deposit', 'product_cat');
     $deposit_category_id = $deposit_category_id ? $deposit_category_id->term_id : null;
-    $installation_category_id = 63; // Installation category ID
-    $installation_parent_product_id = 265084; // Installation parent product ID
-    $pay_after_deposit_id = 265827; // Pay After deposit product ID
+    $installation_category_id = 60; // Installation category ID
+    $installation_parent_product_id = 267986; // Installation parent product ID
+    $pay_after_deposit_id = 267989; // Pay After deposit product ID
     
     // Get current internet plan URL slug
     $internet_plan_slug = '';
@@ -5052,7 +5001,7 @@ function edit_order_popup_shortcode() {
         // Check if this is an internet plan
         if (in_array($internet_plan_category_id, $item['product_cats'])) {
             // Internet plan always goes to the main internet selection page
-            $edit_url = 'https://diallog.magnaprototype.com/residential/internet/';
+            $edit_url = 'https://staging.diallog.com/residential/internet/';
             $edit_button = '<a href="' . esc_url($edit_url) . '" class="edit-product-btn btn-primary">Edit</a>';
             
             // Add warning message for internet plans
@@ -5064,7 +5013,7 @@ function edit_order_popup_shortcode() {
         // Check if this is an installation product (by category or parent ID)
         elseif ($item['is_installation']) {
             if (!empty($internet_plan_slug)) {
-                $edit_url = 'https://diallog.magnaprototype.com/product/' . $internet_plan_slug . '/#screen1';
+                $edit_url = 'https://staging.diallog.com/product/' . $internet_plan_slug . '/#screen1';
                 $edit_button = '<a href="' . esc_url($edit_url) . '" class="edit-product-btn btn-primary">Edit</a>';
             } else {
                 $edit_button = '<span class="edit-product-btn btn-disabled">Edit</span>';
@@ -5073,12 +5022,12 @@ function edit_order_popup_shortcode() {
         // For other categories, use the internet plan's product page with anchor
         elseif (!empty($internet_plan_slug) && isset($category_slides[$item['category_slug']])) {
             $slide_anchor = $category_slides[$item['category_slug']];
-            $edit_url = 'https://diallog.magnaprototype.com/product/' . $internet_plan_slug . '/#' . $slide_anchor;
+            $edit_url = 'https://staging.diallog.com/product/' . $internet_plan_slug . '/#' . $slide_anchor;
             $edit_button = '<a href="' . esc_url($edit_url) . '" class="edit-product-btn btn-primary">Edit</a>';
         } 
         // Fallback for other products - just go to internet plan page
         elseif (!empty($internet_plan_slug)) {
-            $edit_url = 'https://diallog.magnaprototype.com/product/' . $internet_plan_slug . '/';
+            $edit_url = 'https://staging.diallog.com/product/' . $internet_plan_slug . '/';
             $edit_button = '<a href="' . esc_url($edit_url) . '" class="edit-product-btn btn-secondary">Edit</a>';
         }
         // If no internet plan found, disable the button
@@ -5124,8 +5073,8 @@ function monthly_fee_total_shortcode($atts) {
     $current_product_id = 0;
     
     // Installation category ID to exclude from monthly fee calculation
-    $installation_category_id = 63;
-    $installation_product_id = 265084;
+    $installation_category_id = 60;
+    $installation_product_id = 267986;
     $deposit_category_id = get_term_by('slug', 'deposit', 'product_cat');
     $deposit_category_id = $deposit_category_id ? $deposit_category_id->term_id : null;
     
@@ -5191,7 +5140,7 @@ function monthly_fee_total_shortcode($atts) {
         }
         
         // Skip Pay After Service deposit
-        if ($product_id == 265827) {
+        if ($product_id == 267989) {
             continue;
         }
         
@@ -5273,7 +5222,7 @@ function monthly_fee_total_shortcode($atts) {
 add_shortcode('monthly_fee_total', 'monthly_fee_total_shortcode');
 
 
-/*-----*/
+/*====Modem Add to Cart AJAX====*/
 
 function modem_add_to_cart_ajax() {
     // Check nonce for security
@@ -5326,7 +5275,7 @@ function modem_add_to_cart_ajax() {
         // If this is a TV plan
         elseif ($product_type === 'tv') {
             // Remove any existing TV plans from cart
-            $tv_category_id = 59; // Your TV category ID
+            $tv_category_id = 61; // Your TV category ID
             
             foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
                 $cart_product_id = $cart_item['product_id'];
@@ -5346,7 +5295,7 @@ function modem_add_to_cart_ajax() {
         // If this is a modem or other accessory
         elseif ($product_type === 'modem') {
             // Remove any existing modems from cart
-            $modem_category_id = 62; // Replace with your modem category ID
+            $modem_category_id = 59; // Replace with your modem category ID
             
             foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
                 $cart_product_id = $cart_item['product_id'];
@@ -5385,6 +5334,7 @@ function modem_add_to_cart_ajax() {
 add_action('wp_ajax_modem_add_to_cart', 'modem_add_to_cart_ajax');
 add_action('wp_ajax_nopriv_modem_add_to_cart', 'modem_add_to_cart_ajax');
 
+
 // Helper function to remove all cart items except specified ones
 function remove_all_except_items($cart_keys_to_keep) {
     foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
@@ -5422,11 +5372,15 @@ function upfront_fee_total_shortcode($atts) {
                 if (function_exists('get_field')) {
                     $dynamic_install_price = get_field('dynamic_install_price', $product_id);
                     
-                    if (empty($dynamic_install_price) && $dynamic_install_price !== '0') {
+                    if ($dynamic_install_price === '' || $dynamic_install_price === null || $dynamic_install_price === false) {
                         $dynamic_install_price = get_field('dynamic_install_price', 'product_' . $product_id);
                     }
                     
-                    $dynamic_install_price = is_numeric($dynamic_install_price) ? floatval($dynamic_install_price) : 0;
+                    if ($dynamic_install_price !== '' && $dynamic_install_price !== null && $dynamic_install_price !== false) {
+                        $dynamic_install_price = floatval($dynamic_install_price);
+                    } else {
+                        $dynamic_install_price = null;
+                    }
                 }
                 
                 error_log('Upfront total shortcode - Found internet plan: ' . $product_id . ', dynamic price: ' . $dynamic_install_price);
@@ -5444,14 +5398,14 @@ function upfront_fee_total_shortcode($atts) {
             $parent_id = $product->get_parent_id();
             $product_price = $product->get_price();
             
-            $installation_category_id = 63;
-            $installation_parent_product_id = 265084;
+            $installation_category_id = 60;
+            $installation_parent_product_id = 267986;
             $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'ids'));
             $is_installation = in_array($installation_category_id, $product_cats) || 
                    $parent_id == $installation_parent_product_id || 
                    $product_id == $installation_parent_product_id;
             
-            if ($is_installation && $dynamic_install_price > 0) {
+            if ($is_installation && $dynamic_install_price !== null) {
                 $product_price = $dynamic_install_price;
                 error_log('Upfront total shortcode - Using dynamic install price: ' . $product_price);
             }
@@ -5498,10 +5452,6 @@ function upfront_fee_total_shortcode($atts) {
 }
 add_shortcode('upfront_fee_total', 'upfront_fee_total_shortcode');
 
-/**
- * AJAX handler to get upfront fee total
- * Used for dynamic updates
- */
 
 /**
  * AJAX handler to get upfront fee total
@@ -5526,16 +5476,22 @@ function get_upfront_fee_total_ajax() {
             $product_cat_ids = $product->get_category_ids();
             
             // Check if this product has internet-plan category (check ALL categories)
-            if (in_array($internet_plan_cat_id, $product_cat_ids)) {
-                if (function_exists('get_field')) {
-                    $dynamic_install_price = get_field('dynamic_install_price', $product_id);
-                    
-                    if (empty($dynamic_install_price) && $dynamic_install_price !== '0') {
+            // Check if this product has internet-plan category (check ALL categories)
+        if (in_array($internet_plan_cat_id, $product_cat_ids)) {
+            if (function_exists('get_field')) {
+                $dynamic_install_price = get_field('dynamic_install_price', $product_id);
+        
+                    if ($dynamic_install_price === '' || $dynamic_install_price === null || $dynamic_install_price === false) {
                         $dynamic_install_price = get_field('dynamic_install_price', 'product_' . $product_id);
                     }
-                    
-                    $dynamic_install_price = is_numeric($dynamic_install_price) ? floatval($dynamic_install_price) : 0;
-                }
+        
+            // Convert to float if we have a value (including 0)
+            if ($dynamic_install_price !== '' && $dynamic_install_price !== null && $dynamic_install_price !== false) {
+                $dynamic_install_price = floatval($dynamic_install_price);
+            } else {
+            $dynamic_install_price = null;
+        }
+    }
                 
                 error_log('AJAX Upfront total - Found internet plan: ' . $product_id . ', dynamic price: ' . $dynamic_install_price);
                 break;
@@ -5553,14 +5509,14 @@ function get_upfront_fee_total_ajax() {
             $product_price = $product->get_price();
             
             // Check if this is installation and apply dynamic price if exists
-            $installation_category_id = 63;
-            $installation_parent_product_id = 265084;
+            $installation_category_id = 60;
+            $installation_parent_product_id = 267986;
             $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'ids'));
             $is_installation = in_array($installation_category_id, $product_cats) || 
                                $parent_id == $installation_parent_product_id || 
                                $product_id == $installation_parent_product_id;
             
-            if ($is_installation && $dynamic_install_price > 0) {
+           if ($is_installation && $dynamic_install_price !== null) {
                 $product_price = $dynamic_install_price;
                 error_log('AJAX - Using dynamic install price: ' . $product_price);
             }
@@ -5633,7 +5589,8 @@ function get_upfront_fee_total_ajax() {
 add_action('wp_ajax_get_upfront_fee_total', 'get_upfront_fee_total_ajax');
 add_action('wp_ajax_nopriv_get_upfront_fee_total', 'get_upfront_fee_total_ajax');
 
-//
+
+/*Update Fee Summary Tables*/
 
 function update_fee_summary_tables() {
     check_ajax_referer('modem_selection_nonce', 'nonce');
@@ -5656,7 +5613,6 @@ function update_fee_summary_tables() {
 }
 add_action('wp_ajax_update_fee_tables', 'update_fee_summary_tables');
 add_action('wp_ajax_nopriv_update_fee_tables', 'update_fee_summary_tables');
-
 
 // ========= AJAX handler to remove product from cart
 
@@ -5700,6 +5656,7 @@ function modem_remove_from_cart_ajax() {
 }
 add_action('wp_ajax_modem_remove_from_cart', 'modem_remove_from_cart_ajax');
 add_action('wp_ajax_nopriv_modem_remove_from_cart', 'modem_remove_from_cart_ajax');
+
 
 /**
  * Installation Date Selection Functions
@@ -5820,11 +5777,12 @@ function add_installation_to_cart_ajax() {
 add_action('wp_ajax_add_installation_to_cart', 'add_installation_to_cart_ajax');
 add_action('wp_ajax_nopriv_add_installation_to_cart', 'add_installation_to_cart_ajax');
 
+
 // Get installation dates from cart
 function get_installation_dates_ajax() {
     check_ajax_referer('modem_selection_nonce', 'nonce');
     
-    $installation_category_id = 63; // Installation date category ID
+    $installation_category_id = 60; // Installation date category ID
     $dates = array(
         'preferred-date' => '',
         'secondary-date' => ''
@@ -5859,6 +5817,7 @@ function get_installation_dates_ajax() {
 add_action('wp_ajax_get_installation_dates', 'get_installation_dates_ajax');
 add_action('wp_ajax_nopriv_get_installation_dates', 'get_installation_dates_ajax');
 
+
 // Remove installation from cart AJAX handler
 function remove_installation_from_cart_ajax() {
     check_ajax_referer('modem_selection_nonce', 'nonce');
@@ -5873,9 +5832,10 @@ function remove_installation_from_cart_ajax() {
 add_action('wp_ajax_remove_installation_from_cart', 'remove_installation_from_cart_ajax');
 add_action('wp_ajax_nopriv_remove_installation_from_cart', 'remove_installation_from_cart_ajax');
 
+
 // Helper function to remove installation from cart
 function remove_installation_from_cart($product_id) {
-    $installation_category_id = 63;
+    $installation_category_id = 60;
     $removed = false;
     
     foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
@@ -5936,8 +5896,6 @@ function display_selected_dates_in_cart($item_data, $cart_item) {
     return $item_data;
 }
 add_filter('woocommerce_get_item_data', 'display_selected_dates_in_cart', 10, 2);
-
-
 
 
 
@@ -6015,126 +5973,737 @@ add_filter('woocommerce_available_variation', function($variation_data, $product
 }, 10, 3);
 
 
+/*=======Upfront Fee Summary ======*/
 
 
-
-
-
-
-
-
-/*--===========SHOW WOOCOMMERCE ADD ONS ON CUSTOM PROUCT TEMPLATE=======*/
-
-
-
-/*===========ZACH SHORTCODE CREATION
-
-=========*/
-
-
-/*----InternetPlan Shorcode-----*/
-
-
-function internet_plans_panel_shortcode() {
-    // Start output buffering
-    ob_start();
-    ?>
-    <div class="tabs-panel is-active panel-showinternetplans" id="panel-showinternetplans" style="display: block;">
-        <p><br /></p>
-        <?php 
-        if (function_exists('RenderInternetPlans')) {
-            echo RenderInternetPlans(); 
-        } else {
-            echo 'Internet plans are currently unavailable.';
-        }
-        ?>
-    </div>
-    <?php
-    // Return the buffered content
-    return ob_get_clean();
-}
-
-// Register the shortcode
-add_shortcode('internet_plans_panel', 'internet_plans_panel_shortcode');
-
-
-/*=================Changing Text Function================*/
-
-
-function your_order_translation($translated){
-    $text = array(
-    'Your order' => 'Your Upfront Summary',
-	'Cart totals' => 'Your Upfront Summary'
-    );
-    $translated = str_ireplace(  array_keys($text),  $text,  $translated );
-    return $translated;
-}
-
-add_filter( 'gettext', 'your_order_translation', 20 );
-
-/*Show Add to Cart Beneath Product in Loop*/
-
-add_action( 'woocommerce_after_shop_loop_item', 'woocommerce_template_loop_add_to_cart', 20 );
-
-/*==========Register monthly_fee shortcode========*/
-
-/* function display_monthly_fee_shortcode( $atts ) {
-    // Extract shortcode attributes (if any)
-    $atts = shortcode_atts( array(
-        'post_id' => get_the_ID(), // Default to current post ID
-    ), $atts );
-
-    // Get the 'monthly_fee' field value from the specified post
-    $monthly_fee = get_field('monthly_fee', $atts['post_id']);
-
-    // Check if there's a value for the 'monthly_fee' field
-    if (!empty($monthly_fee)) {
-        return esc_html($monthly_fee); // Return the value, escaped for security
-    } else {
-        return 'No monthly fee set'; // Return a default message or leave blank
-    }
-}
-add_shortcode('display_monthly_fee', 'display_monthly_fee_shortcode'); */
-
-// Function to display the monthly fee in the WooCommerce catalog view under the regular price
-/* function display_monthly_fee_below_price_in_catalog() {
-    global $product;
+function get_upfront_fee_summary() {
     
-    // Get the 'monthly_fee' field value
-    $monthly_fee = get_field('monthly_fee', $product->get_id());
+    $summary = array(
+        'ModemPurchaseOption'=>true,
+        'internet-plan'=>array('',0.0),
+        'modems'=>array('Modem Deposit',0.0),
+        'installation'=>array('Installation Fee',0.0),
+        'deposit'=>array('Pay-after Deposit',0.0),
+        'phone-plan'=>array('Phone Plan',0.0),
+        'tv-plan'=>array('TV Plan',0.0),
+        'subtotal'=>array('Subtotal',0.0),
+        'taxes'=>array('Taxes',0.0),
+        'grand_total'=>array('UPFRONT TOTAL',0.0));
 
-    // Check if there's a value for the 'monthly_fee' field
-    if (!empty($monthly_fee)) {
-        // Display the monthly fee below the price
-        echo '<p class="monthly-fee">Monthly Fee: ' . esc_html($monthly_fee) . '</p>';
+    $tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 0;
+    $do_not_include_modem_deposit = false;
+    $show_included_taxes = wc_tax_enabled() && WC()->cart->display_prices_including_tax();
+    $total_deposits = 0;
+    $tv_deposit = 0;
+    $phone_deposit = 0;
+    $modem_deposit = 0;
+    
+    // NEW: Get dynamic install price from internet plan in cart
+    $internet_plan_cat_id = 19;
+    $dynamic_install_price = 0;
+    
+    foreach (WC()->cart->get_cart() as $cart_item) {
+    $product = $cart_item['data'];
+    $product_id = $product->get_id();
+    $product_cat_ids = $product->get_category_ids();
+    
+    // Check if this product has internet-plan category (check ALL categories)
+    if (in_array($internet_plan_cat_id, $product_cat_ids)) {
+        if (function_exists('get_field')) {
+            $dynamic_install_price = get_field('dynamic_install_price', $product_id);
+            
+            if ($dynamic_install_price === '' || $dynamic_install_price === null || $dynamic_install_price === false) {
+                $dynamic_install_price = get_field('dynamic_install_price', 'product_' . $product_id);
+            }
+            
+            // Convert to float if we have a value (including 0)
+            if ($dynamic_install_price !== '' && $dynamic_install_price !== null && $dynamic_install_price !== false) {
+                $dynamic_install_price = floatval($dynamic_install_price);
+            } else {
+                $dynamic_install_price = null;
+            }
+        }
+        
+        error_log('get_upfront_fee_summary - Found internet plan: ' . $product_id . ', dynamic price: ' . ($dynamic_install_price !== null ? $dynamic_install_price : 'not set'));
+        break;
+        }
     }
-} */
+    
+    error_log("=== FIXED UPFRONT FEE SUMMARY DEBUG ===");
+    error_log("Cart item count: " . WC()->cart->get_cart_contents_count());
+    error_log("Dynamic install price: " . $dynamic_install_price);
+    
+    foreach ( WC()->cart->get_cart() as $cart_item_key => $cart_item ) {
+         
+        $_product = apply_filters( 'woocommerce_cart_item_product', $cart_item['data'], $cart_item, $cart_item_key );
+        if( $_product == false || $_product->exists() == false || $cart_item['quantity'] <= 0 ||
+            apply_filters( 'woocommerce_checkout_cart_item_visible', true, $cart_item, $cart_item_key ) == false ) {
+            continue;
+        }
+        
+        $product_cat_ids = $_product->get_category_ids();
+        
+        // FIX: Handle product variations - check parent product categories if variation has none
+        if (empty($product_cat_ids) && $_product->get_parent_id() > 0) {
+            $parent_product = wc_get_product($_product->get_parent_id());
+            if ($parent_product) {
+                $product_cat_ids = $parent_product->get_category_ids();
+                error_log("Variation has no categories, using parent categories for " . $_product->get_name());
+            }
+        }
+        
+        // FIX: Handle empty category array to prevent PHP notices
+        if (empty($product_cat_ids)) {
+            error_log("Product " . $_product->get_name() . " has no categories assigned");
+            continue;
+        }
+        
+        $product_cat = get_term($product_cat_ids[0],'product_cat');
+        
+        // FIX: Handle WP_Error from get_term
+        if (is_wp_error($product_cat)) {
+            error_log("Error getting category for product " . $_product->get_name());
+            continue;
+        }
+        
+        $product_category = $product_cat->slug;
+        $product_id = $_product->get_id();
+        
+        error_log("Processing product: " . $_product->get_name() . " (ID: $product_id, Category: $product_category)");
+        
+        // FIX: Handle 'modems-new' category - treat it as 'modems'
+        if ($product_category == 'modems-new') {
+            $product_category = 'modems';
+            error_log("Converting modems-new to modems category");
+        }
+         
+        if (array_key_exists($product_category,$summary) && $product_category != 'installation') {
 
-// Hook the function into 'woocommerce_after_shop_loop_item_title' to display under the price
-add_action('woocommerce_after_shop_loop_item_title', 'display_monthly_fee_below_price_in_catalog', 15);
+            // Handle specific product exclusions
+            if( $_product->get_id() == 264 ) {
+                $summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
+                $summary[$product_category][1] = round( floatval(2), 2 );
+                $summary['taxes'][1] += round( floatval( ($summary[$product_category][1] * $tax_rate) / 100 ), 2);
+                continue;
+            }
 
-/*========Make Selected Component With Pagination Appear At Topp=====*/
+            if( $_product->get_id() == 887 ){
+                $summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
+                $summary[$product_category][1] = round ( floatval(0), 2 );
+                $summary['taxes'][1] += round( floatval( ($summary[$product_category][1] * $tax_rate) / 100 ), 2);
+                continue;
+            }
+            
+            // Check for ACF deposit fields first (NEW METHOD)
+            $deposit_fee = 0;
+            if (function_exists('get_field')) {
+                $deposit_fee = get_field('deposit-fee', $product_id);
+                if (empty($deposit_fee) && $deposit_fee !== '0') {
+                    $deposit_fee = get_field('deposit-fee', 'product_' . $product_id);
+                }
+                $deposit_fee = is_numeric($deposit_fee) ? floatval($deposit_fee) : 0;
+            }
+            
+            // Check for legacy product attribute method (OLD METHOD)
+            $security_deposit_attr = 0;
+            if ($deposit_fee == 0 && $product_category == "modems") {
+                $security_deposit_attr = $_product->get_attribute("Security Deposit");
+                $security_deposit_attr = is_numeric($security_deposit_attr) ? floatval($security_deposit_attr) : 0;
+            }
+            
+            // Use whichever deposit method has a value
+            $final_deposit = max($deposit_fee, $security_deposit_attr);
+            
+            error_log("Deposit check - ACF: $deposit_fee, Attribute: $security_deposit_attr, Final: $final_deposit");
+            
+            // Handle modem with deposit
+            if ( $product_category == "modems" && $final_deposit > 0 ) {
+                $summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
+                $summary[$product_category][1] = round(floatval($final_deposit), 2);
+                $do_not_include_modem_deposit = true;
+                $modem_deposit = $final_deposit;
+                error_log("Modem Deposit: $" . $final_deposit);
+                
+                // Also add the modem price to subtotal if it has a price
+                $modem_price = $_product->get_price();
+                if ($modem_price > 0) {
+                    error_log("Modem also has price: $modem_price");
+                }
+            } else {
+                // Handle regular products
+                $product_price = $_product->get_price();
+                
+                // SPECIAL CASE: For deposit category products, don't add regular price or tax
+                if ($product_category == 'deposit') {
+                    // Deposit products are handled separately via ACF fields below
+                    // Don't set summary or add tax for the $0 product price
+                    error_log("Deposit category product (price will come from ACF): " . $_product->get_name());
+                } else {
+                    // Regular non-deposit products
+                    $summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
+                    $summary[$product_category][1] = round(floatval($product_price), 2);
+                    $summary['taxes'][1] += round( floatval ( ($summary[$product_category][1] * $tax_rate ) / 100 ) , 2 );
+                    error_log("Regular product: " . $summary[$product_category][0] . " = $" . $summary[$product_category][1]);
+                }
+            }
+            
+            // Handle additional ACF deposits for any product (not just modems)
+            if ($deposit_fee > 0 && $product_category != "modems") {
+                $total_deposits += $deposit_fee;
+                
+                // Store the product name for deposits
+                if ($product_category == 'deposit') {
+                    // For Pay After deposits, use the actual product title
+                    error_log("Pay After Deposit: " . $_product->get_name() . " = $" . $deposit_fee);
+                } elseif ($product_category == "tv-plan") {
+                    $tv_deposit = $deposit_fee;
+                    error_log("TV Deposit: $" . $deposit_fee);
+                } elseif ($product_category == "phone-plan") {
+                    $phone_deposit = $deposit_fee;
+                    error_log("Phone Deposit: $" . $deposit_fee);
+                } else {
+                    error_log("Other Deposit for $product_category: $" . $deposit_fee);
+                }
+            }
+            
+        } else {
+    // FIX: Handle installation category specifically
+    if ($product_category == 'installation' || $product_id == 267986 || in_array(60, $product_cat_ids)) {
+        // NEW: Get ORIGINAL price from database, not cart (cart may already be modified by hook)
+        $installation_product_db = wc_get_product($product_id);
+        $original_install_price = $installation_product_db ? floatval($installation_product_db->get_regular_price()) : floatval($_product->get_price());
+        
+        // Determine final price to use
+        $final_install_price = ($dynamic_install_price !== null) ? $dynamic_install_price : $original_install_price;
+        
+        $summary['installation'][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
+        $summary['installation'][1] = round($final_install_price, 2);
+        
+        // NEW: Add promotional pricing info if dynamic price exists
+        if ($dynamic_install_price !== null && $dynamic_install_price != $original_install_price) {
+            $summary['installation'][2] = ''; // Placeholder for dates (added later)
+            $summary['installation'][3] = round($original_install_price, 2); // Original price
+            $summary['installation'][4] = round($dynamic_install_price, 2); // Sale price
+            error_log("Installation with promo: Original $original_install_price, Sale $dynamic_install_price");
+        }
+        
+        $summary['taxes'][1] += round( floatval ( ($summary['installation'][1] * $tax_rate ) / 100 ) , 2 );
+        error_log("Installation product: " . $summary['installation'][0] . " = $" . $summary['installation'][1]);
+    } else {
+        error_log("Product category '$product_category' not found in summary array - skipping");
+    }
+    }
+   }
 
-add_filter( 'woocommerce_component_option_details_relocation_mode', 'sw_cp_disable_relocation' );
+    // Add deposits to summary if any exist
+    if ($total_deposits > 0) {
+        $summary['deposit'][0] = 'Deposits';
+        $summary['deposit'][1] = $total_deposits;
+        error_log("Total deposits: $total_deposits");
+    }
 
-function sw_cp_disable_relocation( $type ) {
-	return 'off';
+    // Calculate totals
+    if( $do_not_include_modem_deposit ) {
+        $summary['subtotal'][1] = $summary['internet-plan'][1] + $summary['installation'][1] + $summary['phone-plan'][1] + $summary['tv-plan'][1];
+        $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['deposit'][1] + $summary['taxes'][1] + $summary['modems'][1];
+
+        if (wc_tax_enabled() && !$show_included_taxes ) {
+            $summary['taxes'][0] = esc_html( WC()->countries->tax_or_vat() );
+        } elseif (!wc_tax_enabled()) {
+            $summary['taxes'][0] = "Tax";
+            $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['deposit'][1] + $summary['modems'][1];
+        }
+    } else {
+        $summary['subtotal'][1] = $summary['internet-plan'][1] + $summary['installation'][1] + $summary['modems'][1] + $summary['phone-plan'][1] + $summary['tv-plan'][1];
+        $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['deposit'][1] + $summary['taxes'][1];
+        
+        if (wc_tax_enabled() && !$show_included_taxes ) {
+            $summary['taxes'][0] = esc_html( WC()->countries->tax_or_vat() );
+        } elseif (!wc_tax_enabled()) {
+            $summary['taxes'][0] = "Tax";
+            $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['deposit'][1];
+        }
+    }
+
+    error_log("=== FINAL SUMMARY ===");
+    error_log("Internet Plan: $" . $summary['internet-plan'][1]);
+    error_log("Modem Deposit: $" . $summary['modems'][1]);
+    error_log("Installation: $" . $summary['installation'][1]);
+    error_log("Phone Plan: $" . $summary['phone-plan'][1]);
+    error_log("TV Plan: $" . $summary['tv-plan'][1]);
+    error_log("TV Deposit: $" . $tv_deposit);
+    error_log("Phone Deposit: $" . $phone_deposit);
+    error_log("Deposits Total: $" . $total_deposits);
+    error_log("Subtotal: $" . $summary['subtotal'][1]);
+    error_log("Tax: $" . $summary['taxes'][1]);
+    error_log("Grand Total: $" . $summary['grand_total'][1]);
+
+    error_log("MONERIS DISPLAY - Grand Total being returned: $" . $summary['grand_total'][1]);
+    
+    return $summary;    
 }
 
-/*======Change # of Colunms in Thumbnail Available Selections Area======
+/**
+ * Get detailed upfront cart items for thank you page
+ * Returns individual cart items with their prices for display
+ * UPDATED: Handles deposits with category-based naming only, Install Dates special handling
+ */
 
-add_filter( 'woocommerce_composite_component_loop_columns', 'wc_cp_component_loop_columns', 10, 3 );
-
-function wc_cp_component_loop_columns( $cols, $component_id, $composite ) {
-	return 4;
+function get_upfront_cart_items_for_thank_you() {
+    $items = array();
+    $tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 13;
+    
+    if (!WC()->cart || WC()->cart->is_empty()) {
+        return $items;
+    }
+    
+    error_log('=== GETTING UPFRONT CART ITEMS FOR THANK YOU PAGE ===');
+    
+    // NEW: Get dynamic install price from internet plan in cart
+    $internet_plan_cat_id = 19;
+    $dynamic_install_price = null;
+    
+    foreach (WC()->cart->get_cart() as $cart_item) {
+    $product = $cart_item['data'];
+    $product_id = $product->get_id();
+    $product_cat_ids = $product->get_category_ids();
+    
+    // Check if this product has internet-plan category (check ALL categories)
+    if (in_array($internet_plan_cat_id, $product_cat_ids)) {
+        if (function_exists('get_field')) {
+            $dynamic_install_price = get_field('dynamic_install_price', $product_id);
+            
+            if ($dynamic_install_price === '' || $dynamic_install_price === null || $dynamic_install_price === false) {
+                $dynamic_install_price = get_field('dynamic_install_price', 'product_' . $product_id);
+            }
+            
+            // Convert to float if we have a value (including 0)
+            if ($dynamic_install_price !== '' && $dynamic_install_price !== null && $dynamic_install_price !== false) {
+                $dynamic_install_price = floatval($dynamic_install_price);
+            } else {
+                $dynamic_install_price = null;
+            }
+        }
+        
+        error_log('Thank you page - Found internet plan: ' . $product_id . ', dynamic price: ' . ($dynamic_install_price !== null ? $dynamic_install_price : 'not set'));
+        break;
+    }
 }
-*/
+    
+    foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+        $product = $cart_item['data'];
+        $product_id = $product->get_id();
+        $parent_id = $product->get_parent_id();
+        $product_name = $product->get_name();
+        $product_price = $product->get_price();
+        
+        // Get product categories
+        $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'slugs'));
+        $primary_category = !empty($product_cats) ? $product_cats[0] : 'uncategorized';
+        
+        
+        // SPECIAL HANDLING: Install Dates product (267986)
+        if ($product_id == 267988 || $parent_id == 267986) {
+            // Get the installation dates from variation attributes
+            $installation_dates = '';
+            if (isset($cart_item['variation']) && is_array($cart_item['variation'])) {
+                $preferred = isset($cart_item['variation']['attribute_preferred-date']) ? 
+                    $cart_item['variation']['attribute_preferred-date'] : '';
+                $secondary = isset($cart_item['variation']['attribute_secondary-date']) ? 
+                    $cart_item['variation']['attribute_secondary-date'] : '';
+                
+                if (!empty($preferred) && !empty($secondary)) {
+                    $installation_dates = $preferred . ', ' . $secondary;
+                } elseif (!empty($preferred)) {
+                    $installation_dates = $preferred;
+                } elseif (!empty($secondary)) {
+                    $installation_dates = $secondary;
+                }
+            }
+            
+            // NEW: Get original price from database (cart price may be modified by hook)
+            $installation_product_db = wc_get_product($product_id);
+            $original_install_price = $installation_product_db ? floatval($installation_product_db->get_regular_price()) : floatval($product_price);
+            
+            // Determine final price (use dynamic if available, otherwise use cart price)
+$final_install_price = ($dynamic_install_price !== null) ? $dynamic_install_price : $product_price;
 
-/*=============
-###############Zach Edits ########################
-						*/
+// Add installation item
+if ($final_install_price > 0 || $original_install_price > 0) {
+    $install_item = array(
+        'name' => 'Installation Fee',
+        'price' => $final_install_price,
+        'type' => 'installation',
+        'category' => $primary_category,
+        'dates' => $installation_dates // Store dates for display
+    );
+    
+    // NEW: Add promotional pricing if dynamic price exists
+    if ($dynamic_install_price !== null && $dynamic_install_price != $original_install_price) {
+        $install_item['original_price'] = $original_install_price;
+        $install_item['promo_price'] = $dynamic_install_price;
+        error_log("Added installation with promo: Installation Fee = $$final_install_price (original: $$original_install_price, promo: $$dynamic_install_price) with dates: $installation_dates");
+    } else {
+        error_log("Added installation: Installation Fee = $$final_install_price with dates: $installation_dates");
+    }
+    
+    $items[] = $install_item;
+}
+continue; // Skip to next item
+        }
+        
+        // Add main product if it has a price (skip deposit category products with $0 price)
+        if ($product_price > 0 && !in_array('deposit', $product_cats)) {
+            $items[] = array(
+                'name' => $product_name,
+                'price' => $product_price,
+                'type' => 'product',
+                'category' => $primary_category
+            );
+            error_log("Added product: $product_name = $$product_price");
+        }
+        
+        // Check for deposit fee using ACF
+        $deposit_fee = 0;
+        if (function_exists('get_field')) {
+            $deposit_fee = get_field('deposit-fee', $product_id);
+            
+            if (empty($deposit_fee) && $deposit_fee !== '0') {
+                $deposit_fee = get_field('deposit-fee', 'product_' . $product_id);
+            }
+            
+            $deposit_fee = is_numeric($deposit_fee) ? floatval($deposit_fee) : 0;
+        }
+        
+        // Add deposit if exists - USE CATEGORY-BASED NAMING
+        if ($deposit_fee > 0) {
+            // Determine deposit title based on category
+            $deposit_title = 'Deposit'; // Default
+            
+            if (in_array('modems', $product_cats) || in_array('modems-new', $product_cats)) {
+                $deposit_title = 'Modem Deposit';
+            } elseif (in_array('tv-plan', $product_cats)) {
+                $deposit_title = 'TV Deposit';
+            } elseif (in_array('phone-plan', $product_cats)) {
+                $deposit_title = 'Phone Deposit';
+            } elseif (in_array('deposit', $product_cats)) {
+                // FIXED: Handle Pay After deposit category
+                $deposit_title = 'Pay After Deposit';
+            }
+            
+            $items[] = array(
+                'name' => $deposit_title,
+                'price' => $deposit_fee,
+                'type' => 'deposit',
+                'category' => $primary_category
+            );
+            error_log("Added deposit: $deposit_title = $$deposit_fee (category: $primary_category)");
+        }
+    }
+    
+    error_log('Total items for thank you page: ' . count($items));
+    return $items;
+}
+
+/**
+ * Get formatted upfront summary for thank you page
+ * This replaces the category-based summary with item-based summary
+ */
+
+function get_upfront_summary_for_thank_you() {
+    $items = get_upfront_cart_items_for_thank_you();
+    $tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 13;
+    
+    $summary = array();
+    $subtotal = 0;
+    $deposits_total = 0;
+    $deposits = array(); // Store deposits separately
+    
+    // Separate products/installation from deposits
+    foreach ($items as $item) {
+        if ($item['type'] === 'deposit') {
+            // Store deposits separately
+            $deposits[] = $item;
+            $deposits_total += $item['price'];
+        } else {
+            // Add products and installation to summary
+            $key = sanitize_key($item['name']);
+            $summary[$key] = array(
+                $item['name'], 
+                $item['price'],
+                isset($item['dates']) ? $item['dates'] : '' // Pass dates if present
+            );
+            
+            // NEW: Add optional original_price and promo_price fields if they exist
+            if (isset($item['original_price'])) {
+                $summary[$key][3] = $item['original_price'];
+            }
+            if (isset($item['promo_price'])) {
+                $summary[$key][4] = $item['promo_price'];
+            }
+            
+            $subtotal += $item['price'];
+        }
+    }
+    
+    // Calculate tax on subtotal (not including deposits)
+    $tax = 0;
+    if (wc_tax_enabled()) {
+        $tax = round(($subtotal * $tax_rate) / 100, 2);
+    }
+    
+    // Add subtotal and tax BEFORE deposits
+    $summary['subtotal'] = array('Subtotal', $subtotal, '');
+    $summary['taxes'] = array('Tax', $tax, '');
+    
+    // NOW add deposits after subtotal and tax
+    foreach ($deposits as $deposit) {
+        $key = sanitize_key($deposit['name']);
+        $summary[$key] = array($deposit['name'], $deposit['price'], '');
+    }
+    
+    // Add grand_total - JavaScript needs this to populate the #upfront-total in tfoot
+    // It's in skipKeys so it won't be rendered in tbody, only used for the total
+    $summary['grand_total'] = array('Total Paid Today', $subtotal + $tax + $deposits_total, '');
+    
+    error_log('Upfront summary for thank you: ' . json_encode($summary));
+    return $summary;
+}
+
+
+
+/*====Monthly Fee Summary=====*/
+
+function get_monthly_fee_summary() {
+
+	$summary = array(
+		'internet-plan'=>array('',0.0),
+		'modems'=>array('',0.0),
+		'phone-plan'=>array('',0.0),
+		'subtotal'=>array('Subtotal',0.0),
+		'taxes'=>array('Taxes',0.0),
+		'grand_total'=>array('MONTHLY TOTAL',0.0));
+
+	$show_included_taxes = wc_tax_enabled() && WC()->cart->display_prices_including_tax();
+	$tax_rate = GetTaxRate();
+
+	foreach ( WC()->cart->get_cart() as $cart_item_key => $cart_item ) {
+
+		$_product     = apply_filters( 'woocommerce_cart_item_product', $cart_item['data'], $cart_item, $cart_item_key );
+		$product_cat_ids = $_product->get_category_ids();
+
+
+		$product_cat = get_term($product_cat_ids[0],'product_cat');
+
+		$product_category = $product_cat->slug;
+
+		if ( array_key_exists($product_category, $summary) && $_product && 
+		 		$_product->exists() && $cart_item['quantity'] > 0 && 
+		 		apply_filters( 'woocommerce_checkout_cart_item_visible', true, $cart_item, $cart_item_key ) ) {
+
+			if( $product_category == "modems") {
+
+				if( $_product->get_attribute("Security Deposit") > 0 ) {
+
+					$summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
+					$summary[$product_category][1] = floatval($_product->get_price());
+					$summary['taxes'][1] +=  round( floatval(( $_product->get_price() * $tax_rate ) / 100), 2 );  // floatval($_product->get_price_including_tax($cart_item['quantity'])-$_product->get_price());
+
+				} else {
+
+				}
+
+			} else {
+			
+				if ($product_category!="modems" || ($product_category=="modems" && ($_product->get_id()!=887 && $_product->get_id()!=6931))) {
+					$summary[$product_category][0] = $_product->get_title() . " " . ( $show_included_taxes ?"(inc taxes)":"")."" ;
+					$summary[$product_category][1] = round( floatval($_product->get_price()), 2);
+					//$summary['taxes'][1] += floatval($_product->get_price_including_tax($cart_item['quantity'])-$_product->get_price());
+					$summary['taxes'][1] +=  round( floatval(( $_product->get_price() * $tax_rate ) / 100), 2 );  // floatval($_product->get_price_including_tax($cart_item['quantity'])-$_product->get_price());
+					//$_product->get_price()*$cart_item['quantity'];	 
+			 	}
+
+			
+
+			if( $_product->get_id()==6931 ){
+				$summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
+				//$summary[$product_category][1] =  floatval($line_data['subtotal']);
+				$summary[$product_category][1] =  floatval(2);
+				
+				$summary['taxes'][1] += floatval($line_data['total_tax']);
+			}
+
+			if( $_product->get_id()==887 ){
+				$summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
+				//$summary[$product_category][1] =  floatval($line_data['subtotal']);
+				$summary[$product_category][1] =  floatval(0);
+				
+				$summary['taxes'][1] += floatval($line_data['total_tax']);
+			}
+
+
+			}
+		}
+	} 
+
+
+
+	$summary['subtotal'][1] = $summary['internet-plan'][1] + $summary['modems'][1] + $summary['phone-plan'][1];
+
+	if (wc_tax_enabled() && !$show_included_taxes ) {
+		 $summary['taxes'][0] = esc_html( WC()->countries->tax_or_vat() );
+		 $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['taxes'][1];
+	} elseif (!wc_tax_enabled()) {
+		$summary['taxes'][0] = "Tax";
+		$summary['taxes'][1] = 0.0;
+		$summary['grand_total'][1] = $summary['subtotal'][1];
+	}
+
+	return $summary;	
+}
+
+/**
+ * UPDATED: Get detailed monthly cart items for thank you page
+ * Now includes promotional pricing fields (monthly_promo_fee and monthly_promo_blurb)
+ */
+
+function get_monthly_cart_items_for_thank_you() {
+    $items = array();
+    
+    if (!WC()->cart || WC()->cart->is_empty()) {
+        return $items;
+    }
+    
+    error_log('=== GETTING MONTHLY CART ITEMS FOR THANK YOU PAGE (WITH PROMO SUPPORT) ===');
+    
+    // Categories that should NOT be in monthly billing
+    $exclude_categories = array('deposit', 'installation');
+    
+    foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+        $product = $cart_item['data'];
+        $product_id = $product->get_id();
+        $product_name = $product->get_name();
+        
+        // Get product categories
+        $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'slugs'));
+        $primary_category = !empty($product_cats) ? $product_cats[0] : 'uncategorized';
+        
+        // Skip excluded categories
+        if (in_array($primary_category, $exclude_categories)) {
+            continue;
+        }
+        
+        // Skip Pay After deposit
+        if ($product_id == 267989) {
+            continue;
+        }
+        
+        // Get monthly fee from ACF
+        $monthly_fee = 0;
+        if (function_exists('get_field')) {
+            $monthly_fee = get_field('monthly_fee', $product_id);
+            
+            if (empty($monthly_fee) && $monthly_fee !== '0') {
+                $monthly_fee = get_field('monthly_fee', 'product_' . $product_id);
+            }
+            
+            $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
+        }
+        
+        // NEW: Get promotional pricing fields
+        $monthly_promo_fee = 0;
+        $monthly_promo_blurb = '';
+        
+        if (function_exists('get_field')) {
+            // Get promo fee
+            $monthly_promo_fee = get_field('monthly_promo_fee', $product_id);
+            if (empty($monthly_promo_fee) && $monthly_promo_fee !== '0') {
+                $monthly_promo_fee = get_field('monthly_promo_fee', 'product_' . $product_id);
+            }
+            $monthly_promo_fee = is_numeric($monthly_promo_fee) ? floatval($monthly_promo_fee) : 0;
+            
+            // Get promo blurb
+            $monthly_promo_blurb = get_field('monthly_promo_blurb', $product_id);
+            if (empty($monthly_promo_blurb)) {
+                $monthly_promo_blurb = get_field('monthly_promo_blurb', 'product_' . $product_id);
+            }
+        }
+
+        // NEW: Get modem details if this is "I Have My Own Modem" product (ID: 267979)
+            $modem_details = '';
+            if ($product_id == 267979 && isset($cart_item['modem_details']) && !empty($cart_item['modem_details'])) {
+                $modem_details = $cart_item['modem_details'];
+                error_log("Found modem details for product $product_id: " . $modem_details);
+            }
+
+        // Determine the final price to use (promo takes precedence if exists)
+        $final_price = $monthly_promo_fee > 0 ? $monthly_promo_fee : $monthly_fee;
+
+        // FIXED: Add to items if monthly fee exists OR if it's the "I Have My Own Modem" product
+        if ($monthly_fee > 0 || $product_id == 267979) {
+            $items[] = array(
+                'name' => $product_name,
+                'price' => $final_price, // Use final price (promo or regular)
+                'original_price' => $monthly_fee, // Store original price
+                'promo_price' => $monthly_promo_fee, // Store promo price
+                'promo_blurb' => $monthly_promo_blurb, // Store promo blurb
+                'modem_details' => $modem_details, // Store modem details for 'I have my own modem' product
+                'category' => $primary_category
+            );
+            error_log("Added monthly item: $product_name = $$final_price/month (original: $$monthly_fee, promo: $$monthly_promo_fee, modem_details: $modem_details)");
+        }
+    }
+    
+    error_log('Total monthly items for thank you page: ' . count($items));
+    return $items;
+}
+
+/**
+ * Get formatted monthly summary for thank you page
+ */
+/**
+ * UPDATED: Get formatted monthly summary for thank you page
+ * Now preserves promotional pricing information in the summary array
+ */
+function get_monthly_summary_for_thank_you() {
+    $items = get_monthly_cart_items_for_thank_you();
+    $tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 13;
+    
+    $summary = array();
+    $subtotal = 0;
+    
+    // Add each item to summary WITH promotional info
+    foreach ($items as $item) {
+        $key = sanitize_key($item['name']);
+        // NEW: Add additional fields for promotional display
+        $summary[$key] = array(
+            $item['name'],                  // [0] = name
+            $item['price'],                 // [1] = final price (used for calculations)
+            $item['original_price'],        // [2] = original price (for strikethrough)
+            $item['promo_price'],           // [3] = promo price
+            $item['promo_blurb'],          // [4] = promo blurb
+             $item['modem_details']         // [5] = modem details for 'I have my own modem' product
+        );
+        $subtotal += $item['price'];
+    }
+    
+    // Calculate tax
+    $tax = 0;
+    if (wc_tax_enabled()) {
+        $tax = round(($subtotal * $tax_rate) / 100, 2);
+    }
+    
+    // Add totals (maintain original structure for these)
+    $summary['subtotal'] = array('Subtotal', $subtotal);
+    $summary['taxes'] = array('Tax', $tax);
+    $summary['grand_total'] = array('Total', $subtotal + $tax);
+    
+    error_log('Monthly summary for thank you (with promo): ' . json_encode($summary));
+    return $summary;
+}
 
 /*------ CALCULATION FUNCTIONS -----------   */
+
 
 // Monthly Subtotal Calculation
 function calculate_monthly_fees_subtotal() {
@@ -6259,186 +6828,6 @@ function calculate_monthly_fees_total() {
 }
 
 
-/* function recalculate_totals() {
-    $subtotal = 0;
-    $tax_total = 0;
-
-    // Check if the session contains selected components
-    if (isset($_SESSION['selected_components'])) {
-        foreach ($_SESSION['selected_components'] as $component) {
-            $price = $component['price'];
-            $tax = calculate_tax($price); // Implement this function based on your tax settings
-            $subtotal += $price;
-            $tax_total += $tax;
-        }
-    }
-
-    $total = $subtotal + $tax_total;
-
-    return [
-        'subtotal' => $subtotal,
-        'tax_total' => $tax_total,
-        'total' => $total,
-    ];
-} */ 
-
-
-//==========Disabling Reveal buttons until products from corresponding categories added to cart
-
-add_action('wp_ajax_check_cart_categories', 'check_cart_categories');
-add_action('wp_ajax_nopriv_check_cart_categories', 'check_cart_categories');
-
-function check_cart_categories() {
-    $categories = array();
-    
-    foreach (WC()->cart->get_cart() as $cart_item) {
-        $product_id = $cart_item['product_id'];
-        $product_cats = wp_get_post_terms($product_id, 'product_cat');
-        
-        foreach ($product_cats as $cat) {
-            $categories[] = $cat->slug;
-        }
-    }
-    
-    wp_send_json(array(
-        'category1' => in_array('internet-plan', $categories),
-        'category2' => in_array('fixed-fee', $categories),
-        'category3' => in_array('modems', $categories),
-    ));
-}
-
-
-//=============== Check if new product is from same category as existing cart item
-add_action('wp_ajax_check_product_category', 'check_product_category');
-add_action('wp_ajax_nopriv_check_product_category', 'check_product_category');
-
-function check_product_category() {
-    $new_product_id = $_POST['product_id'];
-    $new_product_cats = wp_get_post_terms($new_product_id, 'product_cat');
-    $has_same_category = false;
-    $matching_category = '';
-
-    foreach(WC()->cart->get_cart() as $cart_item) {
-        $product_cats = wp_get_post_terms($cart_item['product_id'], 'product_cat');
-        
-        foreach($new_product_cats as $new_cat) {
-            if(in_array($new_cat->term_id, wp_list_pluck($product_cats, 'term_id'))) {
-                $has_same_category = true;
-                $matching_category = $new_cat->slug;
-                break 2;
-            }
-        }
-    }
-
-    wp_send_json([
-        'has_same_category' => $has_same_category,
-        'category' => $matching_category
-    ]);
-}
-
-// Remove existing product from same category
-add_action('wp_ajax_remove_category_product', 'remove_category_product');
-add_action('wp_ajax_nopriv_remove_category_product', 'remove_category_product');
-
-function remove_category_product() {
-    $category = $_POST['category'];
-    
-    foreach(WC()->cart->get_cart() as $cart_item_key => $cart_item) {
-        $product_cats = wp_get_post_terms($cart_item['product_id'], 'product_cat');
-        
-        if(in_array($category, wp_list_pluck($product_cats, 'slug'))) {
-            WC()->cart->remove_cart_item($cart_item_key);
-            break;
-        }
-    }
-    
-    wp_send_json_success();
-}
-
-
-
-/*============Monthly Fee Summary AJAX Functions ============*/
-
-// Enqueue JS File
-
-function enqueue_custom_scripts() {
-    wp_enqueue_script('custom-ajax-script', get_stylesheet_directory_uri() . '/js/custom-ajax.js', array('jquery'), null, true);
-
-    wp_localize_script('custom-ajax-script', 'ajax_object', array(
-        'ajax_url' => admin_url('admin-ajax.php'),
-        'nonce_subtotal' => wp_create_nonce('calculate_monthly_fee_subtotal_nonce'),
-		'nonce_tax' => wp_create_nonce('calculate_monthly_fee_tax_nonce'),
-		'nonce_total' => wp_create_nonce('calculate_monthly_fee_total_nonce'),
-		'update_selected_product_summary_nonce' => wp_create_nonce('update_selected_product_summary_nonce'),
-        'modem_selection_nonce' => wp_create_nonce('modem_selection_nonce'),
-    ));
-}
-
-add_action('wp_enqueue_scripts', 'enqueue_custom_scripts');
-
-
-// ===========Function to Handle Monthly Subtotal AJAX Request
-
-function calculate_monthly_fee_subtotal() {
-    check_ajax_referer('calculate_monthly_fee_subtotal_nonce', 'nonce');
-
-    try {
-        $monthly_fee_subtotal = calculate_monthly_fees_subtotal();
-        $html = '<tr class="total-monthly-fees-subtotal">
-            <th>' . __('Monthly Subtotal', 'woocommerce') . '</th>
-            <td>' . wc_price($monthly_fee_subtotal) . '</td>
-        </tr>';
-        wp_send_json_success(array('html' => $html));
-    } catch (Exception $e) {
-        error_log('Exception: ' . $e->getMessage());
-        wp_send_json_error(array('error' => $e->getMessage()));
-    }
-}
-
-add_action('wp_ajax_calculate_monthly_fee_subtotal', 'calculate_monthly_fee_subtotal');
-add_action('wp_ajax_nopriv_calculate_monthly_fee_subtotal', 'calculate_monthly_fee_subtotal');
-
-
-// ====== Function to Handle Monthly Tax AJAX Request
-
-function calculate_monthly_fee_tax() {
-    check_ajax_referer('calculate_monthly_fee_tax_nonce', 'nonce');
-
-    try {
-        $tax_total = calculate_monthly_fees_tax();
-        wp_send_json_success(array('monthly_fee_tax' => wc_price($tax_total)));
-    } catch (Exception $e) {
-        error_log('Exception: ' . $e->getMessage());
-        wp_send_json_error(array('error' => $e->getMessage()));
-    }
-}
-
-add_action('wp_ajax_calculate_monthly_fee_tax', 'calculate_monthly_fee_tax');
-add_action('wp_ajax_nopriv_calculate_monthly_fee_tax', 'calculate_monthly_fee_tax');
-
-
-// ============ Function to Handle Monthly Total AJAX Request 
-
-function calculate_monthly_fee_total() {
-    check_ajax_referer('calculate_monthly_fee_total_nonce', 'nonce');
-
-    try {
-        $monthly_fee_total = calculate_monthly_fees_total();
-        $html = '<tr class="total-monthly-fees">
-            <th>' . __('Total Monthly Fees', 'woocommerce') . '</th>
-            <td>' . wc_price($monthly_fee_total) . '</td>
-        </tr>';
-        wp_send_json_success(array('html' => $html));
-    } catch (Exception $e) {
-        error_log('Exception: ' . $e->getMessage());
-        wp_send_json_error(array('error' => $e->getMessage()));
-    }
-}
-
-add_action('wp_ajax_calculate_monthly_fee_total', 'calculate_monthly_fee_total');
-add_action('wp_ajax_nopriv_calculate_monthly_fee_total', 'calculate_monthly_fee_total');
-
-
 // ============= Function to handle updated monthly summary table for selected products
 
 function update_selected_product_summary() {
@@ -6522,6 +6911,66 @@ add_action('wp_ajax_update_selected_product_summary', 'update_selected_product_s
 add_action('wp_ajax_nopriv_update_selected_product_summary', 'update_selected_product_summary');
 
 
+
+
+/*==============================END OF NEW FUNCTIONS ADDED FOR SITE REVAMPED January 2026==================================================*/
+
+
+function verify_card_ex($payment_info) {
+
+	$mpg_response = VerifyCard( $payment_info );
+	error_log( "Got verify response back " . $mpg_response->getComplete() );
+
+	if( $mpg_response == false ||
+		strcmp( $mpg_response->getComplete(), "true") ||
+		$mpg_response->getResponseCode() == false ||
+		$mpg_response->getResponseCode() == null ||
+		$mpg_response->getResponseCode() >= 50 ) {
+
+		$msg = "Invalid credit card number. Please double check the card number entered " . $mpg_response->getMessage();
+		$response['status'] = "failed";
+		$response['msg'] = $msg;
+		$response['code'] = $mpg_response->getResponseCode();
+		$response['ref'] = $mpg_response->getReferenceNum();
+
+		$data_response = json_encode( $response );
+		error_log( $data_response );
+		die( $data_response );
+	}
+
+	error_log( "Got verify cvd result code " . $mpg_response->getCvdResultCode() );
+	if( $mpg_response->getCvdResultCode() != "1M" ) {
+		$response['status'] = "failed";
+
+		$msg = "Invalid expiry date or CVV. Please double check the information entered " . $mpg_response->getMessage();
+
+		$response['msg'] = $msg;
+		$response['code'] = $mpg_response->getResponseCode();
+		$response['ref'] = $mpg_response->getReferenceNum();
+
+		$data_response = json_encode( $response );
+		error_log( $data_response );
+		die( $data_response );
+	}
+
+	error_log( "Got verify avs result code " . $mpg_response->getAvsResultCode() );
+	if( $mpg_response->getAvsResultCode() == "N" ) {
+		$response['status'] = "failed";
+
+		$msg = "Invalid postal code. Please provide the billing postal code from your recent credit card statement (may be different from the service address postal code).";
+
+		$response['msg'] = $msg;
+		$response['code'] = $mpg_response->getResponseCode();
+		$response['ref'] = $mpg_response->getReferenceNum();
+
+		$data_response = json_encode( $response );
+		error_log( $data_response );
+		die( $data_response );
+	}
+
+	error_log( "Got response back " . $mpg_response->getComplete() );
+}
+
 /*================================================
 #Load custom Contact Form Module
 ================================================*/
@@ -6551,12 +7000,6 @@ function AddressCheckLog($state) {
 	$d["state"] = $state;
 	
 	$user_data = dg_get_current_user_data();
-	
-	// FIX: Ensure user_data is an array before encoding
-	if (!is_array($user_data)) {
-		$user_data = array();
-	}
-	
 	$info = json_encode($user_data);
 
 	$d["user_data"] = base64_encode( $info );
@@ -6584,19 +7027,15 @@ function AddressCheckLog($state) {
 	$info = curl_getinfo($ch);
 	curl_close($ch);
 
-	// FIX: Convert info array to string for logging
-	$info_string = is_array($info) ? print_r($info, true) : $info;
-	error_log("Sending address check information to signup server, info: $info_string response: $output ");
+	error_log("Sending address check information to signup server, $info response $output ");
 
 	return $output;
 }
 
 // Previous Developer Functions
-
 function SendInfoToSignupServer ( $state ) {
 
 	/*** Sending information to be saved ****/
-
 	$d["status"] = 0;
 	$d["magic"] = "Sl2soDSpLAsHqetS";
 	$d["api"] = "1.00";
@@ -6635,7 +7074,7 @@ function SendInfoToSignupServer ( $state ) {
 
 	$payload = json_encode($d);
 
-	//error_log("Sending payload : $payload");
+	error_log("Sending to server payload : $payload");
 
 	$ch = curl_init();
 	curl_setopt($ch, CURLOPT_URL, "https://207.167.88.7/signup.php");
@@ -6775,11 +7214,11 @@ function ajax_complete_order() {
 			dg_set_user_meta("upfront_payment", $mpg_response->getComplete());
 			dg_set_user_meta("order_complete_timestamp", time() );
 			dg_set_user_meta("upfront_payment_msg", $mpg_response->getMessage() );
-			dg_set_user_meta("upfront_payment_code", $mpg_response->getResponseCode() );
+			dg_set_user_meta("upfront_payment_code", $mpg_response->getAuthCode() );
 			dg_set_user_meta("upfront_payment_ref", $mpg_response->getReferenceNum() );
 			dg_set_user_meta("upfront_payment_amount", $mpg_response->getTransAmount() );
 			dg_set_user_meta("upfront_payment_date", $mpg_response->getTransDate() );
-			dg_set_user_meta("upfront_payment_code", $mpg_response->getResponseCode() );
+			dg_set_user_meta("upfront_payment_response_code", $mpg_response->getResponseCode() );
 		
 			SendInfoToSignupServer( 100 );
 
@@ -6800,8 +7239,6 @@ function ajax_complete_order() {
 	die();
 
 }
-
-
 
 function RenderUserSummary() {
 
@@ -6840,235 +7277,32 @@ function ajax_find_address_signup( $ccd = false ) {
 	wp_die($response);
 }
 
-
-/*==========Final Fixed AJAX Function - Provides data in expected format========*/
-
-add_action( 'wp_ajax_nopriv_find_address_with_redirect', 'ajax_find_address_with_redirect_client_geocoded' );
-add_action( 'wp_ajax_find_address_with_redirect', 'ajax_find_address_with_redirect_client_geocoded' );
-
-function ajax_find_address_with_redirect_client_geocoded() {
-    error_log("=== CLIENT GEOCODED: ajax_find_address_with_redirect called ===");
-    error_log("POST data: " . print_r($_POST, true));
-    
-    $ccd = "";
-    
-    // Handle CCD parameter
-    if (isset($_POST["ccd_param"])) {
-        $ccd = $_POST["ccd_param"];
-        if (strlen($ccd) > 0) {
-            dg_set_user_meta("ccd", $ccd);
-        }
-    }
-    
-    // Check if this is a redirect request
-    $redirect_to_plans = isset($_POST['redirect_to_plans']) && $_POST['redirect_to_plans'] === 'true';
-    error_log("Redirect to plans: " . ($redirect_to_plans ? 'yes' : 'no'));
-    
-    if ($redirect_to_plans) {
-        error_log("Processing redirect request...");
-        
-        // CRITICAL: Get the address data from the AJAX request
-        $street_address = isset($_POST['streetAddress']) ? sanitize_text_field($_POST['streetAddress']) : '';
-        $unit_number = isset($_POST['unitNumber']) ? sanitize_text_field($_POST['unitNumber']) : '';
-        $buzzer_code = isset($_POST['buzzerCode']) ? sanitize_text_field($_POST['buzzerCode']) : '';
-        $geocoded_address = isset($_POST['geocoded_address']) ? $_POST['geocoded_address'] : null;
-        
-        error_log("Street Address: " . $street_address);
-        error_log("Geocoded Address: " . print_r($geocoded_address, true));
-        
-        if (empty($street_address)) {
-            wp_send_json_error(array(
-                'message' => 'No street address provided.'
-            ));
-            return;
-        }
-        
-        if (!$geocoded_address || !is_array($geocoded_address)) {
-            wp_send_json_error(array(
-                'message' => 'Address geocoding failed. Please try selecting a different address.'
-            ));
-            return;
-        }
-        
-        // Ensure all required keys are present with defaults
-        $searched_address = array_merge(array(
-            'street_number' => '',
-            'route' => '',
-            'street_name' => '',
-            'street_type' => '',
-            'street_dir' => '',
-            'sublocality_level_1' => '',
-            'locality' => '',
-            'administrative_area_level_2' => '',
-            'administrative_area_level_1' => '',
-            'country' => '',
-            'postal_code' => '',
-            'manual_search' => 0
-        ), $geocoded_address);
-        
-        // Parse the route into street components if needed
-        if (!empty($searched_address['route']) && empty($searched_address['street_name'])) {
-            if (function_exists('parse_street_components')) {
-                $route_components = parse_street_components($searched_address['route']);
-                if (isset($route_components['street_name'])) {
-                    $searched_address['street_name'] = $route_components['street_name'];
-                }
-                if (isset($route_components['street_type'])) {
-                    $searched_address['street_type'] = $route_components['street_type'];
-                }
-                if (isset($route_components['street_dir'])) {
-                    $searched_address['street_dir'] = $route_components['street_dir'];
-                }
-            }
-        }
-        
-        error_log("Final searched_address: " . print_r($searched_address, true));
-        
-        // Set up the user_data array
-        $user_data = array(
-            'full_name' => '',
-            'email' => '',
-            'lead_status' => '',
-            'onboarding_stage' => 'address_search'
-        );
-        
-        // CRITICAL: Set up POST data that ppget_internet_plans expects
-        $_POST['streetAddress'] = $street_address;
-        $_POST['unitNumber'] = $unit_number;
-        $_POST['buzzerCode'] = $buzzer_code;
-        $_POST['unitType'] = ''; // Required to prevent undefined index
-        $_POST['searched_address'] = $searched_address;
-        $_POST['user_data'] = $user_data;
-        
-        error_log("POST data set up, now calling ppget_internet_plans...");
-        
-        // Suppress WordPress errors for cleaner JSON response
-        $original_error_reporting = error_reporting();
-        error_reporting(E_ERROR | E_PARSE);
-        
-        try {
-            // Call the main internet plans function
-            $response = ppget_internet_plans(1, $ccd);
-            error_log("ppget_internet_plans response length: " . strlen($response));
-            error_log("Response preview: " . substr($response, 0, 200));
-            
-            // Restore error reporting
-            error_reporting($original_error_reporting);
-            
-            // Log address data after the function runs
-            AddressCheckLog(0);
-            
-            // Get the API response to check if service is available
-            $apiResponse = dg_get_user_meta("_api_response");
-            error_log("API Response after ppget_internet_plans: " . print_r($apiResponse, true));
-            
-            // Check if we found plans - the response contains product HTML if successful
-            $no_service_found = (strpos($response, 'Check Service Availability in Your Area') !== false);
-            $is_not_available = (strpos($response, 'not available') !== false || 
-                                 strpos($response, 'No service') !== false);
-            
-            error_log("Response analysis: no_service_found=" . 
-                      ($no_service_found ? 'true' : 'false') . 
-                      ", is_not_available=" . ($is_not_available ? 'true' : 'false'));
-            
-            if (!$no_service_found && !$is_not_available) {
-                // Success - service is available at this address
-                error_log("SUCCESS: Internet service available, sending redirect response");
-                
-                wp_send_json_success(array(
-                    'redirect' => true,
-                    'redirect_url' => home_url('/residential/internet#panel-showinternetplans'),
-                    'message' => 'Address updated successfully'
-                ));
-            } else {
-                // No service available at this address
-                error_log("ERROR: No internet service available at this address");
-                
-                $error_message = 'No internet service available at this address.';
-                if ($apiResponse && isset($apiResponse['errorType']) && !empty($apiResponse['errorType'])) {
-                    $error_message .= ' (' . $apiResponse['errorType'] . ')';
-                }
-                
-                wp_send_json_error(array(
-                    'message' => $error_message . ' Please try selecting a different address from the autocomplete suggestions.'
-                ));
-            }
-            
-        } catch (Exception $e) {
-            error_reporting($original_error_reporting);
-            error_log("Exception in ppget_internet_plans: " . $e->getMessage());
-            wp_send_json_error(array(
-                'message' => 'An error occurred while checking address availability. Please try again.'
-            ));
-        }
-        
-    } else {
-        // Original behavior for the main internet page
-        error_log("Non-redirect request, using original behavior");
-        $response = ppget_internet_plans(1, $ccd);
-        AddressCheckLog(0);
-        wp_die($response);
-    }
-}
-
-
-// Add this temporary debug function to see what the API returns
-add_action( 'wp_ajax_nopriv_debug_api_response', 'debug_api_response' );
-add_action( 'wp_ajax_debug_api_response', 'debug_api_response' );
-function debug_api_response() {
-    $apiResponse = dg_get_user_meta("_api_response");
-    
-    wp_send_json_success(array(
-        'api_response' => $apiResponse,
-        'user_meta_keys' => array_keys(dg_get_current_user_data() ?: array())
-    ));
-}
-
-
-/*==========Test function for debugging========*/
-add_action( 'wp_ajax_nopriv_test_redirect_simple', 'test_redirect_simple' );
-add_action( 'wp_ajax_test_redirect_simple', 'test_redirect_simple' );
-
-function test_redirect_simple() {
-    wp_send_json_success(array(
-        'redirect' => true,
-        'redirect_url' => home_url('/internet#internet-plan-section'),
-        'message' => 'Test redirect successful'
-    ));
-}
-
-
-
-/*==========Restore original find_address function if it was broken========*/
-
-// Make sure the original find_address function still works
 add_action( 'wp_ajax_nopriv_find_address', 'ajax_find_address' );
 add_action( 'wp_ajax_find_address', 'ajax_find_address' );
 function ajax_find_address( $ccd = false ) {
-    $ccd = "";
+	
+	$ccd = "";
 
-    // getting the ccd parameters (referral to our website);
-    if( isset( $_POST["ccd_param"] ) ) {
-        $ccd = $_POST["ccd_param"];
-        if( strlen( $ccd ) > 0 ) {
-            dg_set_user_meta( "ccd", $ccd );
-        }
-    }
+	// getting the ccd parameters (referral to our website);
+	if( isset( $_POST["ccd_param"] ) ) {
+		$ccd = $_POST["ccd_param"];
+		if( strlen( $ccd ) > 0 ) {
+			dg_set_user_meta( "ccd", $ccd );
+		}
+	}
 
-    error_log(" In ajax_find_address -> ppget_internet_plans $ccd ");
-    $response = ppget_internet_plans(1,  $ccd);
+	error_log(" In ajax_find_address -> ppget_internet_plans $ccd ");
+	
+	$response = ppget_internet_plans(1,  $ccd);
+	
+	// commented out checking for email, to send the data anyways to the server for logging
+	//$user_data = dg_get_current_user_data();
+	//if( strlen( $user_data.email ) > 0 ) { 
+		//AddressCheckLog( 0 );
+	//}
 
-    // commented out checking for email, to send the data anyways to the server for logging
-    //$user_data = dg_get_current_user_data();
-    //if( strlen( $user_data.email ) > 0 ) { 
-        AddressCheckLog( 0 );
-    //}
-
-    wp_die($response);
+	wp_die($response);
 }
-
-// ============ Zach Note: Review This function ===========
-// This functin facilitates address lookup
 
 function ppget_internet_plans($MainWebPage, $ccd) {
 
@@ -7362,8 +7596,8 @@ function diallog_theme_enqueue_styles() {
 	  
 	  wp_enqueue_script( "jquery-mask", get_stylesheet_directory_uri() . '/js/jquery.mask.min.js', array("jquery"), "1.14.16", true );
 
-	  wp_enqueue_script( "diallog-main", get_stylesheet_directory_uri() . '/js/d-main.js', array("jquery"), "0.0.5", true );
-	  
+	  wp_enqueue_script( "diallog-main", get_stylesheet_directory_uri() . '/js/d-main.js', array("jquery"), "0.0.7", true );
+	
 	  //wp_enqueue_script( "google-maps-api2","//maps.googleapis.com/maps/api/js?key=AIzaSyCVLq3DrRD2BizXm-yZ-WsD2qq0ofWN2VU&libraries=places" , array(), "1.0", true );
 	  wp_enqueue_script( "google-maps-api2","//maps.googleapis.com/maps/api/js?key=AIzaSyAQ_uaqGJF-ALsSrkYEzKOHbI27WC-vEZg&libraries=places" , array(), "1.0", true );
 	  //wp_enqueue_script( "google-maps-api2","https://maps.googleapis.com/maps/api/js?key=AIzaSyB1IAKntR9qg34Q-4eANCMqNoNQ1UE8j1M&libraries=places" , array(), "1.0", true );
@@ -7476,6 +7710,8 @@ function dg_get_internet_plans( $atts ) {
 
 add_shortcode("dg_signup_page","dg_signup_page");
 function dg_signup_page( $atts ) {
+
+//echo ("In dg_signup_page " . time() . "<br>"); //Eugene
 	
 	ob_start();
 	
@@ -7543,10 +7779,9 @@ function _add_product_tocart($plan_id, $type) {
 		dg_set_user_meta("selected_".$type."_plan_name",$product_data->get_title());
 
 		error_log(" Cart_item_id $product_id, Cart_ItemCategory $product_category, Cart_ItemTitle " . $product_data->get_title() );
-
-		dg_set_user_meta("cart_category_" . $product_id , $product_category);
+		
+        dg_set_user_meta("cart_category_" . $product_id , $product_category);
 		dg_set_user_meta("cart_title_" . $product_id , $product_data->get_title());
-
 		dg_set_user_meta("category_" . $product_category, $product_id);
 
 		if( strcmp( $product_category, "internet-plan" ) == 0 ) {
@@ -7589,7 +7824,7 @@ function dg_add_product_to_cart ($plan_id = false , $type =  false) {
 
 	}
 
-	error_log( " In dg_add_product_to_cart plan $plan_id, type $type " );
+	error_log( " 1- In dg_add_product_to_cart plan $plan_id, type $type " );
 
 	// Add Installation Fees
 	// 1. Check which Internet plan is selected
@@ -7610,6 +7845,8 @@ function dg_add_product_to_cart ($plan_id = false , $type =  false) {
 			goto finish;
 		}
 
+	error_log( " 2- In dg_add_product_to_cart plan $plan_id, type $type " );
+
 		// add the installation fees
 		$internet_plan_sku = $internet_plan_id->get_sku();
 		$internet_plan_sku_list = explode(",",$internet_plan_sku);
@@ -7621,22 +7858,30 @@ function dg_add_product_to_cart ($plan_id = false , $type =  false) {
 			'category' => "Fixed Fee",
 		) );
 
+	    error_log( " 3- In dg_add_product_to_cart plan $plan_id, type $type " );
+
 		$products = $query->get_products();
 		foreach($products as $prod) {
 			$install_plan_sku = $prod->get_sku();
 			$install_plan_sku_list = explode(",",$install_plan_sku);
 
+            error_log( "In dg_add_product_to_cart in the product loop, install plan sku = $install_plan_sku, $plan_id, type $type " );
+
 			foreach($install_plan_sku_list as $install_sku) {
-				foreach($internet_plan_sku_list as $internet_sku) {
-					if( strcmp( $internet_sku, $install_sku) == 0 ) {
+				//foreach($internet_plan_sku_list as $internet_sku) {
+					if( strcmp( $internet_plan_sku_list[0], $install_sku) == 0 ) {
 						// found match;
 						$plan_id = $prod->get_id();
-						$ret = _add_product_tocart($plan_id, $type);
+						$ret = _add_product_tocart($plan_id, "fixedfee");
 						goto finish;
 					}
-				}
+				//}
 			}
+
+
 		}
+
+	    error_log( " 4- In dg_add_product_to_cart plan $plan_id, type $type " );
 
 	}
 
@@ -7645,8 +7890,11 @@ function dg_add_product_to_cart ($plan_id = false , $type =  false) {
 		$ret = _add_product_tocart($plan_id, $type);
 		error_log(" dg_add_product_to_cart return $ret ") ;
 	} 
+	    
 
 finish:
+
+    error_log( " 5- In dg_add_product_to_cart plan $plan_id, type $type " );
 
 	if ($ajax) {
 		die($ret);		
@@ -7774,7 +8022,6 @@ function dg_get_order_summary_page () {
 }
 
 
-
 add_action("wp_ajax_update_user_data","dg_update_user_data");	
 add_action("wp_ajax_nopriv_update_user_data","dg_update_user_data");
 function dg_update_user_data () {
@@ -7841,7 +8088,7 @@ function dg_update_user_data () {
 		//if( strcmp( $user_data.lead_status, "Need manual check" ) == 0 ) {
 		//	SendInfoToSignupServer(0);
 		//} else {
-			SendInfoToSignupServer($state);
+			SendInfoToSignupServer($state); 
 		//}
 
 		$response["status"] = "success";
@@ -7856,7 +8103,6 @@ function dg_update_user_data () {
 	
 	die();
 }
-
 
 add_action( 'init', 'all_set_cookies_tasks' );
 function all_set_cookies_tasks() {
@@ -8296,223 +8542,187 @@ function get_ld_rates() {
 add_action( 'wp_ajax_nopriv_show_pbw', 'ajax_show_pbw' );
 add_action( 'wp_ajax_show_pbw', 'ajax_show_pbw' );
 function ajax_show_pbw() {
-     $start_time = microtime(true); // ADD THIS LINE AT THE START
-
     include_once("plan-building-wizard-steps.php");
-
-     $end_time = microtime(true); // ADD THIS LINE AT THE END
-    $execution_time = ($end_time - $start_time) * 1000; // Convert to milliseconds
-    error_log("Modal content generation took: {$execution_time}ms");
-
     wp_die();
 }
 
 
 
-
 // Show Payment Options after Billing fields. 
+remove_action( 'woocommerce_checkout_order_review','woocommerce_checkout_payment',20);
+add_action( 'woocommerce_checkout_before_customer_details','woocommerce_checkout_payment',10);			 
 
-/*   ----- Zach Edit - restore default woocommerce checkout payment functionality
- remove_action( 'woocommerce_checkout_order_review','woocommerce_checkout_payment',20);
-  add_action( 'woocommerce_before_customer_details','woocommerce_checkout_payment',10);
-  */
-
-
-
-
+// Optimized by Eugene with help from ChatGPT
 function get_dg_user_id() {
-	
 	global $dg_user_id;
-	
-	if(isset($_COOKIE['dg_user_hash'])) {
-		
-		$user_id = $_COOKIE['dg_user_hash'];
-		
-	} elseif ($dg_user_id) {
-		
-		$user_id = $dg_user_id;
-	
+
+	if (isset($_COOKIE['dg_user_hash'])) {
+		$dg_user_id = $_COOKIE['dg_user_hash'];
+	} elseif (!empty($dg_user_id)) {
+		// already set
 	} else {
-		
-		$user_id = false;
+		$dg_user_id = false;
 	}
-	
-	return $user_id;
+
+	return $dg_user_id;
 }
 
-function set_dg_user_id ($id) {
-	
+function set_dg_user_id($id) {
 	global $dg_user_id;
 	$dg_user_id = $id;
-	setcookie("dg_user_hash", $dg_user_id, strtotime( '+30 days' ) ,"/");
-	
+	setcookie("dg_user_hash", $dg_user_id, strtotime('+30 days'), "/");
 }
 
-function dg_get_current_user_data () {
-	
-	global $wpdb;
-	
-	$user_data = [];
-	
-	if (is_user_logged_in()) {
-		
-		$user_id = get_current_user_id();
-		$user_info = get_userdata($user_id);
-		
-		$user_data['first_name'] = $user_info->first_name;
-		$user_data['last_name'] = $user_info->last_name;
-		$user_data['email'] = $user_info->user_email;
-		$user_data['date_created'] = date("j M,Y H:i:s",strtotime($user_info->user_registered));
-		
-		foreach (get_user_meta($user_id,"",true) as $key=>$value) {
-			
-			$user_data[$key] = maybe_unserialize($value[0]);	
-			
-		}
-		
-		
-	} elseif (get_dg_user_id()) {
-		
-		$dg_user_hash = get_dg_user_id();
-		
-		$data = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}dg_user_data WHERE user_id ='$dg_user_hash' ", ARRAY_A);
-		
-		if ($data && is_array($data)) {
-			
-			foreach ($data as $row) {
-				
-				$user_data[$row['meta_key']] = maybe_unserialize($row['meta_value']);
-			}
-			 
-		} else {
-			
-			$user_data = false;
-		}
-			
-	} else {
-		
-		$user_data = false;
-		
-	}
-	
-	return $user_data;
-	
-} 
-
-
-function dg_set_current_user_data ($user_data) {
-	
-	
-	if (is_array($user_data))
-	foreach ($user_data as $key => $value) { 
-		dg_set_user_meta($key,$value);	
-	}
-	
-	
-}
-
-
-
-function dg_get_user_meta ($key) {
-	
-	global $wpdb;
-	global $dg_user_id;
-	
-	if (is_user_logged_in()) {
-		
-		$user_id = get_current_user_id();
-		$value = get_user_meta($user_id,$key,true); 		
-		
-	} elseif (get_dg_user_id()) {
-		
-		$dg_user_hash = get_dg_user_id();
-		
-		$data = $wpdb->get_row( "SELECT * FROM {$wpdb->prefix}dg_user_data WHERE user_id = '$dg_user_hash' AND meta_key='$key' ", ARRAY_A );
-		
-		if ($data!==null) {
-			$value = maybe_unserialize($data['meta_value']);	
-		} else {
-			$value = false;
-		}
-			
-	} else {
-		
-		$value = false;
-		
-	}
-	
-	return $value;
-	
-}
-
-function dg_set_user_meta ($key,$value = "") {
-	
+function dg_get_user_meta($key) {
 	global $wpdb;
 
-	/*
-	if ($key=="order_step" && is_numeric($value)) {
-			$value = update_order_step($value);
+	$user_id = get_dg_user_id();
+	if (!$user_id) return false;
+
+    $main_key = "full_user_data";
+	$data = $wpdb->get_row(
+		$wpdb->prepare(
+			"SELECT meta_value FROM {$wpdb->prefix}dg_user_data WHERE user_id = %s AND meta_key = %s",
+			$user_id, $main_key
+		),
+		ARRAY_A
+	);
+
+    if( $data )
+    {
+        $main_value_d = json_decode( base64_decode ( $data['meta_value'] ) , true );
+        if( isset( $main_value_d[$key] ) && $main_value_d[$key] ) {
+            return maybe_unserialize( base64_decode( $main_value_d[$key] ) );
+        }
+    }
+    
+	return false;//$data ? maybe_unserialize($data['meta_value']) : false;
+}
+
+function dg_set_user_meta($key, $value = "") {
+	global $wpdb;
+
+	$user_id = get_dg_user_id();
+	if (!$user_id) {
+		$user_id = md5(microtime(true) . rand());
+		set_dg_user_id($user_id);
+		dg_set_user_meta("date_created", date("j M,Y H:i:s"));
 	}
-	*/
 
-	if (is_user_logged_in()) {
-		
-		$user_id = get_current_user_id();
-		update_user_meta($user_id,$key,$value);	
-		
+    $existing = true;
+    $user_data = dg_get_current_user_data(true);//dg_get_user_meta($key);
+    if( $user_data == false )
+        $existing = false;
+    
+
+    $value = base64_encode( maybe_serialize( $value ) );
+    $main_key = "full_user_data";
+
+
+	if ($existing !== false) {
+        $main_value_d = dg_get_current_user_data(true);
+        $main_value_d[$key] = $value;
+        $main_value = base64_encode( json_encode( $main_value_d ));
+
+		return $wpdb->update(
+			$wpdb->prefix . "dg_user_data",
+			['meta_value' => $main_value],
+			['user_id' => $user_id, 'meta_key' => $main_key],
+			['%s'], ['%s', '%s']
+		);
+
 	} else {
-	
-		if (get_dg_user_id()) {
-			
-			$dg_user_hash = get_dg_user_id();
-			
-		} else {
-			
-			$dg_user_hash = md5(strtotime("now").rand(999999,10000000));
-			set_dg_user_id ( $dg_user_hash );
-			dg_set_user_meta("date_created",date("j M,Y H:i:s"));
+		$main_value_d = [];
+        $main_value_d[$key] = $value;
+        $main_value = base64_encode( json_encode( $main_value_d ));
 
-		}
-		
-		//update
-		if (dg_get_user_meta($key)!==false) {
-			
-			$insert = $wpdb->update( 
-				$wpdb->prefix."dg_user_data", 
-				array( 
-					'meta_value' => maybe_serialize($value),	// string
-				), 
-				array( 'user_id' => $dg_user_hash, 
-					   'meta_key' => $key
-					 ), 
-				array( 
-					'%s'
-				), 
-				array( '%s' , '%s') 
-			);
-		
-		//insert	
-		} else {
-
-			//insert 
-			$insert = $wpdb->insert( 
-				$wpdb->prefix."dg_user_data", 
-				array( 
-					'user_id' => $dg_user_hash, 
-					'meta_key' => $key,
-					'meta_value' => maybe_serialize($value), 
-				), 
-				array( 
-					'%s', 
-					'%s',
-					'%s' 
-				) 
-			);
-			
-			return $insert_id;
-		}
+		return $wpdb->insert(
+			$wpdb->prefix . "dg_user_data",
+			[
+				'user_id'    => $user_id,
+				'meta_key'   => $main_key,
+				'meta_value' => $main_value,
+        			'timestamp' => current_time('mysql'), // set TIMESTAMP column
+			],
+			['%s', '%s', '%s']
+		);
 	}
 }
+
+function dg_get_current_user_data($unserialized = false) {
+	global $wpdb;
+
+	$user_id = get_dg_user_id();
+	if (!$user_id) return false;
+
+    $main_key = "full_user_data";
+	$data = $wpdb->get_row(
+		$wpdb->prepare(
+			"SELECT meta_value FROM {$wpdb->prefix}dg_user_data WHERE user_id = %s AND meta_key = %s",
+			$user_id, $main_key
+		),
+		ARRAY_A
+	);
+
+	if (!$data || isset( $data['meta_value']) == false ) return false;
+
+    $user_data = json_decode( base64_decode( $data['meta_value'] ), true );
+    if( $unserialized == false ) {
+        $ret_data = [];
+
+        foreach( $user_data as $key => $value ) { // decode all items
+            $ret_data[ $key ] = maybe_unserialize ( base64_decode( $value ) );
+        }
+
+        return $ret_data;
+    } else {
+        return $user_data;
+    }
+
+	return false;    
+}
+
+function dg_set_current_user_data($user_data) {
+	if (!is_array($user_data)) return;
+
+    $user_id = get_dg_user_id();
+	if (!$user_id) return false;
+
+    $existing = true;
+    $current_data = dg_get_current_user_data(true);
+    if( $current_data == false ) {
+        $existing = false;
+        $current_data = [];
+    }
+
+    foreach ($user_data as $key => $value) {
+        $current_data[$key] = base64_encode ( maybe_serialize( $value ));
+	}
+
+    $main_value = base64_encode( json_encode( $data ));
+    $main_key = "full_user_data";
+
+    if ($existing !== false) {
+		return $wpdb->update(
+			$wpdb->prefix . "dg_user_data",
+			['meta_value' => $main_value],
+			['user_id' => $user_id, 'meta_key' => $main_key],
+			['%s'], ['%s', '%s']
+		);
+	} else {
+		return $wpdb->insert(
+			$wpdb->prefix . "dg_user_data",
+			[
+				'user_id'    => $user_id,
+				'meta_key'   => $main_key,
+				'meta_value' => $main_value,
+			],
+			['%s', '%s', '%s']
+		);
+	}
+
+}
+// End optimized by Eugene with help from ChatGPT
 
 function GetTaxRate() {
 	$user_data = dg_get_current_user_data();
@@ -8521,8 +8731,6 @@ function GetTaxRate() {
 	}
 
 	$prov = $user_data['prov'];
-	error_log( "GetTax Rate for prov $prov ");
-
         $tax_rate = 13;
         if( strcasecmp( $prov, "BC") == 0 ) {
                 $tax_rate = 12;
@@ -8530,469 +8738,6 @@ function GetTaxRate() {
                 $tax_rate = 14.975;
         }
 	return $tax_rate;
-}
-
-
-function get_monthly_fee_summary() {
-
-	$summary = array(
-		'internet-plan'=>array('',0.0),
-		'modems'=>array('',0.0),
-		'phone-plan'=>array('',0.0),
-		'subtotal'=>array('Subtotal',0.0),
-		'taxes'=>array('Taxes',0.0),
-		'grand_total'=>array('MONTHLY TOTAL',0.0));
-
-	$show_included_taxes = wc_tax_enabled() && WC()->cart->display_prices_including_tax();
-	$tax_rate = GetTaxRate();
-
-	foreach ( WC()->cart->get_cart() as $cart_item_key => $cart_item ) {
-
-		$_product     = apply_filters( 'woocommerce_cart_item_product', $cart_item['data'], $cart_item, $cart_item_key );
-		$product_cat_ids = $_product->get_category_ids();
-
-
-		$product_cat = get_term($product_cat_ids[0],'product_cat');
-
-		$product_category = $product_cat->slug;
-
-		if ( array_key_exists($product_category, $summary) && $_product && 
-		 		$_product->exists() && $cart_item['quantity'] > 0 && 
-		 		apply_filters( 'woocommerce_checkout_cart_item_visible', true, $cart_item, $cart_item_key ) ) {
-
-			if( $product_category == "modems") {
-
-				if( $_product->get_attribute("Security Deposit") > 0 ) {
-
-					$summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
-					$summary[$product_category][1] = floatval($_product->get_price());
-					$summary['taxes'][1] +=  round( floatval(( $_product->get_price() * $tax_rate ) / 100), 2 );  // floatval($_product->get_price_including_tax($cart_item['quantity'])-$_product->get_price());
-
-				} else {
-
-				}
-
-			} else {
-			
-				if ($product_category!="modems" || ($product_category=="modems" && ($_product->get_id()!=887 && $_product->get_id()!=6931))) {
-					$summary[$product_category][0] = $_product->get_title() . " " . ( $show_included_taxes ?"(inc taxes)":"")."" ;
-					$summary[$product_category][1] = round( floatval($_product->get_price()), 2);
-					//$summary['taxes'][1] += floatval($_product->get_price_including_tax($cart_item['quantity'])-$_product->get_price());
-					$summary['taxes'][1] +=  round( floatval(( $_product->get_price() * $tax_rate ) / 100), 2 );  // floatval($_product->get_price_including_tax($cart_item['quantity'])-$_product->get_price());
-					//$_product->get_price()*$cart_item['quantity'];	 
-			 	}
-
-			
-
-			if( $_product->get_id()==6931 ){
-				$summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
-				//$summary[$product_category][1] =  floatval($line_data['subtotal']);
-				$summary[$product_category][1] =  floatval(2);
-				
-				$summary['taxes'][1] += floatval($line_data['total_tax']);
-			}
-
-			if( $_product->get_id()==887 ){
-				$summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
-				//$summary[$product_category][1] =  floatval($line_data['subtotal']);
-				$summary[$product_category][1] =  floatval(0);
-				
-				$summary['taxes'][1] += floatval($line_data['total_tax']);
-			}
-
-
-			}
-		}
-	} 
-
-
-
-	$summary['subtotal'][1] = $summary['internet-plan'][1] + $summary['modems'][1] + $summary['phone-plan'][1];
-
-	if (wc_tax_enabled() && !$show_included_taxes ) {
-		 $summary['taxes'][0] = esc_html( WC()->countries->tax_or_vat() );
-		 $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['taxes'][1];
-	} elseif (!wc_tax_enabled()) {
-		$summary['taxes'][0] = "Tax";
-		$summary['taxes'][1] = 0.0;
-		$summary['grand_total'][1] = $summary['subtotal'][1];
-	}
-
-	return $summary;	
-}
-
-/**
- * Get detailed upfront cart items for thank you pagefront_cart_items_
- * Returns individual cart items with their prices for display
- */
-/**
- * Get detailed upfront cart items for thank you page
- * Returns individual cart items with their prices for display
- * UPDATED: Handles deposits with category-based naming only, Install Dates special handling
- */
-
-function get_upfront_cart_items_for_thank_you() {
-    $items = array();
-    $tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 13;
-    
-    if (!WC()->cart || WC()->cart->is_empty()) {
-        return $items;
-    }
-    
-    error_log('=== GETTING UPFRONT CART ITEMS FOR THANK YOU PAGE ===');
-    
-    // NEW: Get dynamic install price from internet plan in cart
-    $internet_plan_cat_id = 19;
-    $dynamic_install_price = 0;
-    
-    foreach (WC()->cart->get_cart() as $cart_item) {
-        $product = $cart_item['data'];
-        $product_id = $product->get_id();
-        $product_cat_ids = $product->get_category_ids();
-        
-        // Check if this product has internet-plan category (check ALL categories)
-        if (in_array($internet_plan_cat_id, $product_cat_ids)) {
-            if (function_exists('get_field')) {
-                $dynamic_install_price = get_field('dynamic_install_price', $product_id);
-                
-                if (empty($dynamic_install_price) && $dynamic_install_price !== '0') {
-                    $dynamic_install_price = get_field('dynamic_install_price', 'product_' . $product_id);
-                }
-                
-                $dynamic_install_price = is_numeric($dynamic_install_price) ? floatval($dynamic_install_price) : 0;
-            }
-            
-            error_log('Thank you page - Found internet plan: ' . $product_id . ', dynamic price: ' . $dynamic_install_price);
-            break;
-        }
-    }
-    
-    foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
-        $product = $cart_item['data'];
-        $product_id = $product->get_id();
-        $parent_id = $product->get_parent_id();
-        $product_name = $product->get_name();
-        $product_price = $product->get_price();
-        
-        // Get product categories
-        $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'slugs'));
-        $primary_category = !empty($product_cats) ? $product_cats[0] : 'uncategorized';
-        
-        // FIXED: Handle Pay After deposit product (265827) 
-        // Don't skip it - process it like other deposits using ACF field
-        
-        // SPECIAL HANDLING: Install Dates product (265084)
-        if ($product_id == 265084 || $parent_id == 265084) {
-            // Get the installation dates from variation attributes
-            $installation_dates = '';
-            if (isset($cart_item['variation']) && is_array($cart_item['variation'])) {
-                $preferred = isset($cart_item['variation']['attribute_preferred-date']) ? 
-                    $cart_item['variation']['attribute_preferred-date'] : '';
-                $secondary = isset($cart_item['variation']['attribute_secondary-date']) ? 
-                    $cart_item['variation']['attribute_secondary-date'] : '';
-                
-                if (!empty($preferred) && !empty($secondary)) {
-                    $installation_dates = $preferred . ', ' . $secondary;
-                } elseif (!empty($preferred)) {
-                    $installation_dates = $preferred;
-                } elseif (!empty($secondary)) {
-                    $installation_dates = $secondary;
-                }
-            }
-            
-            // NEW: Get original price from database (cart price may be modified by hook)
-            $installation_product_db = wc_get_product($product_id);
-            $original_install_price = $installation_product_db ? floatval($installation_product_db->get_regular_price()) : floatval($product_price);
-            
-            // Determine final price (use dynamic if available, otherwise use cart price)
-            $final_install_price = ($dynamic_install_price > 0) ? $dynamic_install_price : $product_price;
-            
-            // Add installation item
-            if ($final_install_price > 0 || $original_install_price > 0) {
-                $install_item = array(
-                    'name' => 'Installation Fee',
-                    'price' => $final_install_price,
-                    'type' => 'installation',
-                    'category' => $primary_category,
-                    'dates' => $installation_dates // Store dates for display
-                );
-                
-                // NEW: Add promotional pricing if dynamic price exists
-                if ($dynamic_install_price > 0 && $dynamic_install_price != $original_install_price) {
-                    $install_item['original_price'] = $original_install_price;
-                    $install_item['promo_price'] = $dynamic_install_price;
-                    error_log("Added installation with promo: Installation Fee = $$final_install_price (original: $$original_install_price, promo: $$dynamic_install_price) with dates: $installation_dates");
-                } else {
-                    error_log("Added installation: Installation Fee = $$final_install_price with dates: $installation_dates");
-                }
-                
-                $items[] = $install_item;
-            }
-            continue; // Skip to next item
-        }
-        
-        // Add main product if it has a price (skip deposit category products with $0 price)
-        if ($product_price > 0 && !in_array('deposit', $product_cats)) {
-            $items[] = array(
-                'name' => $product_name,
-                'price' => $product_price,
-                'type' => 'product',
-                'category' => $primary_category
-            );
-            error_log("Added product: $product_name = $$product_price");
-        }
-        
-        // Check for deposit fee using ACF
-        $deposit_fee = 0;
-        if (function_exists('get_field')) {
-            $deposit_fee = get_field('deposit-fee', $product_id);
-            
-            if (empty($deposit_fee) && $deposit_fee !== '0') {
-                $deposit_fee = get_field('deposit-fee', 'product_' . $product_id);
-            }
-            
-            $deposit_fee = is_numeric($deposit_fee) ? floatval($deposit_fee) : 0;
-        }
-        
-        // Add deposit if exists - USE CATEGORY-BASED NAMING
-        if ($deposit_fee > 0) {
-            // Determine deposit title based on category
-            $deposit_title = 'Deposit'; // Default
-            
-            if (in_array('modems', $product_cats) || in_array('modems-new', $product_cats)) {
-                $deposit_title = 'Modem Deposit';
-            } elseif (in_array('tv-plan', $product_cats)) {
-                $deposit_title = 'TV Deposit';
-            } elseif (in_array('phone-plan', $product_cats)) {
-                $deposit_title = 'Phone Deposit';
-            } elseif (in_array('deposit', $product_cats)) {
-                // FIXED: Handle Pay After deposit category
-                $deposit_title = 'Pay After Deposit';
-            }
-            
-            $items[] = array(
-                'name' => $deposit_title,
-                'price' => $deposit_fee,
-                'type' => 'deposit',
-                'category' => $primary_category
-            );
-            error_log("Added deposit: $deposit_title = $$deposit_fee (category: $primary_category)");
-        }
-    }
-    
-    error_log('Total items for thank you page: ' . count($items));
-    return $items;
-}
-
-
-/**
- * Get detailed monthly cart items for thank you page
- * Returns individual cart items with their monthly fees for display
- */
-/**
- * UPDATED: Get detailed monthly cart items for thank you page
- * Now includes promotional pricing fields (monthly_promo_fee and monthly_promo_blurb)
- */
-
-function get_monthly_cart_items_for_thank_you() {
-    $items = array();
-    
-    if (!WC()->cart || WC()->cart->is_empty()) {
-        return $items;
-    }
-    
-    error_log('=== GETTING MONTHLY CART ITEMS FOR THANK YOU PAGE (WITH PROMO SUPPORT) ===');
-    
-    // Categories that should NOT be in monthly billing
-    $exclude_categories = array('deposit', 'installation');
-    
-    foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
-        $product = $cart_item['data'];
-        $product_id = $product->get_id();
-        $product_name = $product->get_name();
-        
-        // Get product categories
-        $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'slugs'));
-        $primary_category = !empty($product_cats) ? $product_cats[0] : 'uncategorized';
-        
-        // Skip excluded categories
-        if (in_array($primary_category, $exclude_categories)) {
-            continue;
-        }
-        
-        // Skip Pay After deposit
-        if ($product_id == 265827) {
-            continue;
-        }
-        
-        // Get monthly fee from ACF
-        $monthly_fee = 0;
-        if (function_exists('get_field')) {
-            $monthly_fee = get_field('monthly_fee', $product_id);
-            
-            if (empty($monthly_fee) && $monthly_fee !== '0') {
-                $monthly_fee = get_field('monthly_fee', 'product_' . $product_id);
-            }
-            
-            $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
-        }
-        
-        // NEW: Get promotional pricing fields
-        $monthly_promo_fee = 0;
-        $monthly_promo_blurb = '';
-        
-        if (function_exists('get_field')) {
-            // Get promo fee
-            $monthly_promo_fee = get_field('monthly_promo_fee', $product_id);
-            if (empty($monthly_promo_fee) && $monthly_promo_fee !== '0') {
-                $monthly_promo_fee = get_field('monthly_promo_fee', 'product_' . $product_id);
-            }
-            $monthly_promo_fee = is_numeric($monthly_promo_fee) ? floatval($monthly_promo_fee) : 0;
-            
-            // Get promo blurb
-            $monthly_promo_blurb = get_field('monthly_promo_blurb', $product_id);
-            if (empty($monthly_promo_blurb)) {
-                $monthly_promo_blurb = get_field('monthly_promo_blurb', 'product_' . $product_id);
-            }
-        }
-
-        // NEW: Get modem details if this is "I Have My Own Modem" product (ID: 265769)
-            $modem_details = '';
-            if ($product_id == 265769 && isset($cart_item['modem_details']) && !empty($cart_item['modem_details'])) {
-                $modem_details = $cart_item['modem_details'];
-                error_log("Found modem details for product $product_id: " . $modem_details);
-            }
-
-        // Determine the final price to use (promo takes precedence if exists)
-        $final_price = $monthly_promo_fee > 0 ? $monthly_promo_fee : $monthly_fee;
-
-        // FIXED: Add to items if monthly fee exists OR if it's the "I Have My Own Modem" product
-        if ($monthly_fee > 0 || $product_id == 265769) {
-            $items[] = array(
-                'name' => $product_name,
-                'price' => $final_price, // Use final price (promo or regular)
-                'original_price' => $monthly_fee, // Store original price
-                'promo_price' => $monthly_promo_fee, // Store promo price
-                'promo_blurb' => $monthly_promo_blurb, // Store promo blurb
-                'modem_details' => $modem_details, // Store modem details for 'I have my own modem' product
-                'category' => $primary_category
-            );
-            error_log("Added monthly item: $product_name = $$final_price/month (original: $$monthly_fee, promo: $$monthly_promo_fee, modem_details: $modem_details)");
-        }
-    }
-    
-    error_log('Total monthly items for thank you page: ' . count($items));
-    return $items;
-}
-
-/**
- * Get formatted upfront summary for thank you page
- * This replaces the category-based summary with item-based summary
- */
-
-function get_upfront_summary_for_thank_you() {
-    $items = get_upfront_cart_items_for_thank_you();
-    $tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 13;
-    
-    $summary = array();
-    $subtotal = 0;
-    $deposits_total = 0;
-    $deposits = array(); // Store deposits separately
-    
-    // Separate products/installation from deposits
-    foreach ($items as $item) {
-        if ($item['type'] === 'deposit') {
-            // Store deposits separately
-            $deposits[] = $item;
-            $deposits_total += $item['price'];
-        } else {
-            // Add products and installation to summary
-            $key = sanitize_key($item['name']);
-            $summary[$key] = array(
-                $item['name'], 
-                $item['price'],
-                isset($item['dates']) ? $item['dates'] : '' // Pass dates if present
-            );
-            
-            // NEW: Add optional original_price and promo_price fields if they exist
-            if (isset($item['original_price'])) {
-                $summary[$key][3] = $item['original_price'];
-            }
-            if (isset($item['promo_price'])) {
-                $summary[$key][4] = $item['promo_price'];
-            }
-            
-            $subtotal += $item['price'];
-        }
-    }
-    
-    // Calculate tax on subtotal (not including deposits)
-    $tax = 0;
-    if (wc_tax_enabled()) {
-        $tax = round(($subtotal * $tax_rate) / 100, 2);
-    }
-    
-    // Add subtotal and tax BEFORE deposits
-    $summary['subtotal'] = array('Subtotal', $subtotal, '');
-    $summary['taxes'] = array('Tax', $tax, '');
-    
-    // NOW add deposits after subtotal and tax
-    foreach ($deposits as $deposit) {
-        $key = sanitize_key($deposit['name']);
-        $summary[$key] = array($deposit['name'], $deposit['price'], '');
-    }
-    
-    // Add grand_total - JavaScript needs this to populate the #upfront-total in tfoot
-    // It's in skipKeys so it won't be rendered in tbody, only used for the total
-    $summary['grand_total'] = array('Total Paid Today', $subtotal + $tax + $deposits_total, '');
-    
-    error_log('Upfront summary for thank you: ' . json_encode($summary));
-    return $summary;
-}
-
-
-/**
- * Get formatted monthly summary for thank you page
- */
-/**
- * UPDATED: Get formatted monthly summary for thank you page
- * Now preserves promotional pricing information in the summary array
- */
-function get_monthly_summary_for_thank_you() {
-    $items = get_monthly_cart_items_for_thank_you();
-    $tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 13;
-    
-    $summary = array();
-    $subtotal = 0;
-    
-    // Add each item to summary WITH promotional info
-    foreach ($items as $item) {
-        $key = sanitize_key($item['name']);
-        // NEW: Add additional fields for promotional display
-        $summary[$key] = array(
-            $item['name'],                  // [0] = name
-            $item['price'],                 // [1] = final price (used for calculations)
-            $item['original_price'],        // [2] = original price (for strikethrough)
-            $item['promo_price'],           // [3] = promo price
-            $item['promo_blurb'],          // [4] = promo blurb
-             $item['modem_details']         // [5] = modem details for 'I have my own modem' product
-        );
-        $subtotal += $item['price'];
-    }
-    
-    // Calculate tax
-    $tax = 0;
-    if (wc_tax_enabled()) {
-        $tax = round(($subtotal * $tax_rate) / 100, 2);
-    }
-    
-    // Add totals (maintain original structure for these)
-    $summary['subtotal'] = array('Subtotal', $subtotal);
-    $summary['taxes'] = array('Tax', $tax);
-    $summary['grand_total'] = array('Total', $subtotal + $tax);
-    
-    error_log('Monthly summary for thank you (with promo): ' . json_encode($summary));
-    return $summary;
 }
 
 
@@ -9065,7 +8810,6 @@ function get_monthly_order_summary($order) {
 	return $summary;	
 }
 
-
 add_action( 'wp_ajax_nopriv_get_upfront_fee_json', 'get_upfront_fee_json' );
 add_action( 'wp_ajax_get_upfront_fee_json', 'get_upfront_fee_json' );
 function get_upfront_fee_json() {
@@ -9081,274 +8825,95 @@ function get_upfront_fee_json() {
 	
 }
 
-/*=======Upfront Fee Summary ======*/
 
+// this function is called from woocommerce-order system, require $order param
+function get_upfront_order_summary($order) {
+		
+	$summary = array(
+		'internet-plan'=>array('',0.0),
+		'modems'=>array('',0.0),
+		'fixed-fee'=>array('Installation Fee',0.0),
+		'deposit'=>array('Pay-after Deposit',0.0),
+		'subtotal'=>array('Subtotal',0.0),
+		'taxes'=>array('Taxes',0.0),
+		'grand_total'=>array('UPFRONT TOTAL',0.0));
 
-function get_upfront_fee_summary() {
-    
-    $summary = array(
-        'ModemPurchaseOption'=>true,
-        'internet-plan'=>array('',0.0),
-        'modems'=>array('Modem Deposit',0.0),
-        'installation'=>array('Installation Fee',0.0),
-        'deposit'=>array('Pay-after Deposit',0.0),
-        'phone-plan'=>array('Phone Plan',0.0),
-        'tv-plan'=>array('TV Plan',0.0),
-        'subtotal'=>array('Subtotal',0.0),
-        'taxes'=>array('Taxes',0.0),
-        'grand_total'=>array('UPFRONT TOTAL',0.0));
+	$show_included_taxes = false;
+	$do_not_include_modem_deposit = false;
 
-    $tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 0;
-    $do_not_include_modem_deposit = false;
-    $show_included_taxes = wc_tax_enabled() && WC()->cart->display_prices_including_tax();
-    $total_deposits = 0;
-    $tv_deposit = 0;
-    $phone_deposit = 0;
-    $modem_deposit = 0;
-    
-    // NEW: Get dynamic install price from internet plan in cart
-    $internet_plan_cat_id = 19;
-    $dynamic_install_price = 0;
-    
-    foreach (WC()->cart->get_cart() as $cart_item) {
-        $product = $cart_item['data'];
-        $product_id = $product->get_id();
-        $product_cat_ids = $product->get_category_ids();
-        
-        // Check if this product has internet-plan category (check ALL categories)
-        if (in_array($internet_plan_cat_id, $product_cat_ids)) {
-            if (function_exists('get_field')) {
-                $dynamic_install_price = get_field('dynamic_install_price', $product_id);
-                
-                if (empty($dynamic_install_price) && $dynamic_install_price !== '0') {
-                    $dynamic_install_price = get_field('dynamic_install_price', 'product_' . $product_id);
-                }
-                
-                $dynamic_install_price = is_numeric($dynamic_install_price) ? floatval($dynamic_install_price) : 0;
-            }
-            
-            error_log('get_upfront_fee_summary - Found internet plan: ' . $product_id . ', dynamic price: ' . $dynamic_install_price);
-            break;
-        }
-    }
-    
-    error_log("=== FIXED UPFRONT FEE SUMMARY DEBUG ===");
-    error_log("Cart item count: " . WC()->cart->get_cart_contents_count());
-    error_log("Dynamic install price: " . $dynamic_install_price);
-    
-    foreach ( WC()->cart->get_cart() as $cart_item_key => $cart_item ) {
-         
-        $_product = apply_filters( 'woocommerce_cart_item_product', $cart_item['data'], $cart_item, $cart_item_key );
-        if( $_product == false || $_product->exists() == false || $cart_item['quantity'] <= 0 ||
-            apply_filters( 'woocommerce_checkout_cart_item_visible', true, $cart_item, $cart_item_key ) == false ) {
-            continue;
-        }
-        
-        $product_cat_ids = $_product->get_category_ids();
-        
-        // FIX: Handle product variations - check parent product categories if variation has none
-        if (empty($product_cat_ids) && $_product->get_parent_id() > 0) {
-            $parent_product = wc_get_product($_product->get_parent_id());
-            if ($parent_product) {
-                $product_cat_ids = $parent_product->get_category_ids();
-                error_log("Variation has no categories, using parent categories for " . $_product->get_name());
-            }
-        }
-        
-        // FIX: Handle empty category array to prevent PHP notices
-        if (empty($product_cat_ids)) {
-            error_log("Product " . $_product->get_name() . " has no categories assigned");
-            continue;
-        }
-        
-        $product_cat = get_term($product_cat_ids[0],'product_cat');
-        
-        // FIX: Handle WP_Error from get_term
-        if (is_wp_error($product_cat)) {
-            error_log("Error getting category for product " . $_product->get_name());
-            continue;
-        }
-        
-        $product_category = $product_cat->slug;
-        $product_id = $_product->get_id();
-        
-        error_log("Processing product: " . $_product->get_name() . " (ID: $product_id, Category: $product_category)");
-        
-        // FIX: Handle 'modems-new' category - treat it as 'modems'
-        if ($product_category == 'modems-new') {
-            $product_category = 'modems';
-            error_log("Converting modems-new to modems category");
-        }
-         
-        if (array_key_exists($product_category,$summary)) {
+	foreach ( $order->get_items() as $cart_item_key => $cart_item ) {
+		 
+		$_product     = $cart_item->get_product();
+		$line_data    = $cart_item->get_data();
+		
+		$product_cat_ids = $_product->get_category_ids();
+		$product_cat = get_term($product_cat_ids[0],'product_cat');
+		$product_category = $product_cat->slug;
+		 
+		if ( array_key_exists($product_category,$summary) && $_product && $_product->exists() && $line_data['quantity'] > 0 ) {
 
-            // Handle specific product exclusions
-            if( $_product->get_id() == 264 ) {
-                $summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
-                $summary[$product_category][1] = round( floatval(2), 2 );
-                $summary['taxes'][1] += round( floatval( ($summary[$product_category][1] * $tax_rate) / 100 ), 2);
-                continue;
-            }
+			//TODO: in an effort to remove the 1st month internet payment from the inital payment
+			if( $product_category == "internet-plan" ) {
+				$summary[$product_category][0] = $_product->get_title();
+				$summary[$product_category][1] = 0.00; // Eugene explicitly exclude cost, show plan name
+				continue;
+			}
 
-            if( $_product->get_id() == 887 ){
-                $summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
-                $summary[$product_category][1] = round ( floatval(0), 2 );
-                $summary['taxes'][1] += round( floatval( ($summary[$product_category][1] * $tax_rate) / 100 ), 2);
-                continue;
-            }
-            
-            // Check for ACF deposit fields first (NEW METHOD)
-            $deposit_fee = 0;
-            if (function_exists('get_field')) {
-                $deposit_fee = get_field('deposit-fee', $product_id);
-                if (empty($deposit_fee) && $deposit_fee !== '0') {
-                    $deposit_fee = get_field('deposit-fee', 'product_' . $product_id);
-                }
-                $deposit_fee = is_numeric($deposit_fee) ? floatval($deposit_fee) : 0;
-            }
-            
-            // Check for legacy product attribute method (OLD METHOD)
-            $security_deposit_attr = 0;
-            if ($deposit_fee == 0 && $product_category == "modems") {
-                $security_deposit_attr = $_product->get_attribute("Security Deposit");
-                $security_deposit_attr = is_numeric($security_deposit_attr) ? floatval($security_deposit_attr) : 0;
-            }
-            
-            // Use whichever deposit method has a value
-            $final_deposit = max($deposit_fee, $security_deposit_attr);
-            
-            error_log("Deposit check - ACF: $deposit_fee, Attribute: $security_deposit_attr, Final: $final_deposit");
-            
-            // Handle modem with deposit
-            if ( $product_category == "modems" && $final_deposit > 0 ) {
-                $summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
-                $summary[$product_category][1] = round(floatval($final_deposit), 2);
-                $do_not_include_modem_deposit = true;
-                $modem_deposit = $final_deposit;
-                error_log("Modem Deposit: $" . $final_deposit);
-                
-                // Also add the modem price to subtotal if it has a price
-                $modem_price = $_product->get_price();
-                if ($modem_price > 0) {
-                    error_log("Modem also has price: $modem_price");
-                }
-            } else {
-                // Handle regular products
-                $product_price = $_product->get_price();
-                
-                // SPECIAL CASE: For deposit category products, don't add regular price or tax
-                if ($product_category == 'deposit') {
-                    // Deposit products are handled separately via ACF fields below
-                    // Don't set summary or add tax for the $0 product price
-                    error_log("Deposit category product (price will come from ACF): " . $_product->get_name());
-                } else {
-                    // Regular non-deposit products
-                    $summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
-                    $summary[$product_category][1] = round(floatval($product_price), 2);
-                    $summary['taxes'][1] += round( floatval ( ($summary[$product_category][1] * $tax_rate ) / 100 ) , 2 );
-                    error_log("Regular product: " . $summary[$product_category][0] . " = $" . $summary[$product_category][1]);
-                }
-            }
-            
-            // Handle additional ACF deposits for any product (not just modems)
-            if ($deposit_fee > 0 && $product_category != "modems") {
-                $total_deposits += $deposit_fee;
-                
-                // Store the product name for deposits
-                if ($product_category == 'deposit') {
-                    // For Pay After deposits, use the actual product title
-                    error_log("Pay After Deposit: " . $_product->get_name() . " = $" . $deposit_fee);
-                } elseif ($product_category == "tv-plan") {
-                    $tv_deposit = $deposit_fee;
-                    error_log("TV Deposit: $" . $deposit_fee);
-                } elseif ($product_category == "phone-plan") {
-                    $phone_deposit = $deposit_fee;
-                    error_log("Phone Deposit: $" . $deposit_fee);
-                } else {
-                    error_log("Other Deposit for $product_category: $" . $deposit_fee);
-                }
-            }
-            
-        } else {
-            // FIX: Handle installation category specifically
-            if ($product_category == 'installation' || $product_id == 265084 || in_array(63, $product_cat_ids)) {
-                // NEW: Get ORIGINAL price from database, not cart (cart may already be modified by hook)
-                $installation_product_db = wc_get_product($product_id);
-                $original_install_price = $installation_product_db ? floatval($installation_product_db->get_regular_price()) : floatval($_product->get_price());
-                
-                // Determine final price to use
-                $final_install_price = ($dynamic_install_price > 0) ? $dynamic_install_price : $original_install_price;
-                
-                $summary['installation'][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
-                $summary['installation'][1] = round($final_install_price, 2);
-                
-                // NEW: Add promotional pricing info if dynamic price exists
-                if ($dynamic_install_price > 0 && $dynamic_install_price != $original_install_price) {
-                    $summary['installation'][2] = ''; // Placeholder for dates (added later)
-                    $summary['installation'][3] = round($original_install_price, 2); // Original price
-                    $summary['installation'][4] = round($dynamic_install_price, 2); // Sale price
-                    error_log("Installation with promo: Original $original_install_price, Sale $dynamic_install_price");
-                }
-                
-                $summary['taxes'][1] += round( floatval ( ($summary['installation'][1] * $tax_rate ) / 100 ) , 2 );
-                error_log("Installation product: " . $summary['installation'][0] . " = $" . $summary['installation'][1]);
-            } else {
-                error_log("Product category '$product_category' not found in summary array - skipping");
-            }
-        }
-    }
+			if( $product_category == "deposit" ) {
+				$summary[$product_category][0] = $_product->get_title();
+				$summary[$product_category][1] =  round(floatval($_product->get_price()), 2);
+				// no taxes here for category deposit
+			} else {
+			if ( $product_category=="modems" && $_product->get_attribute("Security Deposit") > 0  ) {
 
-    // Add deposits to summary if any exist
-    if ($total_deposits > 0) {
-        $summary['deposit'][0] = 'Deposits';
-        $summary['deposit'][1] = $total_deposits;
-        error_log("Total deposits: $total_deposits");
-    }
+				$security_deposit = $_product->get_attribute("Security Deposit");
+				$summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
+				$summary[$product_category][1] =  round( floatval($security_deposit), 2);
+				$do_not_include_modem_deposit = true;
 
-    // Calculate totals
-    if( $do_not_include_modem_deposit ) {
-        $summary['subtotal'][1] = $summary['internet-plan'][1] + $summary['installation'][1] + $summary['phone-plan'][1] + $summary['tv-plan'][1];
-        $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['deposit'][1] + $summary['taxes'][1] + $summary['modems'][1];
+			} else {
 
-        if (wc_tax_enabled() && !$show_included_taxes ) {
-            $summary['taxes'][0] = esc_html( WC()->countries->tax_or_vat() );
-        } elseif (!wc_tax_enabled()) {
-            $summary['taxes'][0] = "Tax";
-            $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['deposit'][1] + $summary['modems'][1];
-        }
-    } else {
-        $summary['subtotal'][1] = $summary['internet-plan'][1] + $summary['installation'][1] + $summary['modems'][1] + $summary['phone-plan'][1] + $summary['tv-plan'][1];
-        $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['deposit'][1] + $summary['taxes'][1];
-        
-        if (wc_tax_enabled() && !$show_included_taxes ) {
-            $summary['taxes'][0] = esc_html( WC()->countries->tax_or_vat() );
-        } elseif (!wc_tax_enabled()) {
-            $summary['taxes'][0] = "Tax";
-            $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['deposit'][1];
-        }
-    }
+			 	$summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
+				$summary[$product_category][1] =  round( floatval($line_data['subtotal']), 2 );
+				$summary['taxes'][1] += floatval($line_data['total_tax']);
+			
+			}
+			}
 
-    error_log("=== FINAL SUMMARY ===");
-    error_log("Internet Plan: $" . $summary['internet-plan'][1]);
-    error_log("Modem Deposit: $" . $summary['modems'][1]);
-    error_log("Installation: $" . $summary['installation'][1]);
-    error_log("Phone Plan: $" . $summary['phone-plan'][1]);
-    error_log("TV Plan: $" . $summary['tv-plan'][1]);
-    error_log("TV Deposit: $" . $tv_deposit);
-    error_log("Phone Deposit: $" . $phone_deposit);
-    error_log("Deposits Total: $" . $total_deposits);
-    error_log("Subtotal: $" . $summary['subtotal'][1]);
-    error_log("Tax: $" . $summary['taxes'][1]);
-    error_log("Grand Total: $" . $summary['grand_total'][1]);
-    
-    return $summary;    
+		}
+		 
+	}
+
+	if( $do_not_include_modem_deposit ) {
+
+		$summary['subtotal'][1] = $summary['internet-plan'][1] + $summary['fixed-fee'][1] ;	
+		if (wc_tax_enabled() && !$show_included_taxes ) {
+			$summary['taxes'][0] = esc_html( WC()->countries->tax_or_vat() );
+			$summary['grand_total'][1] = $summary['subtotal'][1]+ $summary['deposit'][1]  + $summary['taxes'][1]+$summary['modems'][1];	
+		} elseif (!wc_tax_enabled()) {
+			$summary['taxes'][0] = "Tax";
+			$summary['taxes'][1] = 0.0;
+			$summary['grand_total'][1] = $summary['subtotal'][1]+ $summary['deposit'][1]  +$summary['modems'][1];	
+		}
+
+	} else {
+
+		$summary['subtotal'][1] = $summary['internet-plan'][1] + $summary['fixed-fee'][1] + $summary['modems'][1];	
+		if (wc_tax_enabled() && !$show_included_taxes ) {
+			$summary['taxes'][0] = esc_html( WC()->countries->tax_or_vat() );
+			$summary['grand_total'][1] = $summary['subtotal'][1]+ $summary['deposit'][1]  + $summary['taxes'][1];	
+		} elseif (!wc_tax_enabled()) {
+			$summary['taxes'][0] = "Tax";
+			$summary['taxes'][1] = 0.0;
+			$summary['grand_total'][1] = $summary['subtotal'][1]+ $summary['deposit'][1];	
+		}
+	}
+
+	
+	return $summary;	
 }
 
-
-/* ----- Zach Edit ---- Commented out to restore default Woocommerce Price Totals based on default price fields &
-show default payment gateways on Checkout
-
-add_filter( 'woocommerce_calculated_total', 'change_calculated_total', 10, 2 );
+/*add_filter( 'woocommerce_calculated_total', 'change_calculated_total', 10, 2 );
 function change_calculated_total( $total, $cart ) {
     
 	$summary = get_upfront_fee_summary();
@@ -9372,9 +8937,7 @@ function add_custom_price( $cart_object ) {
     $cart_object->subtotal = $summary['subtotal'][1];
     $cart_object->tax_total = $summary['tax'][1];
      
-}
-
----- */
+} */
 
 function GetModemsInfo(&$plan_name, &$fees, &$class_name, &$upfront_info ) {
 	foreach ( WC()->cart->get_cart() as $cart_item_key => $cart_item ) {
@@ -9395,26 +8958,10 @@ function GetModemsInfo(&$plan_name, &$fees, &$class_name, &$upfront_info ) {
 		}
 		
 		$class_name = esc_attr( apply_filters( 'woocommerce_cart_item_class', 'cart_item', $cart_item, $cart_item_key ) );
-		
-		// FIX: Check if this is "I Have My Own Modem" product and handle modem details specially
-		$product_id = $_product->get_id();
-		
-		if ($product_id == 265769 && isset($cart_item['modem_details']) && !empty($cart_item['modem_details'])) {
-			// For "I Have My Own Modem", build the plan name manually WITHOUT using wc_get_formatted_cart_item_data
-			$product_name = apply_filters( 'woocommerce_cart_item_name', $_product->get_name(), $cart_item, $cart_item_key );
-			$modem_details_full = $cart_item['modem_details']; // Get the FULL details directly
-			
-			// Build plan name with full modem details
-			$plan_name = $product_name . '<br><em style="font-style: italic; color: #666;">' . esc_html($modem_details_full) . '</em>';
-			
-			error_log("GetModemsInfo: Full modem details = " . $modem_details_full . " (length: " . strlen($modem_details_full) . ")");
-		} else {
-			// For regular modems, use the standard WooCommerce formatting
-			$plan_name = apply_filters( 'woocommerce_cart_item_name', $_product->get_name(), $cart_item, $cart_item_key ) . '&nbsp;' . wc_get_formatted_cart_item_data( $cart_item );
-		}
+		$plan_name = apply_filters( 'woocommerce_cart_item_name', $_product->get_name(), $cart_item, $cart_item_key ) . '&nbsp;' . wc_get_formatted_cart_item_data( $cart_item );
 		
 		$ProdPrice = $_product->get_price();
-		$fees = $ProdPrice;
+		$fees = "$" . number_format($ProdPrice, 2) . "/mo";
 	
 		if( $_product->get_attribute( "Security Deposit" ) > 0 ) {
 			$sec_depoist = $_product->get_attribute( "Security Deposit" );
@@ -9432,6 +8979,7 @@ function GetModemsInfo(&$plan_name, &$fees, &$class_name, &$upfront_info ) {
 	return false;
 }
 
+//Eugene updated to correctly show the promo price and regular price plus Free 3 months on the Email and Thank You page summaries
 function GetPhoneInfo(&$plan_name, &$fees, &$class_name) {
 	foreach ( WC()->cart->get_cart() as $cart_item_key => $cart_item ) {
 			
@@ -9451,14 +8999,24 @@ function GetPhoneInfo(&$plan_name, &$fees, &$class_name) {
 		
 		$class_name = esc_attr( apply_filters( 'woocommerce_cart_item_class', 'cart_item', $cart_item, $cart_item_key ) );
 		$plan_name = apply_filters( 'woocommerce_cart_item_name', $_product->get_name(), $cart_item, $cart_item_key ) . '&nbsp;' . wc_get_formatted_cart_item_data( $cart_item );
-		
+
 		$ProdQuant = $cart_item['quantity'];
-		$ProdPrice = $_product->get_price();
+		$regular = round($_product->get_regular_price() * $ProdQuant, 2);
+		$sale = round($_product->get_sale_price() * $ProdQuant, 2);
 		$freq = $_product->get_attribute("Payment Frequency");
-		if( strlen($freq) > 0) {
-			$fees = $ProdPrice . " " . $freq ;
+		$fees = "";
+
+		// Eugene updated to show proper pricing for Phone section of Email and Thank You summaries
+		if ($regular > 0 && $sale == 0) {
+			$fees = "<s>$$regular/mo</s> Free for 3 months";
+		} elseif ($sale > 0 && $sale < $regular) {
+			$fees = "<s>$$regular/mo</s> $$sale/mo";
 		} else {
-			$fees = $ProdPrice;
+			$fees = "$" . round($_product->get_price() * $ProdQuant, 2) . "/mo";
+		}
+
+		if (strlen($freq) > 0 && strpos($fees, $freq) === false) {
+			$fees .= " " . $freq;
 		}
 
 		return true;
@@ -9466,7 +9024,6 @@ function GetPhoneInfo(&$plan_name, &$fees, &$class_name) {
 
 	return false;
 }
-
 
 function GetInternetPlanInfo( &$plan_name, &$fees, &$class_name  ) {
 
@@ -9508,7 +9065,7 @@ function GetInternetPlanInfo( &$plan_name, &$fees, &$class_name  ) {
 
 		$freq = $_product->get_attribute("Payment Frequency");
 		if( strlen($freq) > 0) {
-			$fees .= $freq ;
+			$fees .= " " . $freq;
 		}
 
 		return true;
@@ -9564,7 +9121,6 @@ function GetInstallationFees(&$fees, &$class_name, &$name) {
 }
 
 
-
 add_filter( 'default_checkout_billing_state', 'xa_set_default_checkout_state' );
 function xa_set_default_checkout_state() {
   // Returns empty state by default.
@@ -9576,17 +9132,16 @@ function xa_set_default_checkout_state() {
 add_filter( 'woocommerce_checkout_fields' , 'custom_override_checkout_fields',99 );
 
 // Our hooked in function - $fields is passed via the filter!
-
 function custom_override_checkout_fields( $fields ) {
      
-   /*  $ubpo = dg_get_user_meta ("upfront_bill_payment_option");
+     $ubpo = dg_get_user_meta ("upfront_bill_payment_option");
      
      //billing fields not required for email trasfer payment option.
      if ($ubpo=="email-transfer") {
 	     
 	     foreach($fields['billing'] as $key=>$val) {
 		     
-		     $fields['billing'][$key]['required'] = true;
+		     $fields['billing'][$key]['required'] = false;
 	     }
      }
      
@@ -9601,11 +9156,8 @@ function custom_override_checkout_fields( $fields ) {
      }
      
      $fields['billing']['billing_first_name']['label'] = "Billing first name";
-	 $fields['billing']['billing_first_name']['required'] = true;
      $fields['billing']['billing_last_name']['label'] = "Billing last name";
-	 $fields['billing']['billing_last_name']['required'] = true;  
      $fields['billing']['billing_email']['label'] = "Billing email address";
-	 $fields['billing']['billing_email']['required'] = true;  
      $fields['billing']['billing_city']['label'] = "City";
      $fields['billing']['billing_postcode']['label'] = "Postal Code";
      
@@ -9619,13 +9171,13 @@ function custom_override_checkout_fields( $fields ) {
      $fields['billing']['billing_postcode']['class'][2] = "forceuppercase";
      $fields['billing']['billing_phone']['class'][0] = "form-row-last";
      $fields['billing']['billing_phone']['required'] = true; 
-	*/
-	
+     
+     
      unset($fields['billing']['billing_company']);
      unset($fields['billing']['billing_address_2']);
-     // unset($fields['order']['order_comments']);
+     unset($fields['order']['order_comments']);
      
-    /* 
+     
      $fields['billing']['service_address'] = array(
 	        'label'     => __('Service Address', 'woocommerce'),
 		    'placeholder'   => _x('Service Address', 'placeholder', 'woocommerce'),
@@ -9697,10 +9249,9 @@ function custom_override_checkout_fields( $fields ) {
 		    'clear'     => true,
 		    'default' 	=> dg_get_user_meta ('phone')
 		);
-		*/
 
-     /*--
-	 	$fields['billing']['how_did_you_hear_about_us'] = array(
+     /*
+	$fields['billing']['how_did_you_hear_about_us'] = array(
 	        'label'     => __('How did you hear about us', 'woocommerce'),
 		    'placeholder'   => _x('How did you hear about us', 'placeholder', 'woocommerce'),
 		    'required'  => true,
@@ -9708,8 +9259,8 @@ function custom_override_checkout_fields( $fields ) {
 		    'clear'     => true,
 		    'default' 	=> dg_get_user_meta ('how_did_you_hear_about_us')
 		);
-      */ 
-	/*$fields['billing']['referrer_name'] = array(
+      */
+	$fields['billing']['referrer_name'] = array(
 	        'label'     => __('Referrer name', 'woocommerce'),
 		    'placeholder'   => _x('Referrer name', 'placeholder', 'woocommerce'),
 		    'required'  => false,
@@ -9717,63 +9268,34 @@ function custom_override_checkout_fields( $fields ) {
 		    'clear'     => true,
 		    'default' 	=> dg_get_user_meta ('referrer_name')
 		);
-		*/
-		
-		
      
      
     return $fields;
 }
 
-
-
-
-add_action( 'woocommerce_checkout_update_order_meta', 'saving_checkout_cf_data');
-function saving_checkout_cf_data( $order_id ) {
-	
-	//add checkout data to order meta
-    if(isset($_POST['checkout']) && is_array($_POST['checkout'])) {
-	    
+// Optimized by Eugene with ChatGPT help to update logic that was trying to encrypt with WordPress ID. Remove is_user_logged_in() check and always use get_dg_user_id()
+add_action('woocommerce_checkout_update_order_meta', 'saving_checkout_cf_data');
+function saving_checkout_cf_data($order_id) {
+	if (isset($_POST['checkout']) && is_array($_POST['checkout'])) {
 		SendInfoToSignupServer(50);
 
-	    foreach ($_POST['checkout'] as $key => $value) {
+		foreach ($_POST['checkout'] as $key => $value) {
+			if ($key == "monthly_cc" || $key == "monthly_bank") {
+				$token = maybe_serialize($value);
+				$encryption_key = get_dg_user_id(); // Always use cookie ID
+				$cryptor = new Cryptor($encryption_key);
+				$value = $cryptor->encrypt($token);
+				unset($token);
+				update_post_meta($order_id, "dg_user_hash", $encryption_key);
+			}
 
-
-		    if ($key=="monthly_cc" || $key=="monthly_bank") {
-			    
-			    
-			      $token = maybe_serialize($value);
-			      
-			      if (is_user_logged_in()) {
-				      $encryption_key = md5(get_dg_user_id());
-			      } else {
-				      $encryption_key = get_dg_user_id();
-			      }
-				
-				  $cryptor = new Cryptor($encryption_key);
-				  $value = $cryptor->encrypt($token);
-				  unset($token);
-				  update_post_meta( $order_id, "dg_user_hash", $encryption_key );
-			    
-		    }
-		    
-		    
-		    if (!is_array($value)) {
-			    update_post_meta( $order_id, $key, sanitize_text_field( $value ) );
-		    } else {
-			    update_post_meta( $order_id, $key, maybe_serialize($value) );
-		    }
-		    
-	    }
-    }
-    
-    //add billing fields to user meta
-    if (is_user_logged_in()) {
-		
-			    
-	    
-    }
-     
+			if (!is_array($value)) {
+				update_post_meta($order_id, $key, sanitize_text_field($value));
+			} else {
+				update_post_meta($order_id, $key, maybe_serialize($value));
+			}
+		}
+	}
 }
 
 add_action( 'woocommerce_order_status_on-hold', 'dg_on_order_processing');
@@ -9890,3 +9412,48 @@ function wporg_payment_box_html($post)
 function Cleanup_Number($val) {
 	return preg_replace('/[^0-9]/', '', $val);
 }
+
+// Eugene define shortcode to render order summary, which will be used on thank-you page
+function dg_order_summary_shortcode() {
+    $summary = dg_get_user_meta("order_summary_html");
+    if (!$summary) return "<p>We couldn’t find your order details. Please contact support.</p>";
+    return $summary;
+}
+add_shortcode('dg_order_summary', 'dg_order_summary_shortcode');
+
+
+// auto delete the old entries from the user_data
+function myplugin_schedule_daily_cleanup() {
+    if (! wp_next_scheduled('myplugin_daily_cleanup')) {
+        wp_schedule_event(strtotime('00:00:00'), 'daily', 'myplugin_daily_cleanup');
+    }
+}
+add_action('wp', 'myplugin_schedule_daily_cleanup');
+
+add_action('myplugin_daily_cleanup', 'myplugin_delete_old_entries');
+function myplugin_delete_old_entries() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'dg_user_data';
+
+    $one_week_ago = date('Y-m-d H:i:s', strtotime('-1 week'));
+
+    $deleted = $wpdb->query(
+        $wpdb->prepare(
+            "DELETE FROM $table_name WHERE timestamp < %s",
+            $one_week_ago
+        )
+    );
+
+    if ($deleted !== false) {
+        error_log("Deleted $deleted old entries from $table_name."); // Optional logging
+    }
+}
+
+function myplugin_clear_cron() {
+    $timestamp = wp_next_scheduled('myplugin_daily_cleanup');
+    if ($timestamp) {
+        wp_unschedule_event($timestamp, 'myplugin_daily_cleanup');
+    }
+}
+register_deactivation_hook(__FILE__, 'myplugin_clear_cron');
+
