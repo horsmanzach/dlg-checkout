@@ -460,7 +460,7 @@ add_action('wp_ajax_nopriv_confirm_customer_info', 'confirm_customer_info_handle
 function confirm_customer_info_handler() {
     
     // **TEST MODE TOGGLE** - Set to false to enable Diallog submission
-    $skip_diallog_submission = true; // Change to false when ready to send to Diallog
+    $skip_diallog_submission = false; // Change to false when ready to send to Diallog
     
     try {
         error_log('');
