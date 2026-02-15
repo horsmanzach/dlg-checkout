@@ -185,63 +185,72 @@ jQuery(document).ready(function ($) {
     // Function to populate upfront summary table (2 columns)
     // UPDATED: Now accepts data parameter for tax rate and handles promotional pricing
     function populateUpfrontSummary(summary, data) {
-        console.log('Populating upfront summary:', summary);
+    console.log('Populating upfront summary:', summary);
 
-        var $tbody = $('#upfront-items');
-        $tbody.empty(); // Clear any existing rows
+    var $tbody = $('#upfront-items');
+    $tbody.empty(); // Clear any existing rows
 
-        // Keys to handle specially
-        var skipKeys = ['subtotal', 'taxes', 'grand_total', 'ModemPurchaseOption'];
+    // Keys to handle specially
+    var skipKeys = ['subtotal', 'taxes', 'grand_total', 'ModemPurchaseOption'];
 
-        // Step 1: Add regular products (not deposits, not totals)
-        $.each(summary, function (key, value) {
-            if (skipKeys.indexOf(key) === -1 && value && value[1] > 0) {
-                var itemName = value[0] || key;
+    // Step 1: Add regular products (not deposits, not totals)
+    $.each(summary, function (key, value) {
+        if (skipKeys.indexOf(key) === -1 && value) {  // REMOVED: && value[1] > 0
+            var itemName = value[0] || key;
 
-                // Skip deposits for now
-                if (itemName.toLowerCase().includes('deposit')) {
-                    return true; // continue to next iteration
-                }
-
-                var itemDates = value[2] || '';
-
-                // NEW: Check for promotional pricing (indexes [3] and [4])
-                var originalPrice = value[3] || 0;  // [3] = original_price
-                var promoPrice = value[4] || 0;     // [4] = promo_price
-                var hasPromo = (originalPrice > 0 && promoPrice > 0);
-
-                var row = '<tr>' +
-                    '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">' + itemName;
-
-                // If this is Installation Fee and has dates, add them in italics
-                if (itemDates) {
-                    row += '<br><em style="font-style: italic; font-size: 0.9em; color: #666;">' +
-                        itemDates +
-                        '</em>';
-                }
-
-                row += '</td>' +
-                    '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">';
-
-                // NEW: Display promotional pricing if exists
-                if (hasPromo) {
-                    // Show strikethrough original price and green promo price
-                    row += '<span style="text-decoration: line-through; color: grey; font-size: 0.9em;">' +
-                        formatCurrency(originalPrice) +
-                        '</span><br>' +
-                        '<span style="color: green;">' +
-                        formatCurrency(promoPrice) +
-                        '</span>';
-                } else {
-                    // Regular price display
-                    row += formatCurrency(value[1]);
-                }
-
-                row += '</td></tr>';
-
-                $tbody.append(row);
+            // Skip deposits for now
+            if (itemName.toLowerCase().includes('deposit')) {
+                return true; // continue to next iteration
             }
-        });
+
+            // NEW: Always show installation items even if price is 0
+            var isInstallation = (itemName.toLowerCase().includes('installation') || key === 'installation');
+            
+            // Skip if price is 0 AND it's not installation
+            if (value[1] <= 0 && !isInstallation) {
+                return true; // continue to next iteration
+            }
+
+            var itemDates = value[2] || '';
+
+            // NEW: Check for promotional pricing (indexes [3] and [4])
+            var originalPrice = value[3] || 0;  // [3] = original_price
+            var promoPrice = value[4] || 0;     // [4] = promo_price (can be 0 for free!)
+            // Show promo styling if we have an original price AND it's different from promo price
+            var hasPromo = (originalPrice > 0 && originalPrice !== promoPrice);
+
+            var row = '<tr>' +
+                '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">' + itemName;
+
+            // If this is Installation Fee and has dates, add them in italics
+            if (itemDates) {
+                row += '<br><em style="font-style: italic; font-size: 0.9em; color: #666;">' +
+                    itemDates +
+                    '</em>';
+            }
+
+            row += '</td>' +
+                '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">';
+
+            // NEW: Display promotional pricing if exists
+            if (hasPromo) {
+                // Show strikethrough original price and green promo price
+                row += '<span style="text-decoration: line-through; color: grey; font-size: 0.9em;">' +
+                    formatCurrency(originalPrice) +
+                    '</span><br>' +
+                    '<span style="color: green;">' +
+                    formatCurrency(promoPrice) +
+                    '</span>';
+            } else {
+                // Regular price display
+                row += formatCurrency(value[1]);
+            }
+
+            row += '</td></tr>';
+
+            $tbody.append(row);
+        }
+    });
 
         // Step 2: Add Subtotal row
         if (summary.subtotal) {
