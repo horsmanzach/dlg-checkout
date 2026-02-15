@@ -3436,12 +3436,21 @@ function transform_order_data_for_email($diallog_order_data) {
 function send_customer_info_to_diallog($data) {
     error_log('--- PREPARING API PAYLOAD (STATE 50) ---');
     
+    // Generate unique transaction ID and receipt ID for this state 50 submission
+    $unique_transaction_id = 'PENDING-' . time() . '-' . wp_rand(1000, 9999);
+    $unique_receipt_id = 'PENDING-' . wp_rand(10000, 99999);
+    
+    error_log('Generated unique IDs for state 50:');
+    error_log('- Transaction ID: ' . $unique_transaction_id);
+    error_log('- Receipt ID: ' . $unique_receipt_id);
+    error_log('');
+    
     // Build the order_data object with placeholder payment info for state 50
     $order_data = array(
-        'order_state' => 'not_completed', // INSIDE order_data, just like state 100
+        'order_state' => 'not_completed',
         'payment_info' => array(
-            'transaction_id' => 'pending',
-            'receipt_id' => 'pending',
+            'transaction_id' => $unique_transaction_id, // CHANGED: unique ID instead of "pending"
+            'receipt_id' => $unique_receipt_id, // CHANGED: unique ID instead of "pending"
             'amount' => '0.00',
             'date' => date('Ymd'),
             'time' => date('H:i:s'),
@@ -3456,7 +3465,7 @@ function send_customer_info_to_diallog($data) {
         'customer_data' => $data['customer_data'],
         'upfront_summary' => $data['upfront_summary'],
         'monthly_summary' => $data['monthly_summary'],
-        'monthly_bill_payment_option' => 'not_selected' // Required field
+        'monthly_bill_payment_option' => 'not_selected'
     );
     
     // Prepare payload with single encoded order_data field (SAME as state 100)
@@ -3474,7 +3483,7 @@ function send_customer_info_to_diallog($data) {
     error_log('- method: newsignup');
     error_log('- state: 50');
     error_log('- order_state (inside order_data): not_completed');
-    error_log('- payment_info: placeholder values (pending)');
+    error_log('- payment_info: unique transaction/receipt IDs generated');
     error_log('- monthly_bill_payment_option: not_selected');
     error_log('');
 
