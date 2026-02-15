@@ -1,5 +1,7 @@
 <?php 
 
+error_log('=== FUNCTIONS.PHP IS LOADING ===');
+
 // Completely disable magnific_popup.css
 add_action('init', 'completely_disable_magnific_popup', 1);
 function completely_disable_magnific_popup() {
@@ -21,6 +23,8 @@ include_once("includes/availability_check.php");
 include_once("mpgClasses.php");
 include_once("includes/ProcessPayment.php");
 require_once(get_stylesheet_directory() . '/templates/customer-email.php');
+
+
 
 /* add_action( 'wp_enqueue_scripts', 'add_step8_script' );
 function add_step8_script() {
@@ -49,6 +53,64 @@ function fix_divi_special_characters($output, $tag, $attr, $m) {
 ================ NEW FUNCTIONS CREATED FOR REVAMPED VERSION OF SITE JANUARY 2026 ================
 ===============
 ================ */
+
+
+
+// AJAX handler to update current product in session
+add_action('wp_ajax_update_current_product_session', 'update_current_product_session');
+add_action('wp_ajax_nopriv_update_current_product_session', 'update_current_product_session');
+
+function update_current_product_session() {
+    if (!isset($_POST['product_id'])) {
+        wp_send_json_error(array('message' => 'No product ID provided'));
+        return;
+    }
+    
+    $product_identifier = sanitize_text_field($_POST['product_id']);
+    $product_id = null;
+    
+    // Check if it's a numeric ID or a slug
+    if (is_numeric($product_identifier)) {
+        $product_id = intval($product_identifier);
+    } else {
+        // It's a slug, find the product
+        $product_query = new WP_Query(array(
+            'post_type' => 'product',
+            'name' => $product_identifier,
+            'posts_per_page' => 1
+        ));
+        
+        if ($product_query->have_posts()) {
+            $product_id = $product_query->posts[0]->ID;
+        }
+    }
+    
+    if (!$product_id) {
+        error_log("Could not find product with identifier: " . $product_identifier);
+        wp_send_json_error(array('message' => 'Product not found'));
+        return;
+    }
+    
+    // Initialize WC session
+    if (!WC()->session) {
+        WC()->session->init();
+    }
+    
+    if (!WC()->session->has_session()) {
+        WC()->session->set_customer_session_cookie(true);
+    }
+    
+    $old_id = WC()->session->get('current_viewing_product_id');
+    WC()->session->set('current_viewing_product_id', $product_id);
+    WC()->session->save_data();
+    
+    error_log("=== JS TRIGGERED SESSION UPDATE ===");
+    error_log("Old product ID: " . ($old_id ? $old_id : 'none'));
+    error_log("New product ID: " . $product_id);
+    error_log("✓ Session updated and saved");
+    
+    wp_send_json_success(array('product_id' => $product_id));
+}
 
 
 // Get customer IP address
@@ -109,6 +171,8 @@ function ajax_store_terms_timestamp() {
 /**
  * Get customer info from WooCommerce checkout and stored address data
  */
+
+
 function dg_get_customer_info() {
     // Get the searched address from user meta (the Google Maps address - this is the SERVICE address)
     $searched_address = dg_get_user_meta("searched_address");
@@ -210,22 +274,51 @@ function dg_get_customer_info() {
         }
     }
     
-    // Get first and last name
+    // Get first and last name with fallback to user meta for logged-out users
     $first_name = WC()->customer->get_billing_first_name();
+    if (empty($first_name)) {
+        $first_name = dg_get_user_meta('billing_first_name');
+    }
+    
     $last_name = WC()->customer->get_billing_last_name();
+    if (empty($last_name)) {
+        $last_name = dg_get_user_meta('billing_last_name');
+    }
+    
+    // Get email with fallback to user meta for logged-out users
+    $email = WC()->customer->get_billing_email();
+    if (empty($email)) {
+        $email = dg_get_user_meta('billing_email');
+        error_log('Email retrieved from user meta: ' . $email);
+    } else {
+        error_log('Email retrieved from WC customer: ' . $email);
+    }
+    
+    // Get phone with fallback to user meta for logged-out users
+    $phone = WC()->customer->get_billing_phone();
+    if (empty($phone)) {
+        $phone = dg_get_user_meta('billing_phone');
+    }
     
     // Combine first and last name
     $full_name = trim($first_name . ' ' . $last_name);
     
+    error_log('=== FINAL CUSTOMER INFO ===');
+    error_log('First Name: ' . $first_name);
+    error_log('Last Name: ' . $last_name);
+    error_log('Email: ' . $email);
+    error_log('Phone: ' . $phone);
+    error_log('========================');
+    
     return array(
         'first_name' => $first_name,
         'last_name' => $last_name,
-        'full_name' => $full_name, // NEW: Combined name
-        'email' => WC()->customer->get_billing_email(),
-        'phone' => dg_format_phone_for_display(WC()->customer->get_billing_phone()),
-        'service_address_full' => $service_address_full, // NEW: Full service address on one line
-        'shipping_address_full' => $shipping_address_full, // NEW: Full shipping address on one line
-        // Keep legacy fields for backward compatibility (in case they're used elsewhere)
+        'full_name' => $full_name,
+        'email' => $email,
+        'phone' => dg_format_phone_for_display($phone),
+        'service_address_full' => $service_address_full,
+        'shipping_address_full' => $shipping_address_full,
+        // Keep legacy fields for backward compatibility
         'address' => $service_address_full,
         'city' => '',
         'province' => '',
@@ -448,16 +541,81 @@ function dg_get_thank_you_page_data() {
 }
 
 /**
+ * Prevent WooCommerce from caching product purchasability
+ * This ensures products always reflect their current state
+ */
+add_filter('woocommerce_product_is_purchasable', 'force_product_purchasability_check', 10, 2);
+function force_product_purchasability_check($is_purchasable, $product) {
+    // Don't use cached value - always recalculate
+    // This is safe because the calculation is lightweight
+    return $product->is_type('simple') && $product->get_price() !== null;
+}
+
+// Also clear product transients more frequently
+add_action('woocommerce_update_product', 'clear_product_transients_on_update');
+function clear_product_transients_on_update($product_id) {
+    delete_transient('wc_product_' . $product_id);
+    wc_delete_product_transients($product_id);
+}
+
+/**
+ * Ensure products with ACF dynamic pricing are always purchasable
+ */
+add_filter('woocommerce_product_is_purchasable', 'ensure_dynamic_price_products_purchasable', 20, 2);
+function ensure_dynamic_price_products_purchasable($is_purchasable, $product) {
+    // If product has a dynamic sale price ACF field, it's purchasable
+    $dynamic_sale_price = get_field('dynamic_sale_price', $product->get_id());
+    
+    if ($dynamic_sale_price !== false && $dynamic_sale_price !== null) {
+        return true;
+    }
+    
+    return $is_purchasable;
+}
+
+// Debug Internet plan products - NO conditionals
+add_action('wp', 'debug_internet_plan_product', 999); // High priority to run late
+function debug_internet_plan_product() {
+    global $post;
+    
+    error_log('=== INTERNET PLAN TEMPLATE DEBUG (FORCED) ===');
+    error_log('Current URL: ' . $_SERVER['REQUEST_URI']);
+    error_log('is_singular(product): ' . (is_singular('product') ? 'YES' : 'NO'));
+    error_log('Global Post exists: ' . (isset($post) ? 'YES' : 'NO'));
+    
+    if (isset($post)) {
+        error_log('Post ID: ' . $post->ID);
+        error_log('Post Type: ' . $post->post_type);
+        error_log('Post Slug: ' . $post->post_name);
+        
+        if ($post->post_type === 'product') {
+            $product = wc_get_product($post->ID);
+            
+            if ($product) {
+                error_log('Product loaded successfully!');
+                error_log('Is Purchasable: ' . ($product->is_purchasable() ? 'YES' : 'NO'));
+                error_log('Regular Price: "' . $product->get_regular_price() . '"');
+                error_log('Sale Price: "' . $product->get_sale_price() . '"');
+                error_log('Price: "' . $product->get_price() . '"');
+                
+                $monthly_fee = get_field('monthly_fee', $product->get_id());
+                $dynamic_sale = get_field('dynamic_sale_price', $product->get_id());
+                error_log('ACF Monthly Fee: "' . $monthly_fee . '"');
+                error_log('ACF Dynamic Sale: "' . $dynamic_sale . '"');
+            }
+        }
+    }
+    error_log('=== END DEBUG ===');
+}
+
+/**
  * AJAX Handler: Confirm Customer Info and Send to Diallog
  * Called when "Confirm Customer Info" button is clicked
  * Saves data to WC session and sends to Diallog with state 50
  */
 
-add_action('wp_ajax_confirm_customer_info', 'confirm_customer_info_handler');
-add_action('wp_ajax_nopriv_confirm_customer_info', 'confirm_customer_info_handler');
 
-
-function confirm_customer_info_handler() {
+ function confirm_customer_info_handler() {
     
     // **TEST MODE TOGGLE** - Set to false to enable Diallog submission
     $skip_diallog_submission = false; // Change to false when ready to send to Diallog
@@ -479,13 +637,33 @@ function confirm_customer_info_handler() {
         if (!WC()->session || !WC()->session->has_session()) {
             WC()->session->set_customer_session_cookie(true);
         }
-        
-            // NEW: Save phone to WooCommerce customer BEFORE getting customer info
-    if (isset($_POST['phone']) && !empty($_POST['phone'])) {
-        $phone_digits = preg_replace('/\D/', '', $_POST['phone']); // Strip formatting
-        WC()->customer->set_billing_phone($phone_digits);
-        error_log('Phone saved to WC customer: ' . $phone_digits);
-    }
+
+ // Save customer name and email to WooCommerce customer AND user meta
+if (isset($_POST['first_name']) && !empty($_POST['first_name'])) {
+    WC()->customer->set_billing_first_name(sanitize_text_field($_POST['first_name']));
+    dg_set_user_meta('billing_first_name', sanitize_text_field($_POST['first_name']));
+    error_log('First name saved to WC customer and user meta: ' . $_POST['first_name']);
+}
+
+if (isset($_POST['last_name']) && !empty($_POST['last_name'])) {
+    WC()->customer->set_billing_last_name(sanitize_text_field($_POST['last_name']));
+    dg_set_user_meta('billing_last_name', sanitize_text_field($_POST['last_name']));
+    error_log('Last name saved to WC customer and user meta: ' . $_POST['last_name']);
+}
+
+if (isset($_POST['email']) && !empty($_POST['email'])) {
+    WC()->customer->set_billing_email(sanitize_email($_POST['email']));
+    dg_set_user_meta('billing_email', sanitize_email($_POST['email']));
+    error_log('Email saved to WC customer and user meta: ' . $_POST['email']);
+}
+
+// Save phone to WooCommerce customer AND user meta
+if (isset($_POST['phone']) && !empty($_POST['phone'])) {
+    $phone_digits = preg_replace('/\D/', '', $_POST['phone']);
+    WC()->customer->set_billing_phone($phone_digits);
+    dg_set_user_meta('billing_phone', $phone_digits);
+    error_log('Phone saved to WC customer and user meta: ' . $phone_digits);
+}
     
         // Get customer data using the SAME method as prepare_diallog_order_data
         $customer_info = dg_get_customer_info();
@@ -599,6 +777,9 @@ function confirm_customer_info_handler() {
     }
 }
 
+add_action('wp_ajax_confirm_customer_info', 'confirm_customer_info_handler');
+add_action('wp_ajax_nopriv_confirm_customer_info', 'confirm_customer_info_handler');
+
 
 /**
  * Get the tax rate percentage based on customer's state/province
@@ -666,6 +847,54 @@ function ajax_get_thank_you_data() {
 }
 
 /**
+ * Enqueue Product Session Update Script
+ */
+function enqueue_product_session_update_script() {
+    error_log('=== ENQUEUE PRODUCT SESSION UPDATE SCRIPT RUNNING ===');
+    
+    wp_enqueue_script(
+        'product-session-update',
+        get_stylesheet_directory_uri() . '/js/product-session-update.js',
+        array('jquery'),
+        '1.0.5',
+        true
+    );
+    
+    error_log('Script enqueued: product-session-update');
+    
+    // Localize with AJAX data
+    wp_localize_script('product-session-update', 'diallog_ajax', array(
+        'ajax_url' => admin_url('admin-ajax.php'),
+        'nonce' => wp_create_nonce('diallog_ajax_nonce'),
+        'confirm_customer_info_nonce' => wp_create_nonce('confirm_customer_info_nonce')
+    ));
+}
+add_action('wp_enqueue_scripts', 'enqueue_product_session_update_script');
+
+function enqueue_customer_info_confirm_script() {
+    // Only load on checkout pagef
+    if (is_checkout() || is_page(267950)) {
+        
+        wp_enqueue_script(
+            'customer-info-confirm-js',
+            get_stylesheet_directory_uri() . '/js/customer-info-confirm.js',
+            array('jquery'),
+            '1.0.2', // Bump version
+            true
+        );
+        
+        // Localize with AJAX data
+        wp_localize_script('customer-info-confirm-js', 'diallog_ajax', array(
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('diallog_ajax_nonce'),
+            'confirm_customer_info_nonce' => wp_create_nonce('confirm_customer_info_nonce')
+        ));
+    }
+}
+add_action('wp_enqueue_scripts', 'enqueue_customer_info_confirm_script', 14);
+
+
+/**
  * Enqueue Thank You page JavaScript
  */
 function enqueue_thank_you_scripts() {
@@ -675,7 +904,7 @@ function enqueue_thank_you_scripts() {
             'thank-you-js',
             get_stylesheet_directory_uri() . '/js/thank-you.js',
             array('jquery'),
-            '1.0.0',
+            '1.0.2',
             true
         );
         
@@ -704,30 +933,6 @@ function enqueue_billing_fields_formatting() {
 }
 add_action('wp_enqueue_scripts', 'enqueue_billing_fields_formatting');
 
-
-/**
- * Enqueue Customer Info Confirmation Script with AJAX support
- */
-function enqueue_customer_info_confirm_script() {
-    // Only load on checkout page
-    if (is_checkout() || is_page(267950)) {
-        
-        wp_enqueue_script(
-            'customer-info-confirm-js',
-            get_stylesheet_directory_uri() . '/js/customer-info-confirm.js',
-            array('jquery'),
-            '1.0.1', // Bumped version for API integration
-            true
-        );
-        
-        // Localize script with AJAX data for API call
-        wp_localize_script('customer-info-confirm-js', 'diallog_ajax', array(
-            'ajax_url' => admin_url('admin-ajax.php'),
-            'nonce' => wp_create_nonce('confirm_customer_info_nonce') // Matches handler verification
-        ));
-    }
-}
-add_action('wp_enqueue_scripts', 'enqueue_customer_info_confirm_script', 14);
 
 // Enqueue CustoomAJAX JS File - contains preloader functionality when dynamically updating upfront total shortcode
 
@@ -3227,56 +3432,79 @@ function transform_order_data_for_email($diallog_order_data) {
 /**
  * Send customer info to Diallog (state 50 - info confirmed but not completed)
  */
- function send_customer_info_to_diallog($data) {
-    error_log('--- PREPARING API PAYLOAD ---');
+ 
+function send_customer_info_to_diallog($data) {
+    error_log('--- PREPARING API PAYLOAD (STATE 50) ---');
     
-    // Prepare payload with order_state at the top
+    // Build the order_data object with placeholder payment info for state 50
+    $order_data = array(
+        'order_state' => 'not_completed', // INSIDE order_data, just like state 100
+        'payment_info' => array(
+            'transaction_id' => 'pending',
+            'receipt_id' => 'pending',
+            'amount' => '0.00',
+            'date' => date('Ymd'),
+            'time' => date('H:i:s'),
+            'card_type' => 'pending',
+            'auth_code' => 'pending',
+            'reference_num' => 'pending',
+            'test_mode' => true,
+            'order_timestamp' => date('F j, Y \a\t g:i A T'),
+            'order_source' => 'website_checkout',
+            'terms_acceptance_timestamp' => 'pending'
+        ),
+        'customer_data' => $data['customer_data'],
+        'upfront_summary' => $data['upfront_summary'],
+        'monthly_summary' => $data['monthly_summary'],
+        'monthly_bill_payment_option' => 'not_selected' // Required field
+    );
+    
+    // Prepare payload with single encoded order_data field (SAME as state 100)
     $payload_data = array(
-        'order_state' => 'not_completed',
         'status' => 0,
         'magic' => 'Sl2soDSpLAsHqetS',
         'api' => '1.00',
         'method' => 'newsignup',
         'state' => 50,
-        'customer_data' => base64_encode(json_encode($data['customer_data'])),
-        'upfront_summary' => base64_encode(json_encode($data['upfront_summary'])),
-        'monthly_summary' => base64_encode(json_encode($data['monthly_summary'])),
+        'order_data' => base64_encode(json_encode($order_data)),
         'ip' => $_SERVER['REMOTE_ADDR'] ?? ''
     );
 
     error_log('Payload structure prepared:');
-    error_log('- order_state: not_completed (FIRST FIELD)');
     error_log('- method: newsignup');
     error_log('- state: 50');
+    error_log('- order_state (inside order_data): not_completed');
+    error_log('- payment_info: placeholder values (pending)');
+    error_log('- monthly_bill_payment_option: not_selected');
     error_log('');
 
     $payload = json_encode($payload_data);
     
-    error_log('--- RAW JSON PAYLOAD (WITH BASE64 ENCODED DATA) ---');
+    error_log('--- RAW JSON PAYLOAD (WITH BASE64 ENCODED order_data) ---');
     error_log($payload);
     error_log('');
     error_log('Payload size: ' . strlen($payload) . ' bytes');
     error_log('');
 
     error_log('--- DECODED PREVIEW (FOR VERIFICATION) ---');
-    error_log('Customer Data (decoded): ' . json_encode($data['customer_data'], JSON_PRETTY_PRINT));
+    error_log('Order Data (decoded): ' . json_encode($order_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     error_log('');
 
     // Initialize cURL
     error_log('--- INITIATING CURL REQUEST ---');
-    error_log('Target URL: https://sg.diallog.com/signup'); // NEW URL
+    error_log('Target URL: https://sg.diallog.com/signup');
     error_log('Method: POST');
     error_log('SSL Verification: ENABLED');
     error_log('');
     
     $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, "https://sg.diallog.com/signup"); // NEW URL
+    curl_setopt($ch, CURLOPT_URL, "https://sg.diallog.com/signup");
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLINFO_HEADER_OUT, true);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2); // ENABLE SSL verification for production
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); // ENABLE SSL verification for production
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
     curl_setopt($ch, CURLOPT_HTTPHEADER, array(
         'Content-Type: application/json',
         'Content-Length: ' . strlen($payload)
@@ -3286,7 +3514,6 @@ function transform_order_data_for_email($diallog_order_data) {
     $response = curl_exec($ch);
     $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $curl_error = curl_error($ch);
-    $info = curl_getinfo($ch);
     curl_close($ch);
 
     error_log('--- CURL REQUEST COMPLETED ---');
@@ -3321,44 +3548,44 @@ function transform_order_data_for_email($diallog_order_data) {
  */
 /**
  * Send complete order to Diallog (state 100 - order completed with payment)
- */
-function send_order_to_diallog($order_data) {
-    $payload_data = array(
-        'order_state' => 'completed',
-        'status' => 0,
-        'magic' => 'Sl2soDSpLAsHqetS',
-        'api' => '1.00',
-        'method' => 'complete_order',
-        'state' => 100,
-        'order_data' => base64_encode(json_encode($order_data)),
-        'ip' => $_SERVER['REMOTE_ADDR'] ?? ''
-    );
-    
-    $payload = json_encode($payload_data);
-    
-    error_log("Sending complete order to Diallog (state 100 - COMPLETED): " . $payload);
-    
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, "https://sg.diallog.com/signup"); // NEW URL
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLINFO_HEADER_OUT, true);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2); // ENABLE SSL verification for production
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); // ENABLE SSL verification for production
-    curl_setopt($ch, CURLOPT_HTTPHEADER, array(
-        'Content-Type: application/json',
-        'Content-Length: ' . strlen($payload)
-    ));
-    
-    $response = curl_exec($ch);
-    $info = curl_getinfo($ch);
-    curl_close($ch);
-    
-    error_log("Diallog API response (state 100 - COMPLETED): " . $response);
-    
-    return $response;
-}
+    */
+    function send_order_to_diallog($order_data) {
+        $payload_data = array(
+            'order_state' => 'completed',
+            'status' => 0,
+            'magic' => 'Sl2soDSpLAsHqetS',
+            'api' => '1.00',
+            'method' => 'complete_order',
+            'state' => 100,
+            'order_data' => base64_encode(json_encode($order_data)),
+            'ip' => $_SERVER['REMOTE_ADDR'] ?? ''
+        );
+        
+        $payload = json_encode($payload_data);
+        
+        error_log("Sending complete order to Diallog (state 100 - COMPLETED): " . $payload);
+        
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, "https://sg.diallog.com/signup"); // NEW URL
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLINFO_HEADER_OUT, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2); // ENABLE SSL verification for production
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); // ENABLE SSL verification for production
+        curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+            'Content-Type: application/json',
+            'Content-Length: ' . strlen($payload)
+        ));
+        
+        $response = curl_exec($ch);
+        $info = curl_getinfo($ch);
+        curl_close($ch);
+        
+        error_log("Diallog API response (state 100 - COMPLETED): " . $response);
+        
+        return $response;
+    }
 
 
 /**
@@ -4462,11 +4689,63 @@ function debug_cart_contents() {
 
 // --------------------Monthly Fee Summary Table Shortcode with Internet Plan and Promotional Pricing
 
-
-function monthly_fee_summary_shortcode() {
+    function monthly_fee_summary_shortcode() {
     global $post;
     
-    // Trigger action to indicate we're calculating monthly fees
+    $current_url = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
+    error_log("Current URL: " . $current_url);
+    
+    // If AJAX context, try to load product from session
+    if (strpos($current_url, 'admin-ajax.php') !== false) {
+        error_log("AJAX context detected - loading from session");
+        
+        if (WC()->session) {
+            $stored_product_id = WC()->session->get('current_viewing_product_id');
+            
+            if ($stored_product_id) {
+                $post = get_post($stored_product_id);
+                error_log("✓ Product loaded from session: " . $stored_product_id);
+            } else {
+                error_log("✗ No product ID in session");
+            }
+        }
+    } else {
+        // Normal page load - try to get product normally
+        error_log("Normal page context");
+        
+        if (!$post && strpos($current_url, '/product/') !== false) {
+            $slug = basename(trim(parse_url($current_url, PHP_URL_PATH), '/'));
+            
+            $product_query = new WP_Query(array(
+                'post_type' => 'product',
+                'name' => $slug,
+                'posts_per_page' => 1
+            ));
+            
+            if ($product_query->have_posts()) {
+                $post = $product_query->posts[0];
+                error_log("✓ Product loaded from URL: " . $post->ID);
+            }
+        }
+    }
+    
+    // NEW: If we loaded a product from URL (not AJAX), update the session
+    if ($post && isset($post->ID) && strpos($current_url, 'admin-ajax.php') === false) {
+        if (WC()->session) {
+            $old_id = WC()->session->get('current_viewing_product_id');
+            
+            if ($old_id != $post->ID) {
+                error_log("Updating stored product ID in session: $old_id → " . $post->ID);
+            }
+            
+            WC()->session->set('current_viewing_product_id', $post->ID);
+            error_log("Session updated with current product: " . $post->ID);
+        }
+    }
+    
+    error_log("Final product status: " . ($post && isset($post->post_type) && $post->post_type === 'product' ? 'ID=' . $post->ID : 'NO PRODUCT'));
+    
+    // Continue with rest of function...
     do_action('monthly_fee_summary_calculation');
     
     // Get cart items
@@ -4488,11 +4767,11 @@ function monthly_fee_summary_shortcode() {
     
     error_log("=== MONTHLY FEE SUMMARY DEBUG ===");
     error_log("Internet plan category ID: " . $internet_plan_category_id);
-    error_log("Is product page: " . (is_product() ? 'YES' : 'NO'));
-    error_log("Post ID: " . ($post ? $post->ID : 'NO POST'));
-    
-    // Check if we're on a product page and handle cart addition FIRST
-    if (is_product() && $post && !is_checkout() && !is_cart() && !(defined('DOING_AJAX') && DOING_AJAX)) {
+  error_log("Is product page: " . ($post && $post->post_type === 'product' ? 'YES' : 'NO'));
+error_log("Post ID: " . ($post ? $post->ID : 'NO POST'));
+error_log("Post Type: " . ($post ? $post->post_type : 'N/A'));
+
+    if ($post && $post->post_type === 'product' && !is_checkout() && !is_cart()) {
         $current_product_id = $post->ID;
         error_log("Current product ID: " . $current_product_id);
         
@@ -4509,49 +4788,76 @@ function monthly_fee_summary_shortcode() {
                 error_log("Is internet plan: " . ($is_internet_plan ? 'YES' : 'NO'));
                 
                 if ($is_internet_plan) {
-                    // Check if there's a DIFFERENT internet plan in cart
-                    $different_plan_found = false;
-                    
-                    foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
-                        $cart_product_cats = wp_get_post_terms($cart_item['product_id'], 'product_cat', array('fields' => 'ids'));
-                        $cart_item_is_internet_plan = in_array($internet_plan_category_id, $cart_product_cats);
-                        
-                        if ($cart_item_is_internet_plan && $cart_item['product_id'] != $current_product_id) {
-                            $different_plan_found = true;
-                            error_log("Found different internet plan in cart: " . $cart_item['product_id']);
-                            break;
-                        }
-                    }
-                    
-                    // If a different plan was found, CLEAR THE ENTIRE CART
-                    if ($different_plan_found) {
-                        error_log("CLEARING ENTIRE CART - Switching from different internet plan");
-                        $cart->empty_cart();
-                    }
-                    
-                    // Now check if current plan is already in cart
-                    $current_plan_in_cart = false;
-                    foreach ($cart->get_cart() as $cart_item) {
-                        if ($cart_item['product_id'] == $current_product_id) {
-                            $current_plan_in_cart = true;
-                            $internet_plan_in_cart = true;
-                            error_log("Current internet plan already in cart");
-                            break;
-                        }
-                    }
-                    
-                    // Add current plan if not already in cart
-                    if (!$current_plan_in_cart) {
-                        $added = $cart->add_to_cart($current_product_id, 1);
-                        if ($added) {
-                            $internet_plan_in_cart = true;
-                            error_log("Added current internet plan to cart: " . $current_product_id);
-                        }
-                    }
-                }
+    // Log what we're checking
+    error_log("=== CHECKING FOR DIFFERENT INTERNET PLAN ===");
+    error_log("Current product ID: " . $current_product_id);
+    error_log("Current internet plan category ID: " . $internet_plan_category_id);
+    error_log("Cart contents before check:");
+    foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
+        error_log("  - Product ID: " . $cart_item['product_id'] . " | Name: " . $cart_item['data']->get_name());
+    }
+    
+    // Check if there's a DIFFERENT internet plan in cart
+    $different_plan_found = false;
+    
+    foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
+        $cart_product_cats = wp_get_post_terms($cart_item['product_id'], 'product_cat', array('fields' => 'ids'));
+        $cart_item_is_internet_plan = in_array($internet_plan_category_id, $cart_product_cats);
+        
+        if ($cart_item_is_internet_plan && $cart_item['product_id'] != $current_product_id) {
+            $different_plan_found = true;
+            error_log("✓ Found different internet plan in cart: " . $cart_item['product_id']);
+            break;
+        }
+    }
+    
+    // If a different plan was found, CLEAR THE ENTIRE CART
+    if ($different_plan_found) {
+        error_log("CLEARING ENTIRE CART - Switching from different internet plan");
+        
+        // Clear cart using multiple methods to ensure it works
+        WC()->cart->empty_cart();
+        
+        // Also clear cart in session
+        if (WC()->session) {
+            WC()->session->set('cart', array());
+        }
+        
+        // Force WooCommerce to recognize the cart is empty
+        WC()->cart->set_cart_contents(array());
+        
+        error_log("✓ Cart cleared - Item count after clearing: " . WC()->cart->get_cart_contents_count());
+    } else {
+        error_log("No different internet plan found - keeping existing cart items");
+    }
+    
+    error_log("=== END DIFFERENT PLAN CHECK ===");
+    error_log("");
+    
+    // Now check if current plan is already in cart
+    $current_plan_in_cart = false;
+    foreach ($cart->get_cart() as $cart_item) {
+        if ($cart_item['product_id'] == $current_product_id) {
+            $current_plan_in_cart = true;
+            $internet_plan_in_cart = true;
+            error_log("Current internet plan already in cart");
+            break;
+        }
+    }
+    
+    // Add current plan if not already in cart
+    if (!$current_plan_in_cart) {
+        $added = $cart->add_to_cart($current_product_id, 1);
+        if ($added) {
+            $internet_plan_in_cart = true;
+            error_log("Added current internet plan to cart: " . $current_product_id);
+            }
+        }
+    }   
             }
         }
     }
+
     
     // Build the table output
     $output = '<table class="fee-summary-table monthly-fee-table">';
@@ -4559,7 +4865,7 @@ function monthly_fee_summary_shortcode() {
     $output .= '<tbody>';
     
     // Check if we're on a product page and the current product is the internet plan
-    if (is_product() && $post && $current_product_id && $internet_plan_in_cart) {
+    if ($post && $post->post_type === 'product' && $current_product_id && $internet_plan_in_cart) {
         // Get current plan monthly fee from ACF
         $monthly_fee = 0;
         if (function_exists('get_field')) {
@@ -4652,7 +4958,7 @@ function monthly_fee_summary_shortcode() {
         // Check if this is an internet plan - we already added it above if on product page
         $is_internet_plan_item = in_array($internet_plan_category_id, $product_cats);
         
-        if ($is_internet_plan_item && is_product() && $post && $current_product_id == $product_id) {
+        if ($is_internet_plan_item && $post && $post->post_type === 'product' && $current_product_id == $product_id) {
             continue; // Skip - already added above
         }
         
@@ -6264,31 +6570,31 @@ function get_upfront_cart_items_for_thank_you() {
     $dynamic_install_price = null;
     
     foreach (WC()->cart->get_cart() as $cart_item) {
-    $product = $cart_item['data'];
-    $product_id = $product->get_id();
-    $product_cat_ids = $product->get_category_ids();
-    
-    // Check if this product has internet-plan category (check ALL categories)
-    if (in_array($internet_plan_cat_id, $product_cat_ids)) {
-        if (function_exists('get_field')) {
-            $dynamic_install_price = get_field('dynamic_install_price', $product_id);
-            
-            if ($dynamic_install_price === '' || $dynamic_install_price === null || $dynamic_install_price === false) {
-                $dynamic_install_price = get_field('dynamic_install_price', 'product_' . $product_id);
-            }
-            
-            // Convert to float if we have a value (including 0)
-            if ($dynamic_install_price !== '' && $dynamic_install_price !== null && $dynamic_install_price !== false) {
-                $dynamic_install_price = floatval($dynamic_install_price);
-            } else {
-                $dynamic_install_price = null;
-            }
-        }
+        $product = $cart_item['data'];
+        $product_id = $product->get_id();
+        $product_cat_ids = $product->get_category_ids();
         
-        error_log('Thank you page - Found internet plan: ' . $product_id . ', dynamic price: ' . ($dynamic_install_price !== null ? $dynamic_install_price : 'not set'));
-        break;
+        // Check if this product has internet-plan category (check ALL categories)
+        if (in_array($internet_plan_cat_id, $product_cat_ids)) {
+            if (function_exists('get_field')) {
+                $dynamic_install_price = get_field('dynamic_install_price', $product_id);
+                
+                if ($dynamic_install_price === '' || $dynamic_install_price === null || $dynamic_install_price === false) {
+                    $dynamic_install_price = get_field('dynamic_install_price', 'product_' . $product_id);
+                }
+                
+                // Convert to float if we have a value (including 0)
+                if ($dynamic_install_price !== '' && $dynamic_install_price !== null && $dynamic_install_price !== false) {
+                    $dynamic_install_price = floatval($dynamic_install_price);
+                } else {
+                    $dynamic_install_price = null;
+                }
+            }
+            
+            error_log('Thank you page - Found internet plan: ' . $product_id . ', dynamic price: ' . ($dynamic_install_price !== null ? $dynamic_install_price : 'not set'));
+            break;
+        }
     }
-}
     
     foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
         $product = $cart_item['data'];
@@ -6326,30 +6632,28 @@ function get_upfront_cart_items_for_thank_you() {
             $original_install_price = $installation_product_db ? floatval($installation_product_db->get_regular_price()) : floatval($product_price);
             
             // Determine final price (use dynamic if available, otherwise use cart price)
-$final_install_price = ($dynamic_install_price !== null) ? $dynamic_install_price : $product_price;
+            $final_install_price = ($dynamic_install_price !== null) ? $dynamic_install_price : $product_price;
 
-// Add installation item
-if ($final_install_price > 0 || $original_install_price > 0) {
-    $install_item = array(
-        'name' => 'Installation Fee',
-        'price' => $final_install_price,
-        'type' => 'installation',
-        'category' => $primary_category,
-        'dates' => $installation_dates // Store dates for display
-    );
-    
-    // NEW: Add promotional pricing if dynamic price exists
-    if ($dynamic_install_price !== null && $dynamic_install_price != $original_install_price) {
-        $install_item['original_price'] = $original_install_price;
-        $install_item['promo_price'] = $dynamic_install_price;
-        error_log("Added installation with promo: Installation Fee = $$final_install_price (original: $$original_install_price, promo: $$dynamic_install_price) with dates: $installation_dates");
-    } else {
-        error_log("Added installation: Installation Fee = $$final_install_price with dates: $installation_dates");
-    }
-    
-    $items[] = $install_item;
-}
-continue; // Skip to next item
+            // Add installation item
+            $install_item = array(
+                'name' => 'Installation Fee',
+                'price' => $final_install_price,
+                'type' => 'installation',
+                'category' => $primary_category,
+                'dates' => $installation_dates // Store dates for display
+            );
+            
+            // NEW: Add promotional pricing if dynamic price exists
+            if ($dynamic_install_price !== null && $dynamic_install_price != $original_install_price) {
+                $install_item['original_price'] = $original_install_price;
+                $install_item['promo_price'] = $dynamic_install_price;
+                error_log("Added installation with promo: Installation Fee = $$final_install_price (original: $$original_install_price, promo: $$dynamic_install_price) with dates: $installation_dates");
+            } else {
+                error_log("Added installation: Installation Fee = $$final_install_price with dates: $installation_dates");
+            }
+            
+            $items[] = $install_item;
+            continue; // Skip to next item
         }
         
         // Add main product if it has a price (skip deposit category products with $0 price)
