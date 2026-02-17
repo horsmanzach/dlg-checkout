@@ -55,6 +55,187 @@ function fix_divi_special_characters($output, $tag, $attr, $m) {
 ================ */
 
 
+/*
+ * Get the primary product category, ignoring provider categories
+ * Provider categories (bell, cogeco, rogers, shaw, telus) are used for filtering
+ * but should not be used as the primary category for processing
+ */
+function dg_get_primary_product_category($product_cat_ids) {
+    $provider_slugs = array('bell', 'cogeco', 'rogers', 'shaw', 'telus');
+    
+    // Loop through all categories and find the first non-provider category
+    foreach ($product_cat_ids as $cat_id) {
+        $product_cat = get_term($cat_id, 'product_cat');
+        
+        if (is_wp_error($product_cat)) {
+            continue;
+        }
+        
+        // Skip provider categories, use functional categories (modems, tv-plan, phone-plan, internet-plan, etc.)
+        if (!in_array($product_cat->slug, $provider_slugs)) {
+            $category_slug = $product_cat->slug;
+            
+            // NEW: Handle modems-new conversion
+            if ($category_slug === 'modems-new') {
+                $category_slug = 'modems';
+            }
+            
+            return $category_slug;
+        }
+    }
+    
+    // If all categories were provider categories, fall back to first one
+    if (!empty($product_cat_ids)) {
+        $product_cat = get_term($product_cat_ids[0], 'product_cat');
+        if (!is_wp_error($product_cat)) {
+            $category_slug = $product_cat->slug;
+            
+            // NEW: Handle modems-new conversion for fallback too
+            if ($category_slug === 'modems-new') {
+                $category_slug = 'modems';
+            }
+            
+            return $category_slug;
+        }
+    }
+    
+    return null;
+}
+
+/**
+ * Enqueue exit intent scripts and SweetAlert2 library
+ */
+function dg_enqueue_exit_intent_scripts() {
+    // Only load on product pages (where checkout-screen exists)
+    if (is_product()) {
+        // Enqueue SweetAlert2 from CDN
+        wp_enqueue_script(
+            'sweetalert2',
+            'https://cdn.jsdelivr.net/npm/sweetalert2@11',
+            array(),
+            '11.0.0',
+            true
+        );
+        
+        // Enqueue custom exit intent script
+        wp_enqueue_script(
+            'dg-exit-intent',
+            get_stylesheet_directory_uri() . '/js/exit-intent.js',
+            array('jquery'),  // Remove 'sweetalert2' from dependencies
+            '1.0.2',  // Increment version to force refresh
+            true
+        );
+    }
+}
+add_action('wp_enqueue_scripts', 'dg_enqueue_exit_intent_scripts');
+
+/**
+ * Filter modems based on internet plan provider category
+ * Hides modems that don't match the provider of the internet plan in monthly summary
+ */
+function dg_filter_modems_by_provider() {
+    global $post;
+    
+    // Only run if we have a valid post object
+    if (!$post) {
+        return;
+    }
+    
+    // Only run on product post types
+    if ($post->post_type !== 'product') {
+        return;
+    }
+    
+    $current_product_id = $post->ID;
+    
+    // Get the internet plan category
+    $internet_plan_category = get_term_by('slug', 'internet-plan', 'product_cat');
+    $internet_plan_category_id = $internet_plan_category ? $internet_plan_category->term_id : 19;
+    
+    // Get all categories for the current product
+    $product_cats = wp_get_post_terms($current_product_id, 'product_cat', array('fields' => 'ids'));
+    
+    // Check if this is an internet plan
+    $is_internet_plan = in_array($internet_plan_category_id, $product_cats);
+    
+    if (!$is_internet_plan) {
+        return;
+    }
+    
+    // Define provider category slugs
+    $provider_slugs = array('bell', 'cogeco', 'rogers', 'shaw', 'telus');
+    
+    // Get all category objects for the current product
+    $product_categories = wp_get_post_terms($current_product_id, 'product_cat', array('fields' => 'all'));
+    
+    // Find the provider category for this internet plan
+    $internet_plan_provider = null;
+    foreach ($product_categories as $category) {
+        if (in_array($category->slug, $provider_slugs)) {
+            $internet_plan_provider = $category->slug;
+            break;
+        }
+    }
+    
+    // If no provider found, show all modems (fallback)
+    if (!$internet_plan_provider) {
+        return;
+    }
+    
+    // Map modem CSS classes to product IDs
+    $modem_map = array(
+        'modem-0' => 267980,
+        'modem-1' => 267981,
+        'modem-2' => 267983,
+        'modem-3' => 267984,
+        'modem-4' => 267979
+    );
+    
+    // Array to store modems that should be hidden
+    $modems_to_hide = array();
+    
+    // Check each modem's provider categories
+    foreach ($modem_map as $css_class => $modem_product_id) {
+        // Get all categories for this modem
+        $modem_categories = wp_get_post_terms($modem_product_id, 'product_cat', array('fields' => 'all'));
+        
+        // Get provider categories for this modem
+        $modem_providers = array();
+        foreach ($modem_categories as $category) {
+            if (in_array($category->slug, $provider_slugs)) {
+                $modem_providers[] = $category->slug;
+            }
+        }
+        
+        // If modem has no provider categories, show it (fallback)
+        if (empty($modem_providers)) {
+            continue;
+        }
+        
+        // Check if internet plan provider matches any of this modem's providers
+        if (!in_array($internet_plan_provider, $modem_providers)) {
+            // No match - hide this modem
+            $modems_to_hide[] = $css_class;
+        }
+    }
+    
+    // Output CSS to hide non-matching modems
+    if (!empty($modems_to_hide)) {
+        ?>
+        <style type="text/css" id="modem-provider-filter">
+            <?php foreach ($modems_to_hide as $css_class): ?>
+            .checkout-screen .<?php echo $css_class; ?> {
+                display: none !important;
+                visibility: hidden !important;
+            }
+            <?php endforeach; ?>
+        </style>
+        <?php
+    }
+}
+add_action('wp_head', 'dg_filter_modems_by_provider', 999);
+
+
 
 // AJAX handler to update current product in session
 add_action('wp_ajax_update_current_product_session', 'update_current_product_session');
@@ -2376,6 +2557,7 @@ $email_order_data = transform_order_data_for_email($diallog_order_data);
 
 // Extract customer email
 $customer_email = isset($email_order_data['customer_email']) ? $email_order_data['customer_email'] : '';
+error_log('CUSTOMER EMAIL FROM ORDER DATA: "' . $customer_email . '"');
 
 if (!empty($customer_email)) {
     // Handle multiple emails (comma-separated) or single email
@@ -2459,6 +2641,7 @@ if (!empty($customer_email)) {
  */
 
 function format_summaries_for_diallog() {
+    error_log('FORMAT SUMMARIES - UPDATED VERSION WITH HELPER FUNCTION');
     // Get raw summaries
     $upfront_summary = function_exists('get_upfront_fee_summary') ? get_upfront_fee_summary() : array();
     $monthly_summary = function_exists('get_monthly_fee_summary') ? get_monthly_fee_summary() : array();
@@ -2551,76 +2734,93 @@ function format_summaries_for_diallog() {
         }
     }
 
-    // Convert upfront items to objects and add ACF deposit info
-    foreach ($upfront_summary as $key => $value) {
-        // Skip totals/subtotals and installation (already processed above)
-        if (in_array($key, array('subtotal', 'taxes', 'grand_total', 'total-deposits', 'installation'))) {
+// Convert upfront items to objects and add ACF deposit info
+foreach ($upfront_summary as $key => $value) {
+    error_log("FORMAT DIALLOG - Processing upfront key: " . $key);
+    
+    // Skip totals/subtotals and installation (already processed above)
+    if (in_array($key, array('subtotal', 'taxes', 'grand_total', 'total-deposits', 'installation'))) {
+        error_log("FORMAT DIALLOG - Skipping key: " . $key);
+        continue;
+    }
+
+    error_log("FORMAT DIALLOG - Looking for cart product matching: " . $key);
+    
+    // Get product from cart for this category
+    foreach (WC()->cart->get_cart() as $cart_item) {
+        $product = $cart_item['data'];
+        $product_cat_ids = $product->get_category_ids();
+        
+        error_log("FORMAT DIALLOG - Checking product: " . $product->get_name() . " (ID: " . $product->get_id() . ")");
+        
+        if (empty($product_cat_ids)) {
+            error_log("FORMAT DIALLOG - Product has no categories, skipping");
             continue;
         }
-    
-        // Get product from cart for this category
-        foreach (WC()->cart->get_cart() as $cart_item) {
-            $product = $cart_item['data'];
-            $product_cat_ids = $product->get_category_ids();
+        
+        // NEW: Use helper function to get primary category
+        $product_category = dg_get_primary_product_category($product_cat_ids);
+        
+        error_log("FORMAT DIALLOG - Primary category detected: " . ($product_category ? $product_category : 'NULL'));
+        
+        if ($product_category === null) {
+            error_log("FORMAT DIALLOG - Primary category is null, skipping product");
+            continue;
+        }
+        
+        // If this product matches current summary key
+        if ($product_category === $key) {
+            error_log("FORMAT DIALLOG - MATCH FOUND! Converting $key to object format");
             
-            if (empty($product_cat_ids)) {
-                continue;
-            }
+            $product_id = $product->get_id();
             
-            $product_cat = get_term($product_cat_ids[0], 'product_cat');
-            if (is_wp_error($product_cat)) {
-                continue;
-            }
+            // Convert to object
+            $original_name = $upfront_summary[$key][0];
+            $original_price = $upfront_summary[$key][1];
             
-            $product_category = $product_cat->slug;
-            if ($product_category == 'modems-new') {
-                $product_category = 'modems';
-            }
+            $upfront_summary[$key] = array(
+                'Title' => $original_name,
+                'Price' => $original_price
+            );
             
-            // If this product matches current summary key
-            if ($product_category === $key) {
-                $product_id = $product->get_id();
+            error_log("FORMAT DIALLOG - Converted structure: " . json_encode($upfront_summary[$key]));
+            
+            // Add ACF deposit fields
+            if (function_exists('get_field')) {
+                $deposit_title = get_field('deposit-title', $product_id);
+                $deposit_fee = get_field('deposit-fee', $product_id);
                 
-                // Convert to object
-                $original_name = $upfront_summary[$key][0];
-                $original_price = $upfront_summary[$key][1];
-                
-                $upfront_summary[$key] = array(
-                    'Title' => $original_name,
-                    'Price' => $original_price
-                );
-                
-                // Add ACF deposit fields
-                if (function_exists('get_field')) {
-                    $deposit_title = get_field('deposit-title', $product_id);
-                    $deposit_fee = get_field('deposit-fee', $product_id);
-                    
-                    if (!empty($deposit_title) || !empty($deposit_fee)) {
-                        $upfront_summary[$key]['Deposit Title'] = $deposit_title ? $deposit_title : '';
-                        $upfront_summary[$key]['Deposit Amount'] = $deposit_fee ? floatval($deposit_fee) : 0;
-                    }
+                if (!empty($deposit_title) || !empty($deposit_fee)) {
+                    $upfront_summary[$key]['Deposit Title'] = $deposit_title ? $deposit_title : '';
+                    $upfront_summary[$key]['Deposit Amount'] = $deposit_fee ? floatval($deposit_fee) : 0;
+                    error_log("FORMAT DIALLOG - Added deposit fields: Title=" . $deposit_title . ", Amount=" . $deposit_fee);
                 }
+            }
+            break;
+        } else {
+            error_log("FORMAT DIALLOG - No match: $product_category !== $key");
+        }
+    }
+}
+
+    // Fix modem price
+if (isset($upfront_summary['modems']) && isset($upfront_summary['modems']['Deposit Amount'])) {
+    foreach (WC()->cart->get_cart() as $cart_item) {
+        $product = $cart_item['data'];
+        $product_cat_ids = $product->get_category_ids();
+    
+        if (!empty($product_cat_ids)) {
+            // Use helper function to get primary category
+            $product_category = dg_get_primary_product_category($product_cat_ids);
+            
+            if ($product_category === 'modems') {
+                $actual_price = round(floatval($product->get_price()), 2);
+                $upfront_summary['modems']['Price'] = $actual_price;
                 break;
             }
         }
     }
-
-    // Fix modem price
-    if (isset($upfront_summary['modems']) && isset($upfront_summary['modems']['Deposit Amount'])) {
-        foreach (WC()->cart->get_cart() as $cart_item) {
-            $product = $cart_item['data'];
-            $product_cat_ids = $product->get_category_ids();
-        
-            if (!empty($product_cat_ids)) {
-                $product_cat = get_term($product_cat_ids[0], 'product_cat');
-                if (!is_wp_error($product_cat) && ($product_cat->slug === 'modems' || $product_cat->slug === 'modems-new')) {
-                    $actual_price = round(floatval($product->get_price()), 2);
-                    $upfront_summary['modems']['Price'] = $actual_price;
-                    break;
-                }
-            }
-        }
-    }
+}
 
     // Add Pay After Deposit if selected
     $monthly_method = dg_get_user_meta('monthly_bill_payment_option');
@@ -5031,26 +5231,41 @@ error_log("Post Type: " . ($post ? $post->post_type : 'N/A'));
         }
         
         if (!empty($terms) && !is_wp_error($terms)) {
-            // Check if this product is an internet plan (has category ID 19)
-            $is_internet_plan = in_array($internet_plan_category_id, $product_cats);
-            
-            if ($is_internet_plan) {
-                // For internet plans, always show "Internet Plan" category
-                $internet_plan_term = get_term($internet_plan_category_id, 'product_cat');
-                if ($internet_plan_term && !is_wp_error($internet_plan_term)) {
-                    $category_name = $internet_plan_term->name;
-                    $category_slug = $internet_plan_term->slug;
-                } else {
-                    // Fallback if term lookup fails
-                    $category_name = 'Internet Plan';
-                    $category_slug = 'internet-plan';
-                }
-            } else {
-                // For non-internet plans, use the first category as before
-                $category_name = $terms[0]->name;
-                $category_slug = $terms[0]->slug;
-            }
+    // Check if this product is an internet plan (has category ID 19)
+    $is_internet_plan = in_array($internet_plan_category_id, $product_cats);
+    
+    if ($is_internet_plan) {
+        // For internet plans, always show "Internet Plan" category
+        $internet_plan_term = get_term($internet_plan_category_id, 'product_cat');
+        if ($internet_plan_term && !is_wp_error($internet_plan_term)) {
+            $category_name = $internet_plan_term->name;
+            $category_slug = $internet_plan_term->slug;
+        } else {
+            // Fallback if term lookup fails
+            $category_name = 'Internet Plan';
+            $category_slug = 'internet-plan';
         }
+    } else {
+        // NEW: Use helper function to get primary category (ignores provider categories)
+        $primary_category_slug = dg_get_primary_product_category($product_cats);
+        
+        if ($primary_category_slug) {
+            $primary_term = get_term_by('slug', $primary_category_slug, 'product_cat');
+            if ($primary_term && !is_wp_error($primary_term)) {
+                $category_name = $primary_term->name;
+                $category_slug = $primary_term->slug;
+            } else {
+                // Fallback
+                $category_name = ucfirst(str_replace('-', ' ', $primary_category_slug));
+                $category_slug = $primary_category_slug;
+            }
+        } else {
+            // Ultimate fallback - use first term
+            $category_name = $terms[0]->name;
+            $category_slug = $terms[0]->slug;
+        }
+    }
+}
         
         // Build pricing display
         $pricing_display = '';
@@ -6373,15 +6588,14 @@ function get_upfront_fee_summary() {
             continue;
         }
         
-        $product_cat = get_term($product_cat_ids[0],'product_cat');
-        
-        // FIX: Handle WP_Error from get_term
-        if (is_wp_error($product_cat)) {
-            error_log("Error getting category for product " . $_product->get_name());
+        // Get primary category (ignoring provider categories)
+        $product_category = dg_get_primary_product_category($product_cat_ids);
+
+        if ($product_category === null) {
+            error_log("Product " . $_product->get_name() . " has no valid categories");
             continue;
-        }
         
-        $product_category = $product_cat->slug;
+        }
         $product_id = $_product->get_id();
         
         error_log("Processing product: " . $_product->get_name() . " (ID: $product_id, Category: $product_category)");
@@ -6805,10 +7019,13 @@ function get_monthly_fee_summary() {
 		$_product     = apply_filters( 'woocommerce_cart_item_product', $cart_item['data'], $cart_item, $cart_item_key );
 		$product_cat_ids = $_product->get_category_ids();
 
+        // Get primary category (ignoring provider categories)
+        $product_category = dg_get_primary_product_category($product_cat_ids);
 
-		$product_cat = get_term($product_cat_ids[0],'product_cat');
-
-		$product_category = $product_cat->slug;
+        if ($product_category === null) {
+            error_log("Product " . $_product->get_name() . " has no valid categories");
+            continue;
+    }
 
 		if ( array_key_exists($product_category, $summary) && $_product && 
 		 		$_product->exists() && $cart_item['quantity'] > 0 && 
