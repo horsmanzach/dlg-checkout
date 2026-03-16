@@ -57,11 +57,11 @@ function fix_divi_special_characters($output, $tag, $attr, $m) {
 
 /*
  * Get the primary product category, ignoring provider categories
- * Provider categories (bell, cogeco, rogers, shaw, telus) are used for filtering
+ * Provider categories (bell, bell-fttp, cogeco, rogers, shaw, telus) are used for filtering
  * but should not be used as the primary category for processing
  */
 function dg_get_primary_product_category($product_cat_ids) {
-    $provider_slugs = array('bell', 'cogeco', 'rogers', 'shaw', 'telus');
+    $provider_slugs = array('bell', 'bell-fttp', 'cogeco', 'rogers', 'shaw', 'telus');
     
     // Loop through all categories and find the first non-provider category
     foreach ($product_cat_ids as $cat_id) {
@@ -163,7 +163,7 @@ function dg_filter_modems_by_provider() {
     }
     
     // Define provider category slugs
-    $provider_slugs = array('bell', 'cogeco', 'rogers', 'shaw', 'telus');
+    $provider_slugs = array('bell', 'bell-fttp', 'cogeco', 'rogers', 'shaw', 'telus');
     
     // Get all category objects for the current product
     $product_categories = wp_get_post_terms($current_product_id, 'product_cat', array('fields' => 'all'));
@@ -1875,7 +1875,8 @@ function get_current_provider_terms_class() {
     
     // Provider category IDs mapping to CSS classes
     $provider_categories = array(
-        62 => 'bell-terms-module',      // Bell
+        62 => 'bell-terms-module', // Bell
+        67 => 'bell-fttp-terms-module',  // Bell-FTTP
         64 => 'rogers-terms-module',    // Rogers
         63 => 'cogeco-terms-module',    // Cogeco
         66 => 'telus-terms-module',     // Telus
