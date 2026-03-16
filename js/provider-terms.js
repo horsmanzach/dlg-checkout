@@ -45,6 +45,7 @@ jQuery(document).ready(function ($) {
         // All possible provider terms module classes
         const allProviderClasses = [
             'bell-terms-module',
+            'bell-fttp-terms-module',
             'rogers-terms-module',
             'cogeco-terms-module',
             'telus-terms-module',
