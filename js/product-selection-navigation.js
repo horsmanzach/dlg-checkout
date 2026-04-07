@@ -2,7 +2,7 @@ jQuery(document).ready(function ($) {
     // Track current screen and whether user came from checkout
     let currentScreen = 1;
     const totalScreens = 4;
-    const finalSlideRedirectUrl = 'https://diallog.magnaprototype.com/checkout';
+    const finalSlideRedirectUrl = 'https://staging.diallog.com/checkout';
     let cameFromCheckout = false;
     let isScrolling = false;
 
@@ -226,134 +226,43 @@ jQuery(document).ready(function ($) {
             return; // Don't proceed if button is disabled
         }
 
-        // NEW: If we're on the modem screen (screen 2), save the modem details to cart
+        // NEW: If we're on the modem screen (screen 2), validate own modem selection
         if (currentScreen === 2) {
             console.log('--- MODEM SCREEN (2) DETECTED ---');
 
             const $ownModemRow = $('.modem-4');
             const $ownModemInput = $ownModemRow.find('.own-modem-input');
 
-            console.log('Own modem row exists:', $ownModemRow.length > 0);
-            console.log('Own modem input exists:', $ownModemInput.length > 0);
             console.log('Own modem row classes:', $ownModemRow.attr('class'));
-            console.log('Has modem-row-selected:', $ownModemRow.hasClass('modem-row-selected'));
-            console.log('Has own-modem-pending:', $ownModemRow.hasClass('own-modem-pending'));
 
-            // Check if "I Have My Own Modem" is selected
-            if ($ownModemRow.hasClass('modem-row-selected')) {
-                console.log('✅ Own modem row IS selected');
+            // Check if own modem is in PENDING state (invalid)
+            if ($ownModemRow.hasClass('own-modem-pending')) {
+                console.log('❌ Own modem validation failed - still pending');
 
-                const modemDetails = $ownModemInput.val().trim();
-                const productId = 265769;
+                // Show error
+                $ownModemInput.addClass('error');
+                $ownModemRow.find('.own-modem-error').show();
 
-                console.log('Modem details value:', modemDetails);
-                console.log('Modem details length:', modemDetails.length);
-                console.log('Product ID:', productId);
-
-                if (modemDetails.length >= 5 && modemDetails.length <= 100) {
-                    console.log('✅ Validation passed - proceeding with AJAX save');
-                    console.log('🚀 AJAX: Saving modem details:', modemDetails);
-                    console.log('AJAX URL:', modem_selection_vars.ajax_url);
-                    console.log('Nonce:', modem_selection_vars.nonce);
-
-                    // IMPORTANT: Wait for AJAX to complete before navigating
-                    $.ajax({
-                        type: 'POST',
-                        url: modem_selection_vars.ajax_url,
-                        data: {
-                            action: 'save_modem_details',
-                            product_id: productId,
-                            modem_details: modemDetails,
-                            nonce: modem_selection_vars.nonce
-                        },
-                        success: function (response) {
-                            console.log('--- AJAX SUCCESS CALLBACK ---');
-                            console.log('AJAX Response received:', response);
-                            console.log('Response success status:', response.success);
-
-                            if (response.success) {
-                                console.log('✅ Own modem saved to cart successfully');
-                                console.log('Response data:', response.data);
-
-                                // CRITICAL: Update cart fragments and fee tables BEFORE navigating
-                                console.log('Triggering cart fragment refresh');
-                                $(document.body).trigger('wc_fragment_refresh');
-
-                                console.log('Calling updateFeeTables to refresh summary tables');
-
-                                // Call updateFeeTables and wait for it to complete
-                                $.ajax({
-                                    type: "POST",
-                                    url: modem_selection_vars.ajax_url,
-                                    data: {
-                                        action: "update_fee_tables",
-                                        current_product_id: $('input[name="add-to-cart"]').val() || 0,
-                                        nonce: modem_selection_vars.nonce
-                                    },
-                                    success: function (tableResponse) {
-                                        console.log('✅ Fee tables updated successfully');
-
-                                        // Update the table HTML
-                                        if (tableResponse.success) {
-                                            $(".upfront-fee-summary-container").html(tableResponse.data.upfront_table);
-                                            $(".monthly-fee-summary-container").html(tableResponse.data.monthly_table);
-                                            console.log('Tables HTML updated in DOM');
-                                        }
-
-                                        // NOW navigate after tables are completely updated
-                                        console.log('Proceeding to next screen after table updates');
-                                        proceedToNextScreen();
-                                    },
-                                    error: function () {
-                                        console.error('❌ Error updating fee tables, but proceeding anyway');
-                                        // Still proceed even if table update fails
-                                        proceedToNextScreen();
-                                    }
-                                }); // ← Close the inner $.ajax() for update_fee_tables
-
-                            } else {
-                                console.error('❌ Error saving modem - response.success = false');
-                                console.error('Error message:', response.data ? response.data.message : 'No message provided');
-                                console.error('Full response:', response);
-
-                                // Still proceed even if save failed
-                                console.log('Proceeding to next screen despite save error');
-                                proceedToNextScreen();
-                            }
-                        },
-                        error: function (xhr, status, error) {
-                            console.error('--- AJAX ERROR CALLBACK ---');
-                            console.error('❌ AJAX Request Failed');
-                            console.error('Status:', status);
-                            console.error('Error:', error);
-                            console.error('XHR status code:', xhr.status);
-                            console.error('XHR response text:', xhr.responseText);
-                            console.error('XHR object:', xhr);
-
-                            // Still proceed even if AJAX failed
-                            console.log('Proceeding to next screen despite AJAX error');
-                            proceedToNextScreen();
-                        }
-                    });
-
-                    // Exit here - don't continue with navigation yet
-                    console.log('Waiting for AJAX to complete before navigation');
-                    return;
-                } else {
-                    console.log('❌ Validation FAILED - modem details length invalid');
-                    console.log('Required: 5-100 characters, Got:', modemDetails.length);
-                }
-            } else {
-                console.log('ℹ️ Own modem row NOT selected - skipping save');
+                // Prevent navigation
+                return false;
             }
+
+            // If own modem is selected and valid, details are already saved
+            // (saved during input validation in card-selection.js)
+            if ($ownModemRow.hasClass('modem-row-selected')) {
+                console.log('✅ Own modem is selected and valid - details already saved');
+            }
+
+            // Proceed immediately - no AJAX needed
+            console.log('Proceeding to next screen');
+            proceedToNextScreen();
+
         } else {
-            console.log('Not on screen 2 (current screen:', currentScreen, ') - skipping modem check');
+            // For all other screens, proceed normally
+            proceedToNextScreen();
         }
 
-        // If we get here, either not on screen 2 or no modem details to save
-        console.log('Proceeding to next screen (no modem save needed)');
-        proceedToNextScreen();
-
+        
         // Helper function to handle the actual navigation
         function proceedToNextScreen() {
             console.log('--- PROCEEDING TO NEXT SCREEN ---');
@@ -906,18 +815,24 @@ jQuery(document).ready(function ($) {
 
         // Get all cards based on the current screen
         if (currentScreen === 1) {
-            // Screen 1: Installation cards
-            cards = activeScreen.find('.installation-row').filter(':visible');
-        } else if (currentScreen === 2) {
-            // Screen 2: Modem cards
-            cards = activeScreen.find('.modem-0, .modem-1, .modem-2, .modem-3, .modem-4').filter(':visible');
-        } else if (currentScreen === 3) {
-            // Screen 3: TV cards
-            cards = activeScreen.find('.tv-0, .tv-1, .tv-2').filter(':visible');
-        } else if (currentScreen === 4) {
-            // Screen 4: Phone cards
-            cards = activeScreen.find('.phone-0, .phone-1, .phone-2').filter(':visible');
-        }
+       // Screen 1: Installation cards
+          cards = activeScreen.find('.installation-row').filter(':visible');
+       } else if (currentScreen === 2) {
+      // Screen 2: Modem cards
+          cards = activeScreen.find('[class*="modem-"]').filter(function() {
+              return /\bmodem-\d+\b/.test($(this).attr('class'));
+          }).filter(':visible');
+     } else if (currentScreen === 3) {
+      // Screen 3: TV cards
+          cards = activeScreen.find('[class*="tv-"]').filter(function() {
+              return /\btv-\d+\b/.test($(this).attr('class'));
+          }).filter(':visible');
+    } else if (currentScreen === 4) {
+    // Screen 4: Phone cards
+          cards = activeScreen.find('[class*="phone-"]').filter(function() {
+              return /\bphone-\d+\b/.test($(this).attr('class'));
+         }).filter(':visible');
+    }
 
         if (cards && cards.length) {
             // Calculate total height of all cards including their margins
