@@ -10,7 +10,14 @@ jQuery(document).ready(function ($) {
         'modem-1': 267981,
         'modem-2': 267983,
         'modem-3': 267984,
-        'modem-4': 267979
+        'modem-4': 267979,
+        'modem-5': 268259,
+        'modem-6': 268266,
+        'modem-7': 268258,
+        'modem-8': 268265,
+        'modem-9': 268264,
+        'modem-10': 268260,
+        'modem-11': 268267
     };
 
     const phoneRows = {
@@ -56,15 +63,15 @@ jQuery(document).ready(function ($) {
     }
 
 
-    // Make modem rows clickable
-    $('.modem-0, .modem-1, .modem-2, .modem-3, .modem-4').on('click', function (e) {
+    // Make modem rows clickable - dynamic via shared .divi-portable-row class
+    $(document).on('click', '.divi-portable-row', function (e) {
         // Don't trigger click if user is interacting with radio buttons or labels (but allow input clicks)
         if ($(e.target).is('label') && !$(e.target).closest('.own-modem-input-container').length) {
             return;
         }
 
         const $this = $(this);
-        const rowClass = $this.attr('class').split(' ').find(c => c.startsWith('modem-'));
+        const rowClass = $this.attr('class').split(' ').find(c => /^modem-\d+$/.test(c));
 
         if (!rowClass || !modemRows[rowClass]) {
             console.error('Product ID not found for this row');
@@ -79,12 +86,11 @@ jQuery(document).ready(function ($) {
             const modemDetails = $input.val().trim();
 
             // Remove selection from all other modem rows first
-            $('.modem-0, .modem-1, .modem-2, .modem-3').removeClass('modem-row-selected');
+            $('.divi-portable-row').not('.modem-4').removeClass('modem-row-selected');
 
             // Check if this card is already selected WITH valid input
             if ($this.hasClass('modem-row-selected') && modemDetails.length >= 5 && modemDetails.length <= 100) {
                 // Card is already valid - just keep it selected, don't deselect
-                // This allows clicking back into the card without losing the selection
                 console.log('Own modem card already valid - maintaining selection');
                 return;
             }
@@ -97,9 +103,6 @@ jQuery(document).ready(function ($) {
                 return;
             }
 
-            // If we get here, card is either:
-            // 1. Not selected yet (new click)
-            // 2. Has pending state (red, needs completion)
             // Mark card as clicked/pending if not already in a valid state
             if (!$this.hasClass('modem-row-selected')) {
                 $this.addClass('own-modem-pending');
@@ -121,12 +124,12 @@ jQuery(document).ready(function ($) {
             // If empty, just mark as pending (already done above)
 
         } else {
-            // Handle regular modem selection (unchanged)
+            // Handle regular modem selection
             if ($this.hasClass('modem-row-selected')) {
                 $this.removeClass('modem-row-selected');
                 removeFromCart(productId);
             } else {
-                $('.modem-0, .modem-1, .modem-2, .modem-3, .modem-4').removeClass('modem-row-selected own-modem-pending');
+                $('.divi-portable-row').removeClass('modem-row-selected own-modem-pending');
                 $this.addClass('modem-row-selected');
                 addToCart(productId, false, 'modem');
             }
@@ -146,7 +149,7 @@ jQuery(document).ready(function ($) {
         console.log('Row classes before focus:', $row.attr('class'));
 
         // Remove selection from all other modem rows
-        $('.modem-0, .modem-1, .modem-2, .modem-3').removeClass('modem-row-selected');
+        $('.divi-portable-row').not('.modem-4').removeClass('modem-row-selected');
 
         // If the card isn't already selected or pending, mark it as pending
         if (!$row.hasClass('modem-row-selected') && !$row.hasClass('own-modem-pending')) {
@@ -182,7 +185,7 @@ jQuery(document).ready(function ($) {
         console.log('Row classes BEFORE:', $row.attr('class'));
 
         // Remove selection from all other modem rows
-        $('.modem-0, .modem-1, .modem-2, .modem-3').removeClass('modem-row-selected');
+        $('.divi-portable-row').not('.modem-4').removeClass('modem-row-selected');
 
         // Ensure the card is at least marked as pending if user is typing
         if (!$row.hasClass('modem-row-selected') && !$row.hasClass('own-modem-pending') && modemDetails.length > 0) {
@@ -233,7 +236,7 @@ jQuery(document).ready(function ($) {
         }, 50);
     });
 
-    // NEW: Blur handler - saves to cart when user leaves the field
+    // Blur handler - saves to cart when user leaves the field
     $(document).on('blur', '.own-modem-input', function () {
         const $input = $(this);
         const $row = $input.closest('.modem-4');
@@ -270,60 +273,45 @@ jQuery(document).ready(function ($) {
         }
     });
 
-    // Make phone rows clickable
-    $('.phone-0, .phone-1, .phone-2').on('click', function () {
+    // Make phone rows clickable - dynamic via shared .divi-portable-phone class
+    $(document).on('click', '.divi-portable-phone', function () {
         const $this = $(this);
-        const rowClass = $this.attr('class').split(' ').find(c => c.startsWith('phone-'));
+        const rowClass = $this.attr('class').split(' ').find(c => /^phone-\d+$/.test(c));
 
         if (!rowClass || !phoneRows[rowClass]) {
             console.error('Product ID not found for this row');
             return;
         }
 
-        // Check if this row is already selected
         if ($this.hasClass('phone-row-selected')) {
-            // Deselect this row and remove from cart
             $this.removeClass('phone-row-selected');
             removeFromCart(phoneRows[rowClass]);
         } else {
-            // Remove selection from all phone rows
-            $('.phone-0, .phone-1, .phone-2').removeClass('phone-row-selected');
-
-            // Add selection to this row
+            $('.divi-portable-phone').removeClass('phone-row-selected');
             $this.addClass('phone-row-selected');
-
-            // Add to cart via AJAX
             addToCart(phoneRows[rowClass], false, 'phone');
         }
     });
 
-    // Make TV rows clickable
-    $('.tv-0, .tv-1, .tv-2').on('click', function () {
+    // Make TV rows clickable - dynamic via shared .divi-portable-tv class
+    $(document).on('click', '.divi-portable-tv', function () {
         const $this = $(this);
-        const rowClass = $this.attr('class').split(' ').find(c => c.startsWith('tv-'));
+        const rowClass = $this.attr('class').split(' ').find(c => /^tv-\d+$/.test(c));
 
         if (!rowClass || !tvRows[rowClass]) {
             console.error('Product ID not found for this row');
             return;
         }
 
-        // Check if this row is already selected
         if ($this.hasClass('tv-row-selected')) {
-            // Deselect this row and remove from cart
             $this.removeClass('tv-row-selected');
             removeFromCart(tvRows[rowClass]);
         } else {
-            // Remove selection from all TV rows
-            $('.tv-0, .tv-1, .tv-2').removeClass('tv-row-selected');
-
-            // Add selection to this row
+            $('.divi-portable-tv').removeClass('tv-row-selected');
             $this.addClass('tv-row-selected');
-
-            // Add to cart via AJAX
             addToCart(tvRows[rowClass], false, 'tv');
         }
     });
-
 
 
     // Function to add product to cart
@@ -425,10 +413,10 @@ jQuery(document).ready(function ($) {
 
     // Function to add own modem to cart with details
     function addOwnModemToCart(productId, modemDetails) {
-            console.log('=== AJAX CALL DEBUG ===');
-    console.log('modemDetails parameter:', modemDetails);
-    console.log('modemDetails length:', modemDetails.length);
-    console.log('modemDetails type:', typeof modemDetails);
+        console.log('=== AJAX CALL DEBUG ===');
+        console.log('modemDetails parameter:', modemDetails);
+        console.log('modemDetails length:', modemDetails.length);
+        console.log('modemDetails type:', typeof modemDetails);
 
         $.ajax({
             type: 'POST',
@@ -443,16 +431,12 @@ jQuery(document).ready(function ($) {
                 if (response.success) {
                     console.log('Own modem added to cart with details');
 
-                    // CRITICAL FIX A: Trigger cart fragment refresh
                     $(document.body).trigger('wc_fragment_refresh');
 
-                    // CRITICAL FIX A: Update upfront total immediately
                     setTimeout(function () {
                         updateUpfrontTotal();
                     }, 100);
 
-                    // Note: We don't update fee tables here because own modem 
-                    // doesn't appear in monthly summary (it's $0)
                 } else {
                     console.error('Error:', response.data.message);
                 }
@@ -467,16 +451,13 @@ jQuery(document).ready(function ($) {
     function updateUpfrontTotal() {
         const upfrontContainer = $('.upfront-fee-total-container, [data-shortcode="upfront_fee_total"]');
 
-        // CRITICAL: Show preloader BEFORE any AJAX
         if (upfrontContainer.length && typeof showPreloaderManually === 'function') {
             showPreloaderManually(upfrontContainer);
         }
 
-        // Check if the global preloader function exists
         if (typeof window.updateUpfrontFeeWithPreloader === 'function') {
             window.updateUpfrontFeeWithPreloader();
         } else {
-            // Fallback: Make AJAX call directly
             $.ajax({
                 type: "POST",
                 url: modem_selection_vars.ajax_url,
@@ -488,7 +469,6 @@ jQuery(document).ready(function ($) {
                     if (response.success) {
                         upfrontContainer.find('.upfront-fee-content').html(response.data.total);
 
-                        // Hide preloader after update
                         setTimeout(function () {
                             if (typeof hidePreloaderManually === 'function') {
                                 hidePreloaderManually(upfrontContainer);
@@ -507,7 +487,6 @@ jQuery(document).ready(function ($) {
 
     // Function to update fee tables
     function updateFeeTables() {
-        // CRITICAL: Show preloader for upfront total BEFORE updating tables
         const upfrontContainer = $('.upfront-fee-total-container, [data-shortcode="upfront_fee_total"]');
         if (upfrontContainer.length && typeof showPreloaderManually === 'function') {
             showPreloaderManually(upfrontContainer);
@@ -526,14 +505,12 @@ jQuery(document).ready(function ($) {
                     $(".upfront-fee-summary-container").html(response.data.upfront_table);
                     $(".monthly-fee-summary-container").html(response.data.monthly_table);
 
-                    // CRITICAL: Update upfront total AFTER tables are updated
                     setTimeout(function () {
                         updateUpfrontTotal();
                     }, 100);
                 }
             },
             error: function () {
-                // Hide preloader on error
                 if (typeof hidePreloaderManually === 'function') {
                     hidePreloaderManually(upfrontContainer);
                 }
@@ -603,7 +580,6 @@ jQuery(document).ready(function ($) {
                 </div>
                 `);
 
-                // Categorize options into columns
                 if (label.toLowerCase().includes('earliest')) {
                     preferredContainer.find('.earliest-column').append(radioBtn);
                 } else if (label.toLowerCase().includes('weekend') || label.toLowerCase().includes('saturday') || label.toLowerCase().includes('sunday')) {
@@ -628,7 +604,6 @@ jQuery(document).ready(function ($) {
                     </div>
                 `);
 
-                // Categorize options into columns
                 if (label.toLowerCase().includes('earliest')) {
                     secondaryContainer.find('.earliest-column').append(radioBtn);
                 } else if (label.toLowerCase().includes('weekend') || label.toLowerCase().includes('saturday') || label.toLowerCase().includes('sunday')) {
@@ -670,26 +645,20 @@ jQuery(document).ready(function ($) {
             $(document).on('click', '.clear-installation-dates', function () {
                 console.log('Clearing installation dates');
 
-                // Clear selections
                 $('.preferred-date-radio').prop('checked', false);
                 $('.secondary-date-radio').prop('checked', false);
                 preferredDate = '';
                 secondaryDate = '';
 
-                // Reset all options visibility
                 resetDateOptionVisibility();
 
-                // Hide clear button
                 $(this).hide();
 
-                // Update state
                 checkInstallationSelection();
             });
 
-            // Show clear button if dates exist
             if (preferredDate || secondaryDate || $('.preferred-date-radio:checked').length || $('.secondary-date-radio:checked').length) {
                 clearButton.show();
-                // Update option visibility based on existing selections
                 if (preferredDate) {
                     updateSecondaryDateOptions(preferredDate);
                 }
@@ -708,7 +677,6 @@ jQuery(document).ready(function ($) {
             addInstallationToCart();
         } else {
             $('.installation-row').removeClass('installation-row-selected');
-            // Only remove from cart if we had both dates before but now don't
             if (!preferredDate && !secondaryDate) {
                 removeInstallationFromCart();
             }
@@ -723,7 +691,6 @@ jQuery(document).ready(function ($) {
                 secondary: secondaryDate
             });
 
-            // CRITICAL: Show preloader BEFORE AJAX call
             const upfrontContainer = $('.upfront-fee-total-container, [data-shortcode="upfront_fee_total"]');
             if (upfrontContainer.length && typeof showPreloaderManually === 'function') {
                 showPreloaderManually(upfrontContainer);
@@ -745,13 +712,11 @@ jQuery(document).ready(function ($) {
                         console.log('Installation dates added to cart');
                         $(document.body).trigger('wc_fragment_refresh');
 
-                        // CRITICAL: Small delay before updating tables
                         setTimeout(function () {
                             updateFeeTables();
                         }, 100);
                     } else {
                         console.error('Error adding installation dates:', response.data?.message || 'Unknown error');
-                        // Hide preloader on error
                         if (typeof hidePreloaderManually === 'function') {
                             hidePreloaderManually(upfrontContainer);
                         }
@@ -763,7 +728,6 @@ jQuery(document).ready(function ($) {
                         error: error,
                         response: xhr.responseText
                     });
-                    // Hide preloader on error
                     if (typeof hidePreloaderManually === 'function') {
                         hidePreloaderManually(upfrontContainer);
                     }
@@ -803,16 +767,13 @@ jQuery(document).ready(function ($) {
             },
             success: function (response) {
                 if (response.success && response.data.dates) {
-                    // Get the dates with correct keys
                     preferredDate = response.data.dates['preferred-date'] || '';
                     secondaryDate = response.data.dates['secondary-date'] || '';
 
-                    // Reset all radio buttons and options
                     $('.preferred-date-radio').prop('checked', false);
                     $('.secondary-date-radio').prop('checked', false);
                     resetDateOptionVisibility();
 
-                    // Check the saved selections
                     if (preferredDate) {
                         $(`input[name="attribute_preferred-date"][value="${preferredDate}"]`).prop('checked', true);
                         updateSecondaryDateOptions(preferredDate);
@@ -823,12 +784,10 @@ jQuery(document).ready(function ($) {
                         updatePreferredDateOptions(secondaryDate);
                     }
 
-                    // If any date is set, show the clear button
                     if (preferredDate || secondaryDate) {
                         $('.clear-installation-dates').show();
                     }
 
-                    // Update UI state
                     checkInstallationSelection();
                 }
             }
@@ -837,18 +796,15 @@ jQuery(document).ready(function ($) {
 
     // Function to update secondary date options based on preferred selection
     function updateSecondaryDateOptions(selectedPreferredValue) {
-        // Reset all secondary options first
         $('.secondary-date-radio').closest('.date-option').removeClass('disabled-option disabled-option-visible').show();
         $('.secondary-date-radio').prop('disabled', false);
 
         if (selectedPreferredValue) {
-            // Find and disable the matching option in secondary dates
             const matchingSecondaryOption = $(`.secondary-date-radio[value="${selectedPreferredValue}"]`).closest('.date-option');
             if (matchingSecondaryOption.length) {
                 matchingSecondaryOption.addClass('disabled-option-visible');
                 matchingSecondaryOption.find('.secondary-date-radio').prop('disabled', true);
 
-                // If the disabled option was selected, clear it
                 if (secondaryDate === selectedPreferredValue) {
                     matchingSecondaryOption.find('.secondary-date-radio').prop('checked', false);
                     secondaryDate = '';
@@ -860,18 +816,15 @@ jQuery(document).ready(function ($) {
 
     // Function to update preferred date options based on secondary selection
     function updatePreferredDateOptions(selectedSecondaryValue) {
-        // Reset all preferred options first
         $('.preferred-date-radio').closest('.date-option').removeClass('disabled-option disabled-option-visible').show();
         $('.preferred-date-radio').prop('disabled', false);
 
         if (selectedSecondaryValue) {
-            // Find and disable the matching option in preferred dates
             const matchingPreferredOption = $(`.preferred-date-radio[value="${selectedSecondaryValue}"]`).closest('.date-option');
             if (matchingPreferredOption.length) {
                 matchingPreferredOption.addClass('disabled-option-visible');
                 matchingPreferredOption.find('.preferred-date-radio').prop('disabled', true);
 
-                // If the disabled option was selected, clear it
                 if (preferredDate === selectedSecondaryValue) {
                     matchingPreferredOption.find('.preferred-date-radio').prop('checked', false);
                     preferredDate = '';
@@ -893,7 +846,7 @@ jQuery(document).ready(function ($) {
     // Run on page load
     checkInstallationInCart();
 
-    // Update when cart fragments refresh - additional backup method
+    // Update when cart fragments refresh
     $(document.body).on("wc_fragments_refreshed", function () {
         updateFeeTables();
         updateUpfrontTotal();
