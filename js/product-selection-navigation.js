@@ -12,7 +12,7 @@ jQuery(document).ready(function ($) {
     }
 
     // Bind revalidation only to legitimate state-changing events
-    $(document).on('click', '.modem-0, .modem-1, .modem-2, .modem-3, .modem-4', revalidateButtonStates);
+    $(document).on('click', '.divi-portable-row', revalidateButtonStates);
     $(document).on('change', '.preferred-date-radio, .secondary-date-radio', revalidateButtonStates);
     $(document).on('input', '.own-modem-input', revalidateButtonStates);
 
@@ -759,7 +759,7 @@ jQuery(document).ready(function ($) {
     });
 
     // Make sure to call updateCheckoutButtonState when selections change
-    $(document).on('click', '.modem-0, .modem-1, .modem-2, .modem-3, .modem-4, .installation-row, .tv-0, .tv-1, .tv-2, .phone-0, .phone-1, .phone-2', function () {
+  $(document).on('click', '.divi-portable-row, .installation-row, .divi-portable-tv, .divi-portable-phone', function () {
         setTimeout(function () {
             updateButtonStates(); // This now includes checkout button validation
             updateCheckoutButtonState(); // Extra call for safety
