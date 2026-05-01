@@ -329,6 +329,10 @@ jQuery(document).ready(function ($) {
             success: function (response) {
                 if (response.success) {
                     console.log('Product added to cart:', response.data.product_id);
+					  // Update total immediately from this response
+        		if (response.data.upfront_total) {
+            		$('.upfront-fee-total-container .upfront-fee-content').html(response.data.upfront_total);
+        			}
                     $(document.body).trigger('wc_fragment_refresh');
                     updateFeeTables();
                 } else {
@@ -354,6 +358,10 @@ jQuery(document).ready(function ($) {
             success: function (response) {
                 if (response.success) {
                     console.log('Product removed from cart:', productId);
+					  // Update total immediately from this response
+        		if (response.data.upfront_total) {
+            		$('.upfront-fee-total-container .upfront-fee-content').html(response.data.upfront_total);
+        		}
                     $(document.body).trigger('wc_fragment_refresh');
                     updateFeeTables();
                 } else {
@@ -485,38 +493,44 @@ jQuery(document).ready(function ($) {
         }
     }
 
-    // Function to update fee tables
-    function updateFeeTables() {
-        const upfrontContainer = $('.upfront-fee-total-container, [data-shortcode="upfront_fee_total"]');
-        if (upfrontContainer.length && typeof showPreloaderManually === 'function') {
-            showPreloaderManually(upfrontContainer);
-        }
+	
 
-        $.ajax({
-            type: "POST",
-            url: modem_selection_vars.ajax_url,
-            data: {
-                action: "update_fee_tables",
-                current_product_id: currentPageProductId,
-                nonce: modem_selection_vars.nonce
-            },
-            success: function (response) {
-                if (response.success) {
-                    $(".upfront-fee-summary-container").html(response.data.upfront_table);
-                    $(".monthly-fee-summary-container").html(response.data.monthly_table);
+   function updateFeeTables() {
+    const upfrontContainer = $('.upfront-fee-total-container, [data-shortcode="upfront_fee_total"]');
+    if (upfrontContainer.length && typeof showPreloaderManually === 'function') {
+        showPreloaderManually(upfrontContainer);
+    }
 
-                    setTimeout(function () {
-                        updateUpfrontTotal();
-                    }, 100);
+    $.ajax({
+        type: "POST",
+        url: modem_selection_vars.ajax_url,
+        data: {
+            action: "update_fee_tables",
+            current_product_id: currentPageProductId,
+            nonce: modem_selection_vars.nonce
+        },
+        success: function (response) {
+            if (response.success) {
+                $(".upfront-fee-summary-container").html(response.data.upfront_table);
+                $(".monthly-fee-summary-container").html(response.data.monthly_table);
+
+                // Apply total directly — no extra AJAX call, no setTimeout
+                if (response.data.upfront_total) {
+                    upfrontContainer.find('.upfront-fee-content').html(response.data.upfront_total);
                 }
-            },
-            error: function () {
+
                 if (typeof hidePreloaderManually === 'function') {
                     hidePreloaderManually(upfrontContainer);
                 }
             }
-        });
-    }
+        },
+        error: function () {
+            if (typeof hidePreloaderManually === 'function') {
+                hidePreloaderManually(upfrontContainer);
+            }
+        }
+    });
+}
 
     // ===== INSTALLATION DATE SELECTION =====
     const installationRow = $('.installation-row');
