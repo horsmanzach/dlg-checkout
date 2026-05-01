@@ -486,6 +486,7 @@ jQuery(document).ready(function ($) {
             termsTimestamp = savedTimestamp;
             styleConfirmedTcButton();
             updateButtonState();
+			storeTermsTimestamp(); // - re-persist to WC session on restore
         }
     }
 
