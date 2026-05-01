@@ -295,11 +295,9 @@ jQuery(document).ready(function ($) {
 
                 // Redirect after showing the loading state
                 console.log('Redirecting to:', finalSlideRedirectUrl);
-                setTimeout(function () {
-                    window.location.href = finalSlideRedirectUrl;
-                }, 100);
-                return;
-            }
+				$('body').append('<div id="redirect-overlay" style="position:fixed;top:0;left:0;width:100%;height:100%;background:white;z-index:99999;display:flex;align-items:center;justify-content:center;"><div>Loading checkout...</div></div>');
+             	window.location.href = finalSlideRedirectUrl;
+				return;
 
             if (currentScreen < totalScreens) {
                 console.log('Animating from screen', currentScreen, 'to screen', currentScreen + 1);
@@ -338,6 +336,14 @@ jQuery(document).ready(function ($) {
                 );
 
                 currentScreen++;
+
+				if (currentScreen === 4) {
+    				const link = document.createElement('link');
+				    link.rel = 'prefetch';
+    				link.href = 'https://staging.diallog.com/checkout';
+    				document.head.appendChild(link);
+				}	
+
                 console.log('Screen updated to:', currentScreen);
 
                 updateButtonStates();
