@@ -133,6 +133,7 @@ add_action('wp_enqueue_scripts', 'dg_enqueue_exit_intent_scripts');
  * Filter modems based on internet plan provider category
  * Hides modems that don't match the provider of the internet plan in monthly summary
  */
+
 function dg_filter_modems_by_provider() {
     global $post;
     
@@ -188,7 +189,14 @@ function dg_filter_modems_by_provider() {
         'modem-1' => 267981,
         'modem-2' => 267983,
         'modem-3' => 267984,
-        'modem-4' => 267979
+        'modem-4' => 267979,
+        'modem-5' => 268259,
+        'modem-6' => 268266,
+        'modem-7' => 268258,
+        'modem-8' => 268265,
+        'modem-9' => 268264,
+        'modem-10' => 268260,
+        'modem-11' => 268267
     );
     
     // Array to store modems that should be hidden
@@ -234,7 +242,6 @@ function dg_filter_modems_by_provider() {
     }
 }
 add_action('wp_head', 'dg_filter_modems_by_provider', 999);
-
 
 
 // AJAX handler to update current product in session
@@ -5848,10 +5855,17 @@ function modem_add_to_cart_ajax() {
             // Simply add to cart
             $added = WC()->cart->add_to_cart($product_id, 1);
         }
+
+		$upfront_total_display = '$0.00';
+		if (function_exists('get_upfront_fee_summary')) {
+    		$summary = get_upfront_fee_summary();
+    		$upfront_total_display = wc_price($summary['grand_total'][1]);
+		}
         
         wp_send_json_success(array(
             'message' => 'Product added to cart',
-            'product_id' => $product_id
+            'product_id' => $product_id,
+			'upfront_total' => $upfront_total_display
         ));
     } else {
         wp_send_json_error(array(
@@ -5991,13 +6005,11 @@ add_shortcode('upfront_fee_total', 'upfront_fee_total_shortcode');
 function get_upfront_fee_total_ajax() {
     check_ajax_referer('modem_selection_nonce', 'nonce');
     
-    // Calculate the total directly without calling the shortcode to avoid container nesting
     $cart = WC()->cart;
     
     if ($cart->is_empty()) {
         $total_display = '$0.00';
     } else {
-        // NEW: Get dynamic install price from internet plan in cart
         $internet_plan_cat_id = 19;
         $dynamic_install_price = 0;
         
@@ -6006,25 +6018,20 @@ function get_upfront_fee_total_ajax() {
             $product_id = $product->get_id();
             $product_cat_ids = $product->get_category_ids();
             
-            // Check if this product has internet-plan category (check ALL categories)
-            // Check if this product has internet-plan category (check ALL categories)
-        if (in_array($internet_plan_cat_id, $product_cat_ids)) {
-            if (function_exists('get_field')) {
-                $dynamic_install_price = get_field('dynamic_install_price', $product_id);
+            if (in_array($internet_plan_cat_id, $product_cat_ids)) {
+                if (function_exists('get_field')) {
+                    $dynamic_install_price = get_field('dynamic_install_price', $product_id);
         
                     if ($dynamic_install_price === '' || $dynamic_install_price === null || $dynamic_install_price === false) {
                         $dynamic_install_price = get_field('dynamic_install_price', 'product_' . $product_id);
                     }
         
-            // Convert to float if we have a value (including 0)
-            if ($dynamic_install_price !== '' && $dynamic_install_price !== null && $dynamic_install_price !== false) {
-                $dynamic_install_price = floatval($dynamic_install_price);
-            } else {
-            $dynamic_install_price = null;
-        }
-    }
-                
-                error_log('AJAX Upfront total - Found internet plan: ' . $product_id . ', dynamic price: ' . $dynamic_install_price);
+                    if ($dynamic_install_price !== '' && $dynamic_install_price !== null && $dynamic_install_price !== false) {
+                        $dynamic_install_price = floatval($dynamic_install_price);
+                    } else {
+                        $dynamic_install_price = null;
+                    }
+                }
                 break;
             }
         }
@@ -6032,14 +6039,12 @@ function get_upfront_fee_total_ajax() {
         $subtotal = 0;
         $deposit_total = 0;
         
-        // Loop through cart items
         foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
             $product = $cart_item['data'];
             $product_id = $product->get_id();
             $parent_id = $product->get_parent_id();
             $product_price = $product->get_price();
             
-            // Check if this is installation and apply dynamic price if exists
             $installation_category_id = 60;
             $installation_parent_product_id = 267986;
             $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'ids'));
@@ -6047,36 +6052,28 @@ function get_upfront_fee_total_ajax() {
                                $parent_id == $installation_parent_product_id || 
                                $product_id == $installation_parent_product_id;
             
-           if ($is_installation && $dynamic_install_price !== null) {
+            if ($is_installation && $dynamic_install_price !== null) {
                 $product_price = $dynamic_install_price;
-                error_log('AJAX - Using dynamic install price: ' . $product_price);
             }
             
             $subtotal += $product_price;
             
-            // Get deposit fee
             $deposit_fee = 0;
             if (function_exists('get_field')) {
                 $deposit_fee = get_field('deposit-fee', $product_id);
                 
-                // If direct approach fails, try with product_ prefix
                 if (empty($deposit_fee) && $deposit_fee !== '0') {
                     $deposit_fee = get_field('deposit-fee', 'product_' . $product_id);
                 }
                 
-                // Convert to numeric value
                 $deposit_fee = is_numeric($deposit_fee) ? floatval($deposit_fee) : 0;
                 $deposit_total += $deposit_fee;
             }
         }
         
-        // Calculate tax using province-specific rates (excluding deposits)
         $tax_total = 0;
         if (wc_tax_enabled()) {
-            // Get province from address lookup
             $searched_address = dg_get_user_meta("searched_address");
-            
-            error_log('Upfront total AJAX - searched address: ' . print_r($searched_address, true));
             
             $state = '';
             if (isset($searched_address['administrative_area_level_1'])) {
@@ -6085,9 +6082,6 @@ function get_upfront_fee_total_ajax() {
                 $state = $searched_address['provinceOrState'];
             }
             
-            error_log('Upfront total AJAX - province: ' . $state);
-            
-            // Get province-specific tax rates
             $tax_rates = WC_Tax::find_rates(array(
                 'country'   => 'CA',
                 'state'     => $state,
@@ -6095,22 +6089,16 @@ function get_upfront_fee_total_ajax() {
                 'postcode'  => ''
             ));
             
-            error_log('Upfront total AJAX - tax rates: ' . print_r($tax_rates, true));
-            
             if (!empty($tax_rates)) {
                 $taxes = WC_Tax::calc_tax($subtotal, $tax_rates);
                 $tax_total = array_sum($taxes);
             }
         }
         
-        // Calculate total (subtotal + tax + deposits)
         $total = $subtotal + $tax_total + $deposit_total;
-        
-        // Format with wc_price for consistency
         $total_display = wc_price($total);
     }
     
-    // Return ONLY the formatted price, not the container
     wp_send_json_success(array(
         'total' => $total_display
     ));
@@ -6134,6 +6122,13 @@ function update_fee_summary_tables() {
     
     $upfront_table = upfront_fee_summary_shortcode();
     $monthly_table = monthly_fee_summary_shortcode();
+
+	  // Compute the total while we're already here — no extra AJAX needed
+    $upfront_total_display = '$0.00';
+    if (function_exists('get_upfront_fee_summary')) {
+        $summary = get_upfront_fee_summary();
+        $upfront_total_display = wc_price($summary['grand_total'][1]);
+    }
     
     wp_send_json_success(array(
         'upfront_table' => $upfront_table,
@@ -6168,9 +6163,17 @@ function modem_remove_from_cart_ajax() {
         // If item found, remove it
         if (!empty($cart_item_key)) {
             WC()->cart->remove_cart_item($cart_item_key);
+
+			$upfront_total_display = '$0.00';
+		if (function_exists('get_upfront_fee_summary')) {
+    		$summary = get_upfront_fee_summary();
+    		$upfront_total_display = wc_price($summary['grand_total'][1]);
+		}
+        
             wp_send_json_success(array(
                 'message' => 'Product removed from cart',
-                'product_id' => $product_id
+                'product_id' => $product_id,
+				'upfront_total' => $upfront_total_display
             ));
         } else {
             wp_send_json_error(array(
@@ -6555,14 +6558,10 @@ function get_upfront_fee_summary() {
             }
         }
         
-        error_log('get_upfront_fee_summary - Found internet plan: ' . $product_id . ', dynamic price: ' . ($dynamic_install_price !== null ? $dynamic_install_price : 'not set'));
         break;
         }
     }
     
-    error_log("=== FIXED UPFRONT FEE SUMMARY DEBUG ===");
-    error_log("Cart item count: " . WC()->cart->get_cart_contents_count());
-    error_log("Dynamic install price: " . $dynamic_install_price);
     
     foreach ( WC()->cart->get_cart() as $cart_item_key => $cart_item ) {
          
@@ -6579,13 +6578,11 @@ function get_upfront_fee_summary() {
             $parent_product = wc_get_product($_product->get_parent_id());
             if ($parent_product) {
                 $product_cat_ids = $parent_product->get_category_ids();
-                error_log("Variation has no categories, using parent categories for " . $_product->get_name());
             }
         }
         
         // FIX: Handle empty category array to prevent PHP notices
         if (empty($product_cat_ids)) {
-            error_log("Product " . $_product->get_name() . " has no categories assigned");
             continue;
         }
         
@@ -6593,18 +6590,15 @@ function get_upfront_fee_summary() {
         $product_category = dg_get_primary_product_category($product_cat_ids);
 
         if ($product_category === null) {
-            error_log("Product " . $_product->get_name() . " has no valid categories");
             continue;
         
         }
         $product_id = $_product->get_id();
         
-        error_log("Processing product: " . $_product->get_name() . " (ID: $product_id, Category: $product_category)");
         
         // FIX: Handle 'modems-new' category - treat it as 'modems'
         if ($product_category == 'modems-new') {
             $product_category = 'modems';
-            error_log("Converting modems-new to modems category");
         }
          
         if (array_key_exists($product_category,$summary) && $product_category != 'installation') {
@@ -6644,7 +6638,6 @@ function get_upfront_fee_summary() {
             // Use whichever deposit method has a value
             $final_deposit = max($deposit_fee, $security_deposit_attr);
             
-            error_log("Deposit check - ACF: $deposit_fee, Attribute: $security_deposit_attr, Final: $final_deposit");
             
             // Handle modem with deposit
             if ( $product_category == "modems" && $final_deposit > 0 ) {
@@ -6652,12 +6645,10 @@ function get_upfront_fee_summary() {
                 $summary[$product_category][1] = round(floatval($final_deposit), 2);
                 $do_not_include_modem_deposit = true;
                 $modem_deposit = $final_deposit;
-                error_log("Modem Deposit: $" . $final_deposit);
                 
                 // Also add the modem price to subtotal if it has a price
                 $modem_price = $_product->get_price();
                 if ($modem_price > 0) {
-                    error_log("Modem also has price: $modem_price");
                 }
             } else {
                 // Handle regular products
@@ -6667,13 +6658,11 @@ function get_upfront_fee_summary() {
                 if ($product_category == 'deposit') {
                     // Deposit products are handled separately via ACF fields below
                     // Don't set summary or add tax for the $0 product price
-                    error_log("Deposit category product (price will come from ACF): " . $_product->get_name());
                 } else {
                     // Regular non-deposit products
                     $summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
                     $summary[$product_category][1] = round(floatval($product_price), 2);
                     $summary['taxes'][1] += round( floatval ( ($summary[$product_category][1] * $tax_rate ) / 100 ) , 2 );
-                    error_log("Regular product: " . $summary[$product_category][0] . " = $" . $summary[$product_category][1]);
                 }
             }
             
@@ -6684,15 +6673,11 @@ function get_upfront_fee_summary() {
                 // Store the product name for deposits
                 if ($product_category == 'deposit') {
                     // For Pay After deposits, use the actual product title
-                    error_log("Pay After Deposit: " . $_product->get_name() . " = $" . $deposit_fee);
                 } elseif ($product_category == "tv-plan") {
                     $tv_deposit = $deposit_fee;
-                    error_log("TV Deposit: $" . $deposit_fee);
                 } elseif ($product_category == "phone-plan") {
                     $phone_deposit = $deposit_fee;
-                    error_log("Phone Deposit: $" . $deposit_fee);
                 } else {
-                    error_log("Other Deposit for $product_category: $" . $deposit_fee);
                 }
             }
             
@@ -6714,13 +6699,10 @@ function get_upfront_fee_summary() {
             $summary['installation'][2] = ''; // Placeholder for dates (added later)
             $summary['installation'][3] = round($original_install_price, 2); // Original price
             $summary['installation'][4] = round($dynamic_install_price, 2); // Sale price
-            error_log("Installation with promo: Original $original_install_price, Sale $dynamic_install_price");
         }
         
         $summary['taxes'][1] += round( floatval ( ($summary['installation'][1] * $tax_rate ) / 100 ) , 2 );
-        error_log("Installation product: " . $summary['installation'][0] . " = $" . $summary['installation'][1]);
     } else {
-        error_log("Product category '$product_category' not found in summary array - skipping");
     }
     }
    }
@@ -6729,7 +6711,6 @@ function get_upfront_fee_summary() {
     if ($total_deposits > 0) {
         $summary['deposit'][0] = 'Deposits';
         $summary['deposit'][1] = $total_deposits;
-        error_log("Total deposits: $total_deposits");
     }
 
     // Calculate totals
@@ -6754,21 +6735,6 @@ function get_upfront_fee_summary() {
             $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['deposit'][1];
         }
     }
-
-    error_log("=== FINAL SUMMARY ===");
-    error_log("Internet Plan: $" . $summary['internet-plan'][1]);
-    error_log("Modem Deposit: $" . $summary['modems'][1]);
-    error_log("Installation: $" . $summary['installation'][1]);
-    error_log("Phone Plan: $" . $summary['phone-plan'][1]);
-    error_log("TV Plan: $" . $summary['tv-plan'][1]);
-    error_log("TV Deposit: $" . $tv_deposit);
-    error_log("Phone Deposit: $" . $phone_deposit);
-    error_log("Deposits Total: $" . $total_deposits);
-    error_log("Subtotal: $" . $summary['subtotal'][1]);
-    error_log("Tax: $" . $summary['taxes'][1]);
-    error_log("Grand Total: $" . $summary['grand_total'][1]);
-
-    error_log("MONERIS DISPLAY - Grand Total being returned: $" . $summary['grand_total'][1]);
     
     return $summary;    
 }
