@@ -1,7 +1,5 @@
 <?php 
 
-error_log('=== FUNCTIONS.PHP IS LOADING ===');
-
 // Completely disable magnific_popup.css
 add_action('init', 'completely_disable_magnific_popup', 1);
 function completely_disable_magnific_popup() {
@@ -4413,7 +4411,7 @@ add_action('woocommerce_checkout_create_order_line_item', 'save_modem_details_to
 function modem_selection_scripts() {
     // Load on product pages and custom checkout pages
     if (is_product() || is_page(array('checkout', 'internet-plans'))) { // Add your custom page slugs here
-        wp_enqueue_script('card-selection', get_stylesheet_directory_uri() . '/js/card-selection.js', array('jquery'), '1.0', true);
+        wp_enqueue_script('card-selection', get_stylesheet_directory_uri() . '/js/card-selection.js', array('jquery'), '1.1', true);
         
         // Pass AJAX URL and nonce to JavaScript
         wp_localize_script('card-selection', 'modem_selection_vars', array(
@@ -4687,11 +4685,11 @@ function upfront_fee_summary_shortcode() {
        
        // Add dates if available
        if (!empty($installation_dates['preferred-date'])) {
-           $output .= '<br><span style="font-size: 0.9em; color: #666;">Preferred: ' . 
+           $output .= '<br><span style="font-size: 0.75em; color: #666;"><b>Preferred:</b> ' . 
                      esc_html($installation_dates['preferred-date']) . '</span>';
        }
        if (!empty($installation_dates['secondary-date'])) {
-           $output .= '<br><span style="font-size: 0.9em; color: #666;">Secondary: ' . 
+           $output .= '<br><span style="font-size: 0.75em; color: #666;"><b>Secondary:</b> ' . 
                      esc_html($installation_dates['secondary-date']) . '</span>';
        }
        
@@ -6132,7 +6130,8 @@ function update_fee_summary_tables() {
     
     wp_send_json_success(array(
         'upfront_table' => $upfront_table,
-        'monthly_table' => $monthly_table
+        'monthly_table' => $monthly_table,
+		'upfront_total' => $upfront_total_display
     ));
     
     wp_die();
@@ -9953,4 +9952,3 @@ function myplugin_clear_cron() {
     }
 }
 register_deactivation_hook(__FILE__, 'myplugin_clear_cron');
-
