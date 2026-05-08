@@ -442,9 +442,7 @@ jQuery(document).ready(function ($) {
 
                     $(document.body).trigger('wc_fragment_refresh');
 
-                    setTimeout(function () {
-                        updateUpfrontTotal();
-                    }, 100);
+                    updateFeeTables();
 
                 } else {
                     console.error('Error:', response.data.message);
@@ -863,12 +861,10 @@ jQuery(document).ready(function ($) {
 
     // Update when cart fragments refresh
     $(document.body).on("wc_fragments_refreshed", function () {
-        updateFeeTables();
-        updateUpfrontTotal();
-    });
+    updateFeeTables();
+});
 
     // Initial update of tables when page loads
     updateFeeTables();
-    updateUpfrontTotal();
-    checkInstallationInCart();
+checkInstallationInCart();
 });
