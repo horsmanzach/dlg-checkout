@@ -336,6 +336,13 @@ jQuery(document).ready(function ($) {
                 );
 
                 currentScreen++;
+
+				if (currentScreen === 4) {
+    			const link = document.createElement('link');
+    			link.rel = 'prefetch';
+    				link.href = 'https://staging.diallog.com/checkout';
+    			document.head.appendChild(link);
+					}
                 console.log('Screen updated to:', currentScreen);
 
                 updateButtonStates();
