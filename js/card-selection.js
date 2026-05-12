@@ -29,7 +29,6 @@ jQuery(document).ready(function ($) {
     const tvRows = {
         'tv-0': 267996,
         'tv-1': 267997,
-		'tv-3': 268285,
         'tv-2': 267993
     };
 
