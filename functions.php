@@ -901,16 +901,19 @@ if (isset($_POST['special_shipping_instructions'])) {
         }
 
         // Build customer_data EXACTLY like prepare_diallog_order_data does
-        $customer_data = array(
-            'billing_first_name' => $customer_info['first_name'],
-            'billing_last_name' => $customer_info['last_name'],
-            'billing_email' => $customer_info['email'],
-            'billing_phone' => $customer_info['phone'],
-            'customer_service_address' => $customer_info['service_address_full'],
-            'customer_shipping_address' => $customer_info['shipping_address_full'],
-            'customer_ip' => $_SERVER['REMOTE_ADDR'] ?? '',
-            'ccd' => $ccd
-        );
+       $customer_data = array(
+    'billing_first_name'             => $customer_info['first_name'],
+    'billing_last_name'              => $customer_info['last_name'],
+    'billing_email'                  => $customer_info['email'],
+    'billing_phone'                  => $customer_info['phone'],
+    'customer_service_address'       => $customer_info['service_address_full'],
+    'customer_shipping_address'      => $customer_info['shipping_address_full'],
+    'customer_ip'                    => $_SERVER['REMOTE_ADDR'] ?? '',
+    'ccd'                            => $ccd,
+    'unit_number'                    => $customer_info['unit_number'],
+    'buzzer_code'                    => $customer_info['buzzer_code'],
+    'special_shipping_instructions'  => $customer_info['special_shipping_instructions'],
+);
 
         error_log('--- 2) CUSTOMER DATA FORMATTED ---');
         error_log(json_encode($customer_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
@@ -3134,15 +3137,18 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
     }
 
     $customer_data = array(
-        'billing_first_name' => $customer_info['first_name'],
-        'billing_last_name' => $customer_info['last_name'],
-        'billing_email' => $customer_info['email'],
-        'billing_phone' => $customer_info['phone'],
-        'customer_service_address' => $customer_info['service_address_full'],
-        'customer_shipping_address' => $customer_info['shipping_address_full'],
-        'customer_ip' => $_SERVER['REMOTE_ADDR'] ?? '',
-        'ccd' => $ccd
-    );
+    'billing_first_name'             => $customer_info['first_name'],
+    'billing_last_name'              => $customer_info['last_name'],
+    'billing_email'                  => $customer_info['email'],
+    'billing_phone'                  => $customer_info['phone'],
+    'customer_service_address'       => $customer_info['service_address_full'],
+    'customer_shipping_address'      => $customer_info['shipping_address_full'],
+    'customer_ip'                    => $_SERVER['REMOTE_ADDR'] ?? '',
+    'ccd'                            => $ccd,
+    'unit_number'                    => $customer_info['unit_number'],
+    'buzzer_code'                    => $customer_info['buzzer_code'],
+    'special_shipping_instructions'  => $customer_info['special_shipping_instructions'],
+);
     
     // Get terms acceptance timestamp from session
     $terms_timestamp = '';
@@ -3642,13 +3648,16 @@ function transform_order_data_for_email($diallog_order_data) {
     // Build the transformed order data for email
     $email_order_data = array(
         // Customer information
-        'customer_name' => $customer_info['full_name'],
-        'customer_email' => $customer_info['email'],
-        'customer_phone' => $customer_info['phone'],
-        'service_address' => $customer_info['service_address_full'],
-        'shipping_address' => $customer_info['shipping_address_full'],
-        'customer_ip' => $customer_ip,
-        'ccd' => $ccd,
+    'customer_name' => $customer_info['full_name'],
+    'customer_email' => $customer_info['email'],
+    'customer_phone' => $customer_info['phone'],
+    'service_address' => $customer_info['service_address_full'],
+    'shipping_address' => $customer_info['shipping_address_full'],
+    'unit_number' => $customer_info['unit_number'],
+    'buzzer_code' => $customer_info['buzzer_code'],
+    'special_shipping_instructions' => $customer_info['special_shipping_instructions'],
+    'customer_ip' => $customer_ip,
+    'ccd' => $ccd,
         
         // Order timestamps (formatted with timezone)
         'order_timestamp' => $order_timestamp_formatted,
