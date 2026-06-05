@@ -65,10 +65,28 @@
                 <td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Shipping Address:</strong></td>
                 <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="customer-shipping-address"></td>
             </tr>
+          
+          <!-- Unit Number (optional - hidden if empty) -->
+				<tr id="customer-unit-number-row" style="display: none;">
+    <td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Unit Number:</strong></td>
+    <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="customer-unit-number"></td>
+</tr>
+
+<!-- Buzzer Code (optional - hidden if empty) -->
+<tr id="customer-buzzer-code-row" style="display: none;">
+    <td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Buzzer Code:</strong></td>
+    <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="customer-buzzer-code"></td>
+</tr>
+
+<!-- Special Shipping Instructions (optional - hidden if empty) -->
+<tr id="customer-shipping-instructions-row" style="display: none;">
+    <td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Special Shipping Instructions:</strong></td>
+    <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="customer-shipping-instructions"></td>
+</tr>
             
             <!--- Populate CCD Row with CCD value if one is entered in URL -->
             <tr id="customer-ccd-row" style="display: none;">
-                <td class="label-column" style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>CCD:</strong></td>
+                <td class="label-column" style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Coupon Code:</strong></td>
                 <td class="value-column" style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="customer-ccd"></td>
             </tr>
         </tbody>
@@ -90,15 +108,16 @@
                 <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="upfront-total"></td>
             </tr>
             <tr>
-                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Authorization Code:</strong></td>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;">Authorization Code:</td>
                 <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="auth-code">-</td>
             </tr>
             <tr>
-                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Transaction Number:</strong></td>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;">Transaction Number:</td>
                 <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="reference-num">-</td>
             </tr>
             <tr>
-                <td colspan="2" style="border: 1px solid #ddd; padding: 10px;"><strong>Payment Method:</strong> Credit Card ending in <span id="card-last-4">****</span></td>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;">Payment Method:</td>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;">Credit Card ending in <span id="card-last-4">****</span></td>
             </tr>
         </tfoot>
     </table>
@@ -110,16 +129,16 @@
                 <th colspan="2" style="border: 1px solid #ddd; padding: 10px;">Monthly Billing Summary</th>
             </tr>
         </thead>
-        <tbody id="monthly-items">
+        <tbody id="monthly-items"> 
             <!-- Monthly items will be populated here -->
         </tbody>
         <tfoot>
             <tr class="subtotal-row">
-                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Subtotal:</strong></td>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;">Subtotal:</td>
                 <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="monthly-subtotal"></td>
             </tr>
             <tr class="tax-row">
-                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;"><strong>Tax:</strong></td>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;">Tax:</td>
                 <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="monthly-tax"></td>
             </tr>
             <tr class="thankyou-total-row">
@@ -127,7 +146,8 @@
                 <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="monthly-total"></td>
             </tr>
             <tr>
-                <td colspan="2" style="border: 1px solid #ddd; padding: 10px;"><strong>Monthly Payment Method:</strong> <span id="monthly-payment-method"></span></td>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;">Monthly Payment Method:</td>
+                <td style="width: 50%; border: 1px solid #ddd; padding: 10px;" id="monthly-payment-method"></td>
             </tr>
         </tfoot>
     </table>
