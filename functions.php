@@ -876,7 +876,20 @@ if (isset($_POST['special_shipping_instructions'])) {
     }
     error_log('Special shipping instructions saved: ' . $shipping_instructions);
 }
+
+		// Save shipping address to session from POST data
+if (WC()->session) {
+    $ship_to_different = isset($_POST['ship_to_different']) && $_POST['ship_to_different'] === 'true';
+    WC()->session->set('ship_to_different_address', $ship_to_different);
     
+    if ($ship_to_different && !empty($_POST['shipping_address'])) {
+        WC()->session->set('custom_shipping_address_full', sanitize_text_field($_POST['shipping_address']));
+        error_log('Shipping address saved to session from POST: ' . $_POST['shipping_address']);
+    } else {
+        WC()->session->set('custom_shipping_address_full', '');
+    }
+}
+
         // Get customer data using the SAME method as prepare_diallog_order_data
         $customer_info = dg_get_customer_info();
 
