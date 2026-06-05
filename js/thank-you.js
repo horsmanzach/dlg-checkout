@@ -117,6 +117,23 @@ jQuery(document).ready(function ($) {
             // NEW: Shipping Address (full address on one line)
             $('#customer-shipping-address').text(data.customer.shipping_address_full || '');
 
+			
+			// Optional fields - only show rows if values exist
+			if (data.customer.unit_number) {
+    			$('#customer-unit-number').text(data.customer.unit_number);
+    			$('#customer-unit-number-row').show();
+			}
+
+			if (data.customer.buzzer_code) {
+    			$('#customer-buzzer-code').text(data.customer.buzzer_code);
+    			$('#customer-buzzer-code-row').show();
+			}
+
+			if (data.customer.special_shipping_instructions) {
+    			$('#customer-shipping-instructions').text(data.customer.special_shipping_instructions);
+			    $('#customer-shipping-instructions-row').show();
+			}
+
             // Log for debugging
             console.log('Customer info populated:', {
                 name: data.customer.full_name,
