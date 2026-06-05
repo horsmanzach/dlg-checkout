@@ -18,8 +18,11 @@ function generate_order_confirmation_email_html($order_data) {
     $customer_email = isset($order_data['customer_email']) ? $order_data['customer_email'] : '';
     $customer_phone = isset($order_data['customer_phone']) ? $order_data['customer_phone'] : '';
     $service_address = isset($order_data['service_address']) ? $order_data['service_address'] : '';
-    $shipping_address = isset($order_data['shipping_address']) ? $order_data['shipping_address'] : '';
-    $customer_ip = isset($order_data['customer_ip']) ? $order_data['customer_ip'] : '';
+$shipping_address = isset($order_data['shipping_address']) ? $order_data['shipping_address'] : '';
+$unit_number = isset($order_data['unit_number']) ? $order_data['unit_number'] : '';
+$buzzer_code = isset($order_data['buzzer_code']) ? $order_data['buzzer_code'] : '';
+$special_shipping_instructions = isset($order_data['special_shipping_instructions']) ? $order_data['special_shipping_instructions'] : '';
+$customer_ip = isset($order_data['customer_ip']) ? $order_data['customer_ip'] : '';
     $ccd = isset($order_data['ccd']) ? $order_data['ccd'] : '';
     $tax_rate = isset($order_data['tax_rate']) ? $order_data['tax_rate'] : 0;
     
@@ -185,7 +188,7 @@ function generate_order_confirmation_email_html($order_data) {
             <!-- Email Header -->
             <div class="email-header">
                 <!-- Company Logo - Update with your actual logo URL -->
-                <img src="<?php echo esc_url(home_url('/wp-content/uploads/2025/11/Diallog-White-EmailSize.png')); ?>" 
+                <img src="<?php echo esc_url(home_url('/wp-content/uploads/2026/01/Diallog-White-EmailSize.png')); ?>" 
                      alt="Diallog Logo" class="email-logo">
                 <h1>Thank You for Your Order!</h1>
             </div>
@@ -240,10 +243,28 @@ function generate_order_confirmation_email_html($order_data) {
                             <td><?php echo esc_html($service_address); ?></td>
                         </tr>
                         <tr>
-                            <td>Shipping Address:</td>
-                            <td><?php echo esc_html($shipping_address); ?></td>
-                        </tr>
-                        <?php if (!empty($ccd)): ?>
+    <td>Shipping Address:</td>
+    <td><?php echo esc_html($shipping_address); ?></td>
+</tr>
+<?php if (!empty($unit_number)): ?>
+<tr>
+    <td>Unit Number:</td>
+    <td><?php echo esc_html($unit_number); ?></td>
+</tr>
+<?php endif; ?>
+<?php if (!empty($buzzer_code)): ?>
+<tr>
+    <td>Buzzer Code:</td>
+    <td><?php echo esc_html($buzzer_code); ?></td>
+</tr>
+<?php endif; ?>
+<?php if (!empty($special_shipping_instructions)): ?>
+<tr>
+    <td>Special Shipping Instructions:</td>
+    <td><?php echo esc_html($special_shipping_instructions); ?></td>
+</tr>
+<?php endif; ?>
+<?php if (!empty($ccd)): ?>
                         <tr>
                             <td>Coupon Code:</td>
                             <td><?php echo esc_html($ccd); ?></td>
@@ -446,46 +467,81 @@ function generate_order_confirmation_email_html($order_data) {
  * @param array $order_data Complete order data from payment processing
  * @return bool True if email sent successfully, false otherwise
  */
+
 function send_customer_order_confirmation_email($customer_email, $order_data) {
+    
+    error_log('=== EMAIL SEND DEBUG START ===');
     
     // Validate email address
     if (empty($customer_email) || !is_email($customer_email)) {
-        error_log('Invalid email address provided to send_customer_order_confirmation_email: ' . $customer_email);
+        error_log('INVALID EMAIL: ' . $customer_email);
+        error_log('=== EMAIL SEND DEBUG END ===');
         return false;
     }
     
+    error_log('Email validation passed: ' . $customer_email);
+    
+    // Check if order_data has required fields
+    error_log('Order data keys: ' . json_encode(array_keys($order_data)));
+    
     // Generate the HTML email content
-    $email_html = generate_order_confirmation_email_html($order_data);
+    try {
+        $email_html = generate_order_confirmation_email_html($order_data);
+        error_log('Email HTML generated, length: ' . strlen($email_html));
+    } catch (Exception $e) {
+        error_log('ERROR generating email HTML: ' . $e->getMessage());
+        error_log('=== EMAIL SEND DEBUG END ===');
+        return false;
+    }
     
     // Set up email headers
     $headers = array();
     $headers[] = 'From: Diallog Orders <residential.orders@diallog.com>';
     
     // Only BCC company email in live/production mode, not during testing
-    // Check if we're in test mode by looking at order data or using config
     $moneris_config = get_moneris_config();
+    error_log('Moneris test mode: ' . ($moneris_config['test_mode'] ? 'YES' : 'NO'));
+    
     if (!$moneris_config['test_mode']) {
-        $headers[] = 'BCC: residential.orders@diallog.com'; // BCC to company for record keeping (LIVE MODE ONLY)
+        $headers[] = 'BCC: residential.orders@diallog.com';
+        error_log('BCC added for live mode');
     }
     
     $headers[] = 'Reply-To: residential.orders@diallog.com';
     $headers[] = 'Content-Type: text/html; charset=UTF-8';
     $headers[] = 'MIME-Version: 1.0';
     
+    error_log('Email headers: ' . json_encode($headers));
+    
     // Email subject
     $subject = 'Your Diallog Order Confirmation';
     
     // Log the email attempt
     error_log('Attempting to send order confirmation email to: ' . $customer_email);
+    error_log('Subject: ' . $subject);
+    error_log('Is user logged in: ' . (is_user_logged_in() ? 'YES' : 'NO'));
+    error_log('Current user ID: ' . get_current_user_id());
     
     // Send the email using WordPress wp_mail function
     $sent = wp_mail($customer_email, $subject, $email_html, $headers);
     
-    if ($sent) {
-        error_log('Order confirmation email sent successfully to: ' . $customer_email);
-    } else {
-        error_log('Failed to send order confirmation email to: ' . $customer_email);
+    // Check for PHPMailer errors
+    global $phpmailer;
+    if (isset($phpmailer) && !empty($phpmailer->ErrorInfo)) {
+        error_log('PHPMailer Error: ' . $phpmailer->ErrorInfo);
     }
+    
+    if ($sent) {
+        error_log('✓ wp_mail returned TRUE - Email sent successfully to: ' . $customer_email);
+    } else {
+        error_log('✗ wp_mail returned FALSE - Failed to send email to: ' . $customer_email);
+        
+        // Additional debugging
+        error_log('Server mail function available: ' . (function_exists('mail') ? 'YES' : 'NO'));
+        error_log('WordPress email from: ' . get_option('admin_email'));
+    }
+    
+    error_log('=== EMAIL SEND DEBUG END ===');
     
     return $sent;
 }
