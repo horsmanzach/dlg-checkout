@@ -497,13 +497,16 @@ function dg_get_customer_info() {
     error_log('========================');
     
     return array(
-        'first_name' => $first_name,
-        'last_name' => $last_name,
-        'full_name' => $full_name,
-        'email' => $email,
-        'phone' => dg_format_phone_for_display($phone),
-        'service_address_full' => $service_address_full,
-        'shipping_address_full' => $shipping_address_full,
+        'first_name'                    => $first_name,
+        'last_name'                     => $last_name,
+        'full_name'                     => $full_name,
+        'email'                         => $email,
+        'phone'                         => dg_format_phone_for_display($phone),
+        'unit_number'                   => dg_get_user_meta('billing_unit_number') ?: '',
+        'buzzer_code'                   => dg_get_user_meta('billing_buzzer_code') ?: '',
+        'special_shipping_instructions' => dg_get_user_meta('special_shipping_instructions') ?: '',
+        'service_address_full'          => $service_address_full,
+        'shipping_address_full'         => $shipping_address_full,
         // Keep legacy fields for backward compatibility
         'address' => $service_address_full,
         'city' => '',
@@ -849,6 +852,29 @@ if (isset($_POST['phone']) && !empty($_POST['phone'])) {
     WC()->customer->set_billing_phone($phone_digits);
     dg_set_user_meta('billing_phone', $phone_digits);
     error_log('Phone saved to WC customer and user meta: ' . $phone_digits);
+}
+
+		// 3 Additonal Customer Fields Added June 4th, 2026
+		
+if (isset($_POST['unit_number'])) {
+    $unit_number = sanitize_text_field($_POST['unit_number']);
+    dg_set_user_meta('billing_unit_number', $unit_number);
+    error_log('Unit number saved to user meta: ' . $unit_number);
+}
+
+if (isset($_POST['buzzer_code'])) {
+    $buzzer_code = sanitize_text_field($_POST['buzzer_code']);
+    dg_set_user_meta('billing_buzzer_code', $buzzer_code);
+    error_log('Buzzer code saved to user meta: ' . $buzzer_code);
+}
+
+if (isset($_POST['special_shipping_instructions'])) {
+    $shipping_instructions = sanitize_textarea_field($_POST['special_shipping_instructions']);
+    dg_set_user_meta('special_shipping_instructions', $shipping_instructions);
+    if (WC()->session) {
+        WC()->session->set('special_shipping_instructions', $shipping_instructions);
+    }
+    error_log('Special shipping instructions saved: ' . $shipping_instructions);
 }
     
         // Get customer data using the SAME method as prepare_diallog_order_data
@@ -1733,6 +1759,35 @@ function shipping_address_checkbox_shortcode() {
 add_shortcode('shipping_address_checkbox', 'shipping_address_checkbox_shortcode');
 
 
+/**
+ * Special Shipping Instructions Textarea Shortcode
+ * Usage: [special_shipping_instructions]
+ */
+function special_shipping_instructions_shortcode() {
+    ob_start();
+    ?>
+    <div class="special-shipping-instructions-container">
+        <div class="special-shipping-instructions-field">
+            <label for="special-shipping-instructions-input">
+                Special Shipping Instructions
+                <span class="optional" style="font-weight: normal; color: #666;"> (optional)</span>
+            </label>
+            <textarea
+                id="special-shipping-instructions-input"
+                name="special_shipping_instructions"
+                placeholder="Any specific instructions for your order delivery or installation..."
+                rows="4"
+                maxlength="500"
+                style="width: 100%; box-sizing: border-box; resize: vertical;"
+            ></textarea>
+        </div>
+    </div>
+    <?php
+    return ob_get_clean();
+}
+add_shortcode('special_shipping_instructions', 'special_shipping_instructions_shortcode');
+
+
 // ----- 4 Updated Enqueueing Functions for monthly_billing_assets, confirm_terms_script, mneris_payment_assets and checkout_cc_copy_script
 
 // ===== UPDATED: Enqueue monthly-billing.js file with proper versioning
@@ -2096,53 +2151,48 @@ function auto_fill_checkout_from_address_lookup($value, $key) {
 
 
 // Hide the address fields since they're now auto-populated
+
 add_filter('woocommerce_checkout_fields', 'hide_auto_filled_address_fields', 99);
 function hide_auto_filled_address_fields($fields) {
-    
-    // Check if we have address data to auto-fill
-    $searched_address = dg_get_user_meta("searched_address");
-    
-    if (!empty($searched_address)) {
-        // Hide billing address fields
-        if (isset($fields['billing']['billing_address_1'])) {
-            $fields['billing']['billing_address_1']['class'][] = 'auto-filled-field';
-            $fields['billing']['billing_address_1']['custom_attributes']['style'] = 'display:none;';
-        }
-        if (isset($fields['billing']['billing_city'])) {
-            $fields['billing']['billing_city']['class'][] = 'auto-filled-field';
-            $fields['billing']['billing_city']['custom_attributes']['style'] = 'display:none;';
-        }
-        if (isset($fields['billing']['billing_postcode'])) {
-            $fields['billing']['billing_postcode']['class'][] = 'auto-filled-field';
-            $fields['billing']['billing_postcode']['custom_attributes']['style'] = 'display:none;';
-        }
-        if (isset($fields['billing']['billing_state'])) {
-            $fields['billing']['billing_state']['class'][] = 'auto-filled-field';
-            $fields['billing']['billing_state']['custom_attributes']['style'] = 'display:none;';
-        }
-        
-        // Also hide shipping fields if they exist
-        if (isset($fields['shipping']['shipping_address_1'])) {
-            $fields['shipping']['shipping_address_1']['class'][] = 'auto-filled-field';
-            $fields['shipping']['shipping_address_1']['custom_attributes']['style'] = 'display:none;';
-        }
-        if (isset($fields['shipping']['shipping_city'])) {
-            $fields['shipping']['shipping_city']['class'][] = 'auto-filled-field';
-            $fields['shipping']['shipping_city']['custom_attributes']['style'] = 'display:none;';
-        }
-        if (isset($fields['shipping']['shipping_postcode'])) {
-            $fields['shipping']['shipping_postcode']['class'][] = 'auto-filled-field';
-            $fields['shipping']['shipping_postcode']['custom_attributes']['style'] = 'display:none;';
-        }
-        if (isset($fields['shipping']['shipping_state'])) {
-            $fields['shipping']['shipping_state']['class'][] = 'auto-filled-field';
-            $fields['shipping']['shipping_state']['custom_attributes']['style'] = 'display:none;';
-        }
+
+    // Always strip form-row-wide and hide auto-filled address fields
+    // regardless of whether searched_address is populated.
+    if (isset($fields['billing']['billing_address_1'])) {
+        $fields['billing']['billing_address_1']['class'] = array('auto-filled-field');
+        $fields['billing']['billing_address_1']['custom_attributes']['style'] = 'display:none;';
     }
-    
+    if (isset($fields['billing']['billing_city'])) {
+        $fields['billing']['billing_city']['class'] = array('auto-filled-field');
+        $fields['billing']['billing_city']['custom_attributes']['style'] = 'displafy:none;';
+    }
+    if (isset($fields['billing']['billing_postcode'])) {
+        $fields['billing']['billing_postcode']['class'] = array('auto-filled-field');
+        $fields['billing']['billing_postcode']['custom_attributes']['style'] = 'display:none;';
+    }
+    if (isset($fields['billing']['billing_state'])) {
+        $fields['billing']['billing_state']['class'] = array('auto-filled-field');
+        $fields['billing']['billing_state']['custom_attributes']['style'] = 'display:none;';
+    }
+
+    if (isset($fields['shipping']['shipping_address_1'])) {
+        $fields['shipping']['shipping_address_1']['class'] = array('auto-filled-field');
+        $fields['shipping']['shipping_address_1']['custom_attributes']['style'] = 'display:none;';
+    }
+    if (isset($fields['shipping']['shipping_city'])) {
+        $fields['shipping']['shipping_city']['class'] = array('auto-filled-field');
+        $fields['shipping']['shipping_city']['custom_attributes']['style'] = 'display:none;';
+    }
+    if (isset($fields['shipping']['shipping_postcode'])) {
+        $fields['shipping']['shipping_postcode']['class'] = array('auto-filled-field');
+        $fields['shipping']['shipping_postcode']['custom_attributes']['style'] = 'display:none;';
+    }
+    if (isset($fields['shipping']['shipping_state'])) {
+        $fields['shipping']['shipping_state']['class'] = array('auto-filled-field');
+        $fields['shipping']['shipping_state']['custom_attributes']['style'] = 'display:none;';
+    }
+
     return $fields;
 }
-
 
 /**
  * Moneris Payment Gateway Functions for functions.php
@@ -9625,149 +9675,182 @@ function xa_set_default_checkout_state() {
      return 'ON';
 }
 
+// Updated by Zach June 4th to include additional fields: Unit Number and Buzz Code & reorder fields on checkout template */
+
 add_filter( 'woocommerce_checkout_fields' , 'custom_override_checkout_fields',99 );
 
-// Our hooked in function - $fields is passed via the filter!
 function custom_override_checkout_fields( $fields ) {
      
      $ubpo = dg_get_user_meta ("upfront_bill_payment_option");
      
-     //billing fields not required for email trasfer payment option.
+     //billing fields not required for email transfer payment option.
      if ($ubpo=="email-transfer") {
-	     
 	     foreach($fields['billing'] as $key=>$val) {
-		     
 		     $fields['billing'][$key]['required'] = false;
 	     }
      }
      
-     $fields['billing']['billing_email']['default'] = dg_get_user_meta ('email');
-     $fields['billing']['billing_first_name']['default'] = dg_get_user_meta ('first_name');
-     $fields['billing']['billing_last_name']['default'] = dg_get_user_meta ('last_name');
-     
-     //var_dump("<h2>i am in</h2>");
+     $fields['billing']['billing_email']['default']      = dg_get_user_meta('email');
+     $fields['billing']['billing_first_name']['default'] = dg_get_user_meta('first_name');
+     $fields['billing']['billing_last_name']['default']  = dg_get_user_meta('last_name');
      
      if (!empty($ubpo['searched_address']['provinceOrState'])) {
 	 	 $fields['shipping']['shipping_state']['default'] = $searched_address['provinceOrState'];    
      }
      
-     $fields['billing']['billing_first_name']['label'] = "Billing first name";
-     $fields['billing']['billing_last_name']['label'] = "Billing last name";
-     $fields['billing']['billing_email']['label'] = "Billing email address";
-     $fields['billing']['billing_city']['label'] = "City";
-     $fields['billing']['billing_postcode']['label'] = "Postal Code";
-     
-     
-     $fields['billing']['billing_city']['class'][0] = "form-row-first";
-     $fields['billing']['billing_state']['class'][0] = "form-row-last";
-     
-     
-     $fields['billing']['billing_postcode']['class'][0] = "form-row-first";
-     $fields['billing']['billing_postcode']['class'][1] = "clear";
-     $fields['billing']['billing_postcode']['class'][2] = "forceuppercase";
-     $fields['billing']['billing_phone']['class'][0] = "form-row-last";
-     $fields['billing']['billing_phone']['required'] = true; 
-     
-     
      unset($fields['billing']['billing_company']);
      unset($fields['billing']['billing_address_2']);
      unset($fields['order']['order_comments']);
-     
-     
-     $fields['billing']['service_address'] = array(
-	        'label'     => __('Service Address', 'woocommerce'),
-		    'placeholder'   => _x('Service Address', 'placeholder', 'woocommerce'),
-		    'required'  => true,
-		    'class'     => array('checkout_hidden_fields'),
-		    'clear'     => true,
-		    'default' 	=> dg_get_user_meta ('searched_street_address')
-		);
-	
-	$fields['billing']['date1'] = array(
-	        'label'     => __('1st Preferred Installation Date and Time', 'woocommerce'),
-		    'placeholder'   => _x('1st Preferred Installation Date and Time', 'placeholder', 'woocommerce'),
-		    'required'  => true,
-		    'class'     => array('checkout_hidden_fields'),
-		    'clear'     => true,
-		    'default' 	=> dg_get_user_meta ('preffered_installation_date_1')." ".dg_get_user_meta ('preffered_installation_time_1')
-		);
-	
-	$fields['billing']['date2'] = array(
-	        'label'     => __('2nd Preferred Installation Date and Time', 'woocommerce'),
-		    'placeholder'   => _x('2nd Preferred Installation Date and Time', 'placeholder', 'woocommerce'),
-		    'required'  => true,
-		    'class'     => array('checkout_hidden_fields'),
-		    'clear'     => true,
-		    'default' 	=> dg_get_user_meta ('preffered_installation_date_2')." ".dg_get_user_meta ('preffered_installation_time_2')
-		);
-	
-	$fields['billing']['date3'] = array(
-	        'label'     => __('3rd Preferred Installation Date and Time', 'woocommerce'),
-		    'placeholder'   => _x('2rd Preferred Installation Date and Time', 'placeholder', 'woocommerce'),
-		    'required'  => true,
-		    'class'     => array('checkout_hidden_fields'),
-		    'clear'     => true,
-		    'default' 	=> dg_get_user_meta ('preffered_installation_date_3')." ".dg_get_user_meta ('preffered_installation_time_3')
-		);
-	
-	$fields['billing']['customer_first_name'] = array(
-	        'label'     => __('Customer First Name', 'woocommerce'),
-		    'placeholder'   => _x('Customer First Name', 'placeholder', 'woocommerce'),
-		    'required'  => true,
-		    'class'     => array('checkout_hidden_fields'),
-		    'clear'     => true,
-		    'default' 	=> dg_get_user_meta ('first_name')
-		);
-	
-	$fields['billing']['customer_last_name'] = array(
-	        'label'     => __('Customer Last Name', 'woocommerce'),
-		    'placeholder'   => _x('Customer last Name', 'placeholder', 'woocommerce'),
-		    'required'  => true,
-		    'class'     => array('checkout_hidden_fields'),
-		    'clear'     => true,
-		    'default' 	=> dg_get_user_meta ('last_name')
-		);
-	
-	$fields['billing']['customer_email'] = array(
-	        'label'     => __('Customer email address', 'woocommerce'),
-		    'placeholder'   => _x('Customer email address', 'placeholder', 'woocommerce'),
-		    'required'  => true,
-		    'class'     => array('checkout_hidden_fields'),
-		    'clear'     => true,
-		    'default' 	=> dg_get_user_meta ('email')
-		);
-	
-	$fields['billing']['customer_phone'] = array(
-	        'label'     => __('Customer phone', 'woocommerce'),
-		    'placeholder'   => _x('Customer phone', 'placeholder', 'woocommerce'),
-		    'required'  => true,
-		    'class'     => array('checkout_hidden_fields'),
-		    'clear'     => true,
-		    'default' 	=> dg_get_user_meta ('phone')
-		);
 
-     /*
-	$fields['billing']['how_did_you_hear_about_us'] = array(
-	        'label'     => __('How did you hear about us', 'woocommerce'),
-		    'placeholder'   => _x('How did you hear about us', 'placeholder', 'woocommerce'),
-		    'required'  => true,
-		    'class'     => array('checkout_hidden_fields'),
-		    'clear'     => true,
-		    'default' 	=> dg_get_user_meta ('how_did_you_hear_about_us')
-		);
-      */
-	$fields['billing']['referrer_name'] = array(
-	        'label'     => __('Referrer name', 'woocommerce'),
-		    'placeholder'   => _x('Referrer name', 'placeholder', 'woocommerce'),
-		    'required'  => false,
-		    'class'     => array('checkout_hidden_fields'),
-		    'clear'     => true,
-		    'default' 	=> dg_get_user_meta ('referrer_name')
-		);
+     // Row 1: First Name / Last Name
+     $fields['billing']['billing_first_name']['label']    = "First Name";
+     $fields['billing']['billing_first_name']['priority'] = 10;
+     $fields['billing']['billing_first_name']['class']    = array('form-row-first');
+	
+     $fields['billing']['billing_last_name']['label']     = "Last Name";
+     $fields['billing']['billing_last_name']['priority']  = 20;
+     $fields['billing']['billing_last_name']['class']     = array('form-row-last');
+	
+     // Row 2: Email / Phone
+     $fields['billing']['billing_email']['label']         = "Email Address";
+     $fields['billing']['billing_email']['priority']      = 30;
+     $fields['billing']['billing_email']['class']         = array('form-row-first');
+
+     $fields['billing']['billing_phone']['required']      = true;
+     $fields['billing']['billing_phone']['priority']      = 40;
+     $fields['billing']['billing_phone']['class']         = array('form-row-last');
+
+     // Row 3: Unit Number / Buzzer Code
+     $fields['billing']['billing_unit_number'] = array(
+          'label'       => __('Unit Number', 'woocommerce'),
+          'placeholder' => _x('Unit Number', 'placeholder', 'woocommerce'),
+          'required'    => false,
+          'class'       => array('form-row-first'),
+          'clear'       => false,
+          'priority'    => 50,
+          'default'     => dg_get_user_meta('billing_unit_number') ?: ''
+     );
+
+     $fields['billing']['billing_buzzer_code'] = array(
+          'label'       => __('Buzzer Code', 'woocommerce'),
+          'placeholder' => _x('Buzzer Code', 'placeholder', 'woocommerce'),
+          'required'    => false,
+          'class'       => array('form-row-last'),
+          'clear'       => true,
+          'priority'    => 60,
+          'default'     => dg_get_user_meta('billing_buzzer_code') ?: ''
+     );
+
+     // Address fields pushed to 70+ to avoid collision with unit/buzzer above
+     $fields['billing']['billing_address_1']['priority']  = 70;
+
+     $fields['billing']['billing_city']['label']          = "City";
+     $fields['billing']['billing_city']['priority']       = 80;
+     $fields['billing']['billing_city']['class']          = array('form-row-first');
+
+     $fields['billing']['billing_state']['priority']      = 90;
+     $fields['billing']['billing_state']['class']         = array('form-row-last');
+
+     $fields['billing']['billing_postcode']['label']      = "Postal Code";
+     $fields['billing']['billing_postcode']['priority']   = 100;
+     $fields['billing']['billing_postcode']['class']      = array('form-row-first', 'clear', 'forceuppercase');
+
+	$fields['billing']['billing_country']['priority'] = 110;
+
+     // Hidden fields (no priority needed — class hides them)
+   $fields['billing']['service_address'] = array(
+    'label'       => __('Service Address', 'woocommerce'),
+    'placeholder' => _x('Service Address', 'placeholder', 'woocommerce'),
+    'required'    => true,
+    'class'       => array('checkout_hidden_fields'),
+    'clear'       => true,
+    'priority'    => 200,
+    'default'     => dg_get_user_meta('searched_street_address')
+);
+
+$fields['billing']['date1'] = array(
+    'label'       => __('1st Preferred Installation Date and Time', 'woocommerce'),
+    'placeholder' => _x('1st Preferred Installation Date and Time', 'placeholder', 'woocommerce'),
+    'required'    => true,
+    'class'       => array('checkout_hidden_fields'),
+    'clear'       => true,
+    'priority'    => 210,
+    'default'     => dg_get_user_meta('preffered_installation_date_1')." ".dg_get_user_meta('preffered_installation_time_1')
+);
+
+$fields['billing']['date2'] = array(
+    'label'       => __('2nd Preferred Installation Date and Time', 'woocommerce'),
+    'placeholder' => _x('2nd Preferred Installation Date and Time', 'placeholder', 'woocommerce'),
+    'required'    => true,
+    'class'       => array('checkout_hidden_fields'),
+    'clear'       => true,
+    'priority'    => 220,
+    'default'     => dg_get_user_meta('preffered_installation_date_2')." ".dg_get_user_meta('preffered_installation_time_2')
+);
+
+$fields['billing']['date3'] = array(
+    'label'       => __('3rd Preferred Installation Date and Time', 'woocommerce'),
+    'placeholder' => _x('2rd Preferred Installation Date and Time', 'placeholder', 'woocommerce'),
+    'required'    => true,
+    'class'       => array('checkout_hidden_fields'),
+    'clear'       => true,
+    'priority'    => 230,
+    'default'     => dg_get_user_meta('preffered_installation_date_3')." ".dg_get_user_meta('preffered_installation_time_3')
+);
+
+$fields['billing']['customer_first_name'] = array(
+    'label'       => __('Customer First Name', 'woocommerce'),
+    'placeholder' => _x('Customer First Name', 'placeholder', 'woocommerce'),
+    'required'    => true,
+    'class'       => array('checkout_hidden_fields'),
+    'clear'       => true,
+    'priority'    => 240,
+    'default'     => dg_get_user_meta('first_name')
+);
+
+$fields['billing']['customer_last_name'] = array(
+    'label'       => __('Customer Last Name', 'woocommerce'),
+    'placeholder' => _x('Customer last Name', 'placeholder', 'woocommerce'),
+    'required'    => true,
+    'class'       => array('checkout_hidden_fields'),
+    'clear'       => true,
+    'priority'    => 250,
+    'default'     => dg_get_user_meta('last_name')
+);
+
+$fields['billing']['customer_email'] = array(
+    'label'       => __('Customer email address', 'woocommerce'),
+    'placeholder' => _x('Customer email address', 'placeholder', 'woocommerce'),
+    'required'    => true,
+    'class'       => array('checkout_hidden_fields'),
+    'clear'       => true,
+    'priority'    => 260,
+    'default'     => dg_get_user_meta('email')
+);
+
+$fields['billing']['customer_phone'] = array(
+    'label'       => __('Customer phone', 'woocommerce'),
+    'placeholder' => _x('Customer phone', 'placeholder', 'woocommerce'),
+    'required'    => true,
+    'class'       => array('checkout_hidden_fields'),
+    'clear'       => true,
+    'priority'    => 270,
+    'default'     => dg_get_user_meta('phone')
+);
+
+$fields['billing']['referrer_name'] = array(
+    'label'       => __('Referrer name', 'woocommerce'),
+    'placeholder' => _x('Referrer name', 'placeholder', 'woocommerce'),
+    'required'    => false,
+    'class'       => array('checkout_hidden_fields'),
+    'clear'       => true,
+    'priority'    => 280,
+    'default'     => dg_get_user_meta('referrer_name')
+);
      
-     
-    return $fields;
+     return $fields;
 }
+
 
 // Optimized by Eugene with ChatGPT help to update logic that was trying to encrypt with WordPress ID. Remove is_user_logged_in() check and always use get_dg_user_id()
 add_action('woocommerce_checkout_update_order_meta', 'saving_checkout_cf_data');
