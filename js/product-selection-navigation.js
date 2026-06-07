@@ -37,6 +37,10 @@ jQuery(document).ready(function ($) {
 
     // Dedicated function to force correct button states
     function forceMaintainButtonStates() {
+
+		    // If came from checkout, don't override button states
+    	if (cameFromCheckout) return;
+		
         // Force correct states immediately without any validation delays
         if (currentScreen === 1) {
             $('.back-btn, .mobile-back-btn').addClass('disabled').css('visibility', 'hidden');
@@ -178,6 +182,8 @@ jQuery(document).ready(function ($) {
             setTimeout(() => {
                 adjustContainerHeight();
                 scrollToTop();
+				updateCheckoutButtonVisibility();  // ← add
+    			updateCheckoutButtonState();   
 
                 // Log the final state for debugging
                 console.log('Final screen positions:');
@@ -199,13 +205,17 @@ jQuery(document).ready(function ($) {
     }, 100);
 
     // Check for selected cards when page loads
-    setTimeout(function () {
-        // Check cart and highlight selected cards
-        checkCartAndHighlight();
+setTimeout(function () {
+    // Check cart and highlight selected cards
+    checkCartAndHighlight();
 
-        // Update button states after cart is checked
-        setTimeout(updateButtonStates, 300);
-    }, 500);
+    // Update button states after cart is checked
+    setTimeout(function() {
+        updateButtonStates();
+        updateCheckoutButtonVisibility();
+        updateCheckoutButtonState();
+    }, 300);
+}, 500);
 
     // Handle browser back/forward buttons
     $(window).on('popstate', function (e) {
@@ -552,6 +562,13 @@ jQuery(document).ready(function ($) {
         // Handle next button state based on category selection
         const $nextBtn = $('.next-btn, .mobile-next-btn');
 
+		// If user came from checkout, enable continue button immediately
+		// (they already made selections to get to checkout)
+		if (cameFromCheckout) {
+   		 $nextBtn.removeClass('disabled');
+    	return;
+		}
+
         switch (currentScreen) {
             case 1: // Installation screen
                 const installationSelected = $('.installation-row-selected').length;
@@ -729,23 +746,15 @@ jQuery(document).ready(function ($) {
         return true;
     }
 
-    // Also update the checkout button state based on validation
+    // Removed the validation check to enable skip the checkout button immediately upon redirect
     function updateCheckoutButtonState() {
-        const $checkoutBtn = $('.checkout-btn');
+    const $checkoutBtn = $('.checkout-btn');
 
-        if (cameFromCheckout && $checkoutBtn.is(':visible')) {
-            // Only check validation if the button is visible
-            const allValid = validateAllSelections();
-
-            if (allValid) {
-                $checkoutBtn.removeClass('disabled');
-                console.log('Checkout button enabled - all selections valid');
-            } else {
-                $checkoutBtn.addClass('disabled');
-                console.log('Checkout button disabled - missing selections');
-            }
-        }
+    if (cameFromCheckout && $checkoutBtn.is(':visible')) {
+        $checkoutBtn.removeClass('disabled');
+        console.log('Checkout button enabled - user came from checkout');
     }
+}
 
     // Updated Skip to Checkout button click handler with validation
     $('.checkout-btn').click(function () {
