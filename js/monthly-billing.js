@@ -2,6 +2,10 @@
  * Monthly Billing Functionality for Checkout - CORRECTED FOR ACTUAL HTML STRUCTURE
  * UPDATED: Added triggers for copy checkbox validation requirement
  */
+
+console.log('NEW VERSION LOADED - Monthly Billing v2.0'); // ADD THIS LINE
+
+
 jQuery(document).ready(function ($) {
     console.log('Monthly billing: Starting initialization...');
 
@@ -38,7 +42,7 @@ jQuery(document).ready(function ($) {
     function initializeAccordion() {
         console.log('Initializing accordion...');
 
-        // **FIX 1: Handle radio button changes to open accordions**
+        // Handle radio button changes to open accordions
         $(document).on('change', 'input[name="monthly_payment_method"]', function () {
             const option = $(this).val();
             const header = $(this).closest('.payment-option-header');
@@ -47,45 +51,60 @@ jQuery(document).ready(function ($) {
 
             console.log('Radio changed to:', option);
 
-            if ($(this).is(':checked')) {
-                // **FIX 2: Close all other sections first (proper accordion behavior)**
-                $('.payment-option-header').removeClass('active');
-                $('.payment-option-content').slideUp(600);
-                $('.accordion-arrow').text('▼');
+            // Close all other sections first
+            $('.payment-option-header').removeClass('active');
+            $('.payment-option-content').slideUp(600);
+            $('.accordion-arrow').text('▼');
+            $('input[name="monthly_payment_method"]').prop('checked', false);
 
-                // Uncheck other radio buttons
-                $('input[name="monthly_payment_method"]').not(this).prop('checked', false);
-
-                // Reset confirmations when switching methods
-                resetConfirmations();
-
-                // Open selected section
-                header.addClass('active');
-                content.slideDown(300);
-                arrow.text('▲');
-                updateSelectedMethod(option);
-
-                // UPDATED: Trigger copy checkbox state update when method changes
-                setTimeout(function () {
-                    $(document).trigger('monthlyBillingStateChanged');
-                }, 100);
+            // IMPORTANT: Clear previous method selections when switching
+            clearOtherMonthlyBillingOptions(option);
+            // DEBUG: Check cart contents after clearing
+            if (typeof monthlyBilling !== 'undefined') {
+                $.ajax({
+                    url: monthlyBilling.ajaxUrl,
+                    type: 'POST',
+                    data: {
+                        action: 'debug_cart_contents',
+                        nonce: monthlyBilling.checkoutNonce
+                    },
+                    success: function (response) {
+                        console.log('Current cart contents after switching to', option, ':', response);
+                    },
+                    error: function (xhr, status, error) {
+                        console.error('Debug cart contents error:', error);
+                    }
+                });
             }
+            resetConfirmations();
+
+            // Open the clicked section
+            header.addClass('active');
+            content.slideDown(300);
+            arrow.text('▲');
+            $(this).prop('checked', true);
+            updateSelectedMethod(option);
+
+            // Trigger copy checkbox state update when method changes
+            setTimeout(function () {
+                $(document).trigger('monthlyBillingStateChanged');
+            }, 100);
         });
 
-        // Handle header clicks (but not when clicking radio button or label)
+        // Handle header clicks (for better UX)
         $(document).on('click', '.payment-option-header', function (e) {
-            // **FIX 1: Prevent header action when radio button or label is clicked**
-            if ($(e.target).is('input[type="radio"]') || $(e.target).is('label')) {
-                return; // Let radio button handle itself
+            // Don't trigger if clicking on radio button directly
+            if ($(e.target).is('input[type="radio"]')) {
+                return;
             }
 
             const option = $(this).data('option');
-            const radio = $(this).find('input[type="radio"]');
             const content = $('#' + option + '-content');
             const arrow = $(this).find('.accordion-arrow');
+            const radio = $(this).find('input[name="monthly_payment_method"]');
             const isCurrentlyActive = $(this).hasClass('active');
 
-            console.log('Header clicked for option:', option, 'Currently active:', isCurrentlyActive);
+            console.log('Header clicked for:', option, 'Currently active:', isCurrentlyActive);
 
             // If clicking on currently active header, close it and deselect
             if (isCurrentlyActive) {
@@ -94,22 +113,25 @@ jQuery(document).ready(function ($) {
                 arrow.text('▼');
                 radio.prop('checked', false);
                 updateSelectedMethod('');
+
+                // IMPORTANT: Clear all options when closing active accordion
+                clearOtherMonthlyBillingOptions(''); // Pass empty string to clear all
                 resetConfirmations();
 
-                // UPDATED: Trigger copy checkbox state update when method changes
                 setTimeout(function () {
                     $(document).trigger('monthlyBillingStateChanged');
                 }, 100);
                 return;
             }
 
-            // **FIX 2: Close all other sections first (proper accordion behavior)**
+            // Close all other sections first (proper accordion behavior)
             $('.payment-option-header').removeClass('active');
             $('.payment-option-content').slideUp(600);
             $('.accordion-arrow').text('▼');
             $('input[name="monthly_payment_method"]').prop('checked', false);
 
-            // Reset confirmations when switching methods
+            // IMPORTANT: Clear previous method selections when switching
+            clearOtherMonthlyBillingOptions(option);
             resetConfirmations();
 
             // Open the clicked section
@@ -119,7 +141,6 @@ jQuery(document).ready(function ($) {
             radio.prop('checked', true);
             updateSelectedMethod(option);
 
-            // UPDATED: Trigger copy checkbox state update when method changes
             setTimeout(function () {
                 $(document).trigger('monthlyBillingStateChanged');
             }, 100);
@@ -681,8 +702,43 @@ jQuery(document).ready(function ($) {
         $('.payment-option-header .accordion-arrow').removeClass('confirmed-arrow').text('▼');
     }
 
+    // Also update the clearOtherMonthlyBillingOptions function to handle empty option
     function clearOtherMonthlyBillingOptions(keepOption) {
         console.log('Clearing other monthly billing options, keeping:', keepOption);
+
+        // If keepOption is empty, clear everything including Pay After
+        if (!keepOption || keepOption === '') {
+            console.log('Clearing all options including Pay After');
+
+            // Remove Pay After deposits from cart
+            if (typeof monthlyBilling !== 'undefined') {
+                $.ajax({
+                    url: monthlyBilling.ajaxUrl,
+                    type: 'POST',
+                    data: {
+                        action: 'remove_monthly_billing_deposits',
+                        keep_option: '', // Clear all
+                        nonce: monthlyBilling.checkoutNonce
+                    },
+                    success: function (response) {
+                        console.log('All deposits cleared:', response);
+                        updateFeeTables();
+                    },
+                    error: function (xhr, status, error) {
+                        console.error('Error clearing all deposits:', error);
+                    }
+                });
+            }
+
+            // Reset all button states
+            $('.validate-card-btn').removeClass('confirmed').prop('disabled', false).text('Validate Card');
+            $('.cc-validation-message').hide();
+            $('.validate-bank-btn').removeClass('confirmed').prop('disabled', false).text('Validate Bank Details');
+            $('.bank-validation-message').hide();
+            $('.confirm-payafter-btn').removeClass('confirmed').prop('disabled', false).text('Confirm Pay After');
+
+            return;
+        }
 
         // Remove Pay After deposits from cart when selecting CC or Bank
         if (typeof monthlyBilling !== 'undefined' && (keepOption === 'cc' || keepOption === 'bank')) {
@@ -704,7 +760,7 @@ jQuery(document).ready(function ($) {
             });
         }
 
-        // Reset other button states
+        // Reset other button states (only reset the buttons we're NOT keeping)
         if (keepOption !== 'cc') {
             $('.validate-card-btn').removeClass('confirmed').prop('disabled', false).text('Validate Card');
             $('.cc-validation-message').hide();
@@ -767,83 +823,84 @@ jQuery(document).ready(function ($) {
     }
 
     function restorePreviouslySelectedMethod() {
-        console.log('Checking for previously selected monthly billing method...');
+    console.log('Checking for previously selected monthly billing method...');
+    if (typeof monthlyBilling === 'undefined') return;
 
-        if (typeof monthlyBilling === 'undefined') {
-            console.log('monthlyBilling not available, skipping restore');
-            return;
+    $.ajax({
+        type: "POST",
+        url: monthlyBilling.ajaxUrl,
+        data: {
+            action: "get_selected_monthly_billing_method",
+            nonce: monthlyBilling.checkoutNonce
+        },
+        success: function (response) {
+            if (response.success && response.data.selected_method) {
+                const selectedMethod = response.data.selected_method;
+                const savedFields = response.data.saved_fields || {};
+                console.log('Previously selected method found:', selectedMethod, savedFields);
+                restoreAccordionState(selectedMethod, savedFields);
+            }
+        },
+        error: function (xhr, status, error) {
+            console.error('Error checking monthly billing method:', error);
         }
+    });
+}
 
-        $.ajax({
-            type: "POST",
-            url: monthlyBilling.ajaxUrl,
-            data: {
-                action: "get_selected_monthly_billing_method",
-                nonce: monthlyBilling.checkoutNonce
-            },
-            success: function (response) {
-                console.log('Monthly billing method check response:', response);
-                if (response.success && response.data.selected_method) {
-                    const selectedMethod = response.data.selected_method;
-                    console.log('Previously selected method found:', selectedMethod);
-                    restoreAccordionState(selectedMethod);
+    function restoreAccordionState(method, savedFields) {
+    console.log('Restoring accordion state for method:', method);
+
+    const header = $(`.payment-option-header[data-option="${method}"]`);
+    const radio = header.find('input[type="radio"]');
+    const content = $('#' + method + '-content');
+    const arrow = header.find('.accordion-arrow');
+
+    if (header.length === 0) return;
+
+    $('.payment-option-header').removeClass('active');
+    $('.payment-option-content').hide();
+    $('.accordion-arrow').text('▼');
+    $('input[name="monthly_payment_method"]').prop('checked', false);
+
+    header.addClass('active');
+    content.show();
+    arrow.text('▲');
+    radio.prop('checked', true);
+    markMethodAsConfirmed(method);
+
+    // NEW: Repopulate saved field values
+    if (savedFields && Object.keys(savedFields).length > 0) {
+        $.each(savedFields, function(fieldId, value) {
+            if (value && value !== '') {
+                if (fieldId === 'bank_account_type') {
+                    $('input[name="bank_account_type"][value="' + value + '"]').prop('checked', true);
                 } else {
-                    console.log('No previously selected monthly billing method found');
+                    $('#' + fieldId).val(value).addClass('valid');
                 }
-            },
-            error: function (xhr, status, error) {
-                console.error('Error checking monthly billing method:', error);
             }
         });
+        console.log('✓ Saved field values restored');
     }
 
-    function restoreAccordionState(method) {
-        console.log('Restoring accordion state for method:', method);
-
-        const header = $(`.payment-option-header[data-option="${method}"]`);
-        const radio = header.find('input[type="radio"]');
-        const content = $('#' + method + '-content');
-        const arrow = header.find('.accordion-arrow');
-
-        if (header.length > 0) {
-            // Close all sections first
-            $('.payment-option-header').removeClass('active');
-            $('.payment-option-content').hide();
-            $('.accordion-arrow').text('▼');
-            $('input[name="monthly_payment_method"]').prop('checked', false);
-
-            // Open the selected section
-            header.addClass('active');
-            content.show();
-            arrow.text('▲');
-            radio.prop('checked', true);
-
-            // Mark as confirmed and set form state
-            markMethodAsConfirmed(method);
-
-            // **FIX 3: Update button state based on method to show confirmation**
-            if (method === 'payafter') {
-                $('.confirm-payafter-btn').text('Pay After Confirmed ✓').addClass('confirmed');
-            } else if (method === 'cc') {
-                $('.validate-card-btn').text('Card Confirmed ✓').addClass('confirmed');
-                $('.cc-validation-message').html('<div style="color: #27ae60; padding: 10px; background: #e8f5e8; border: 1px solid #27ae60; border-radius: 4px;"><strong>✓ Card details confirmed!</strong><br>Your credit card information has been validated for monthly billing.</div>').show();
-
-                // UPDATED: Trigger copy checkbox state update when restoring CC state
-                setTimeout(function () {
-                    $(document).trigger('monthlyBillingValidationSuccess', {
-                        method: 'cc',
-                        cardData: null // No card data available during restore
-                    });
-                    $(document).trigger('monthlyBillingStateChanged');
-                }, 200);
-            } else if (method === 'bank') {
-                $('.validate-bank-btn').text('Bank Details Confirmed ✓').addClass('confirmed');
-                $('.bank-validation-message').html('<div style="color: #27ae60; padding: 10px; background: #e8f5e8; border: 1px solid #27ae60; border-radius: 4px;"><strong>✓ Bank details confirmed!</strong><br>Your banking information has been saved for monthly billing.</div>').show();
-            }
-
-            console.log('✓ Accordion state restored for:', method);
-        }
+    // Restore confirmed button/message state
+    if (method === 'cc') {
+        $('.validate-card-btn').text('Card Confirmed ✓').addClass('confirmed');
+        $('.cc-validation-message').html('<div style="color: #27ae60; padding: 10px; background: #e8f5e8; border: 1px solid #27ae60; border-radius: 4px;"><strong>✓ Card details confirmed!</strong><br>Your credit card information has been validated for monthly billing.</div>').show();
+        setTimeout(function () {
+            $(document).trigger('monthlyBillingStateChanged');
+        }, 200);
+    } else if (method === 'bank') {
+        $('.validate-bank-btn').text('Bank Details Confirmed ✓').addClass('confirmed');
+        $('.bank-validation-message').html('<div style="color: #27ae60; padding: 10px; background: #e8f5e8; border: 1px solid #27ae60; border-radius: 4px;"><strong>✓ Bank details confirmed!</strong><br>Your banking information has been saved for monthly billing.</div>').show();
+        setTimeout(function () {
+            $(document).trigger('monthlyBillingStateChanged');
+        }, 200);
+    } else if (method === 'payafter') {
+        $('.confirm-payafter-btn').text('Pay After Confirmed ✓').addClass('confirmed');
     }
+
+    console.log('✓ Accordion state restored for:', method);
+}
 
     function showRefreshNotification() {
         const notification = $('<div class="pay-after-notification" style="background: #e8f5e8; border: 1px solid #4caf50; color: #2e7d32; padding: 10px; margin: 10px 0; border-radius: 4px;">' +
