@@ -477,18 +477,34 @@ jQuery(document).ready(function ($) {
      * Restore terms confirmation state from previous session
      */
     function restoreTermsState() {
-        const savedTermsState = sessionStorage.getItem('termsConfirmed');
-        const savedTimestamp = sessionStorage.getItem('termsTimestamp');
+    const savedTermsState = sessionStorage.getItem('termsConfirmed');
+    const savedTimestamp = sessionStorage.getItem('termsTimestamp');
+    const savedProvider = sessionStorage.getItem('termsConfirmedProvider') || '';
 
-        if (savedTermsState === 'true') {
-            console.log('Restoring terms confirmed state from session');
-            termsConfirmed = true;
-            termsTimestamp = savedTimestamp;
-            styleConfirmedTcButton();
-            updateButtonState();
-			storeTermsTimestamp(); // - re-persist to WC session on restore
+    if (savedTermsState === 'true') {
+        // NEW: Check if the provider has changed since terms were confirmed
+        const currentProvider = (typeof providerTermsData !== 'undefined' && providerTermsData.providerClass)
+            ? providerTermsData.providerClass
+            : '';
+
+        if (savedProvider !== currentProvider) {
+            // Provider changed — terms must be re-confirmed for new provider's text
+            console.log('Provider changed since terms were confirmed (' + savedProvider + ' → ' + currentProvider + '). Clearing terms confirmation.');
+            sessionStorage.removeItem('termsConfirmed');
+            sessionStorage.removeItem('termsTimestamp');
+            sessionStorage.removeItem('termsConfirmedProvider');
+            // termsConfirmed stays false, button stays disabled — no further action needed
+            return;
         }
+
+        console.log('Restoring terms confirmed state from session (same provider: ' + currentProvider + ')');
+        termsConfirmed = true;
+        termsTimestamp = savedTimestamp;
+        styleConfirmedTcButton();
+        updateButtonState();
+        storeTermsTimestamp();
     }
+}
 
     /**
      * Style the Terms & Conditions button as confirmed
@@ -554,26 +570,28 @@ jQuery(document).ready(function ($) {
      * Confirm terms and conditions
      */
     function confirmTermsAndConditions() {
-        console.log('Terms & Conditions confirmed');
+    console.log('Terms & Conditions confirmed');
 
-        termsConfirmed = true;
-        termsTimestamp = new Date().toISOString();
+    termsConfirmed = true;
+    termsTimestamp = new Date().toISOString();
 
-        // Store in session storage
-        sessionStorage.setItem('termsConfirmed', 'true');
-        sessionStorage.setItem('termsTimestamp', termsTimestamp);
+    // Store in session storage
+    sessionStorage.setItem('termsConfirmed', 'true');
+    sessionStorage.setItem('termsTimestamp', termsTimestamp);
 
-        // Style the tc-button
-        styleConfirmedTcButton();
+    // NEW: Store which provider's terms were agreed to
+    const currentProvider = (typeof providerTermsData !== 'undefined' && providerTermsData.providerClass)
+        ? providerTermsData.providerClass
+        : '';
+    sessionStorage.setItem('termsConfirmedProvider', currentProvider);
+    console.log('Terms confirmed for provider:', currentProvider);
 
-        // Update button state
-        updateButtonState();
+    styleConfirmedTcButton();
+    updateButtonState();
+    storeTermsTimestamp();
 
-        // Store timestamp in database via AJAX
-        storeTermsTimestamp();
-
-        console.log('Terms confirmation complete at:', termsTimestamp);
-    }
+    console.log('Terms confirmation complete at:', termsTimestamp);
+}
 
     /**
      * Store terms timestamp via AJAX
