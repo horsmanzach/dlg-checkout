@@ -24,7 +24,7 @@ jQuery(document).ready(function($) {
     /**
      * Disable exit warning when clicking .next-btn or other internal navigation
      */
-    $(document).on('click', '.next-btn', function() {
+    $(document).on('click', '.next-btn, .checkout-btn', function() {
         console.log('Next button clicked - disabling exit warning');
         allowNavigation = true;
     });
