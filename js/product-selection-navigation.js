@@ -302,12 +302,22 @@ setTimeout(function () {
                             'pointer-events': 'none'
                         });
                 }
+				
 
-				// Redirect after showing the loading state
-				console.log('Redirecting to:', finalSlideRedirectUrl);
-				window.location.href = finalSlideRedirectUrl;
-				return;
-			}
+				
+    // Wait for any pending cart AJAX before redirecting
+    function doRedirect() {
+        if (typeof window.isCartAjaxPending === 'function' && window.isCartAjaxPending()) {
+            console.log('Cart AJAX pending - waiting before redirect...');
+            setTimeout(doRedirect, 50);
+        } else {
+            console.log('Redirecting to:', finalSlideRedirectUrl);
+            window.location.href = finalSlideRedirectUrl;
+        }
+    }
+    doRedirect();
+    return;
+}
 
             if (currentScreen < totalScreens) {
                 console.log('Animating from screen', currentScreen, 'to screen', currentScreen + 1);
