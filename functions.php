@@ -3230,7 +3230,8 @@ function prepare_diallog_order_data($payment_response, $cardholder_name, $moneri
         ),
         'customer_data' => $customer_data,
         'upfront_summary' => $upfront_summary,
-        'monthly_summary' => $monthly_summary
+        'monthly_summary' => $monthly_summary,
+		'upfront_payment_method'  => 'Credit Card ending in ' . ( WC()->session ? WC()->session->get('payment_card_last_4') : '' )
     );
     
     // ========== ADD ENCRYPTED MONTHLY BILLING DATA ==========
