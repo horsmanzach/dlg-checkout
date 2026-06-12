@@ -2262,6 +2262,12 @@ function get_moneris_config() {
  */
 
 function moneris_payment_form_shortcode($atts) {
+
+	// Guard: WC cart is not available in admin/REST context (e.g. Divi backend editor)
+    if ( is_null( WC()->cart ) ) {
+        return '';
+    }
+	
     $atts = shortcode_atts(array(
         'show_amount' => 'true',
         'success_message' => 'Payment processed successfully!'
@@ -4670,6 +4676,12 @@ add_action('woocommerce_before_calculate_totals', 'apply_dynamic_install_price',
 Removed 'Installation' & 'Extras' row headers =========*/
 
 function upfront_fee_summary_shortcode() {
+
+	// Guard: WC cart is not available in admin/REST context (e.g. Divi backend editor)
+    if ( is_null( WC()->cart ) ) {
+        return '';
+    }
+	
    // Get cart items
    $cart = WC()->cart;
    
@@ -4997,6 +5009,11 @@ function debug_cart_contents() {
 
     function monthly_fee_summary_shortcode() {
     global $post;
+
+		// Guard: WC cart is not available in admin/REST context (e.g. Divi backend editor)
+    if ( is_null( WC()->cart ) ) {
+        return '';
+    }
     
     $current_url = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
     error_log("Current URL: " . $current_url);
@@ -5435,6 +5452,13 @@ add_shortcode('monthly_fee_summary', 'monthly_fee_summary_shortcode');
 // -------- Edit Order popup Shortcode
 
 function edit_order_popup_shortcode() {
+
+	// Guard: WC cart is not available in admin/REST context (e.g. Divi backend editor)
+    if ( is_null( WC()->cart ) ) {
+        return '';
+    }
+
+
     $cart = WC()->cart;
     
     if ($cart->is_empty()) {
@@ -5665,6 +5689,11 @@ add_shortcode('edit_order_popup', 'edit_order_popup_shortcode');
 
 function monthly_fee_total_shortcode($atts) {
     global $post;
+
+	// Guard: WC cart is not available in admin/REST context (e.g. Divi backend editor)
+    if ( is_null( WC()->cart ) ) {
+        return '$0.00';
+    }
     
     // Get cart items
     $cart = WC()->cart;
@@ -5964,6 +5993,11 @@ function remove_all_except_items($cart_keys_to_keep) {
 
 
 function upfront_fee_total_shortcode($atts) {
+
+	// Guard: WC cart is not available in admin/REST context (e.g. Divi backend editor)
+    if ( is_null( WC()->cart ) ) {
+        return '';
+    }
     // Get cart items
     $cart = WC()->cart;
     
