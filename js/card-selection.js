@@ -4,6 +4,9 @@
  * Note: Shipping address functionality moved to checkout (shipping-address.js)
  */
 jQuery(document).ready(function ($) {
+
+	let cartAjaxPending = false;
+	window.isCartAjaxPending = function() { return cartAjaxPending; };
     // Store the product IDs for each row
     const modemRows = {
         'modem-0': 267980,
@@ -316,6 +319,7 @@ jQuery(document).ready(function ($) {
 
     // Function to add product to cart
     function addToCart(productId, isInternetPlan = false, productType = '') {
+		 cartAjaxPending = true;  
         $.ajax({
             type: 'POST',
             url: modem_selection_vars.ajax_url,
@@ -327,6 +331,7 @@ jQuery(document).ready(function ($) {
                 nonce: modem_selection_vars.nonce
             },
             success: function (response) {
+				  cartAjaxPending = false;  
                 if (response.success) {
                     console.log('Product added to cart:', response.data.product_id);
 					  // Update total immediately from this response
@@ -335,11 +340,12 @@ jQuery(document).ready(function ($) {
         			}
                     $(document.body).trigger('wc_fragment_refresh');
                     updateFeeTables();
-                } else {
+                } else { 
                     console.error('Error:', response.data.message);
                 }
             },
             error: function (xhr, status, error) {
+				cartAjaxPending = false; 
                 console.error('AJAX Error:', error);
             }
         });
@@ -347,6 +353,7 @@ jQuery(document).ready(function ($) {
 
     // Function to remove product from cart
     function removeFromCart(productId) {
+		cartAjaxPending = true;
         $.ajax({
             type: 'POST',
             url: modem_selection_vars.ajax_url,
@@ -356,6 +363,7 @@ jQuery(document).ready(function ($) {
                 nonce: modem_selection_vars.nonce
             },
             success: function (response) {
+				cartAjaxPending = false;
                 if (response.success) {
                     console.log('Product removed from cart:', productId);
 					  // Update total immediately from this response
@@ -369,6 +377,7 @@ jQuery(document).ready(function ($) {
                 }
             },
             error: function (xhr, status, error) {
+				cartAjaxPending = false;
                 console.error('AJAX Error:', error);
             }
         });
