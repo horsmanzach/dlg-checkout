@@ -15,6 +15,11 @@ jQuery(document).ready(function ($) {
     $(document).on('click', '.divi-portable-row', revalidateButtonStates);
     $(document).on('change', '.preferred-date-radio, .secondary-date-radio', revalidateButtonStates);
     $(document).on('input', '.own-modem-input', revalidateButtonStates);
+	$(document.body).on('cartHighlightComplete', function () {
+    console.log('Cart highlight complete - handing off from checkout bypass to real validation');
+    cameFromCheckout = false;
+    updateButtonStates();
+});
 
     // Ultra-aggressive scroll protection - immediate blocking with zero delay
     $(window).on('scroll touchstart touchmove touchend', function (e) {
@@ -207,7 +212,7 @@ jQuery(document).ready(function ($) {
     // Check for selected cards when page loads
 setTimeout(function () {
     // Check cart and highlight selected cards
-    checkCartAndHighlight();
+    // checkCartAndHighlight(); ---- REMOVED since this function lives in card-selection.js and is arleady called there 
 
     // Update button states after cart is checked
     setTimeout(function() {
@@ -555,6 +560,20 @@ setTimeout(function () {
 
     // Function to update button states based on current screen and selections
     function updateButtonStates() {
+
+		  // If user came from checkout, enable continue immediately regardless of scroll state
+    if (cameFromCheckout) {
+        if (currentScreen === 1) {
+            $('.back-btn, .mobile-back-btn').addClass('disabled').css('visibility', 'hidden');
+        } else {
+            $('.back-btn, .mobile-back-btn').removeClass('disabled').css('visibility', 'visible');
+        }
+        $('.next-btn, .mobile-next-btn').removeClass('disabled');
+        updateCheckoutButtonState();
+        updateProgressBar(currentScreen);
+        return;
+    }
+		
         if (isScrolling) {
             // Don't update button states while scrolling is active
             return;
@@ -572,12 +591,6 @@ setTimeout(function () {
         // Handle next button state based on category selection
         const $nextBtn = $('.next-btn, .mobile-next-btn');
 
-		// If user came from checkout, enable continue button immediately
-		// (they already made selections to get to checkout)
-		if (cameFromCheckout) {
-   		 $nextBtn.removeClass('disabled');
-    	return;
-		}
 
         switch (currentScreen) {
             case 1: // Installation screen
