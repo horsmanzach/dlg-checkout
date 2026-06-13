@@ -60,45 +60,42 @@ function fix_divi_special_characters($output, $tag, $attr, $m) {
  */
 function dg_get_primary_product_category($product_cat_ids) {
     $provider_slugs = array('bell', 'bell-fttp', 'cogeco', 'rogers', 'shaw', 'telus');
-    
+
+    // If product has modems-new, skip the old 'modems' category
+    $has_modems_new = false;
+    foreach ($product_cat_ids as $cat_id) {
+        $term = get_term($cat_id, 'product_cat');
+        if (!is_wp_error($term) && $term->slug === 'modems-new') {
+            $has_modems_new = true;
+            break;
+        }
+    }
+    if ($has_modems_new) {
+        $provider_slugs[] = 'modems';
+    }
+
     // Loop through all categories and find the first non-provider category
     foreach ($product_cat_ids as $cat_id) {
         $product_cat = get_term($cat_id, 'product_cat');
-        
         if (is_wp_error($product_cat)) {
             continue;
         }
-        
-        // Skip provider categories, use functional categories (modems, tv-plan, phone-plan, internet-plan, etc.)
         if (!in_array($product_cat->slug, $provider_slugs)) {
-            $category_slug = $product_cat->slug;
-            
-            // NEW: Handle modems-new conversion
-            if ($category_slug === 'modems-new') {
-                $category_slug = 'modems';
-            }
-            
-            return $category_slug;
+            return $product_cat->slug;
         }
     }
-    
+
     // If all categories were provider categories, fall back to first one
     if (!empty($product_cat_ids)) {
         $product_cat = get_term($product_cat_ids[0], 'product_cat');
         if (!is_wp_error($product_cat)) {
-            $category_slug = $product_cat->slug;
-            
-            // NEW: Handle modems-new conversion for fallback too
-            if ($category_slug === 'modems-new') {
-                $category_slug = 'modems';
-            }
-            
-            return $category_slug;
+            return $product_cat->slug;
         }
     }
-    
+
     return null;
 }
+
 
 /**
  * Enqueue exit intent scripts and SweetAlert2 library
