@@ -423,6 +423,9 @@ jQuery(document).ready(function ($) {
                         }
                     }
                 }
+
+				 // Signal that cart highlighting is complete
+            $(document.body).trigger('cartHighlightComplete');
             }
         });
     }
