@@ -351,6 +351,9 @@ function ajax_store_terms_timestamp() {
     }
 }
 
+
+
+
 /**
  * Get customer info from WooCommerce checkout and stored address data
  */
@@ -1861,7 +1864,7 @@ function enqueue_confirm_terms_script() {
             'confirm-terms-js',
             get_stylesheet_directory_uri() . '/js/confirm-terms.js',
             array('jquery', 'monthly-billing-js', 'customer-info-confirm-js'), // UPDATED: Add monthly-billing-js as dependency
-            '1.2.0', // Updated version for cache busting
+            '1.2.1', // Updated version for cache busting
             true
         );
         
@@ -1888,7 +1891,7 @@ function enqueue_moneris_payment_assets() {
             'moneris-payment-js',
             get_stylesheet_directory_uri() . '/js/moneris-payment.js',
             array('jquery', 'confirm-terms-js'), // UPDATED: Add confirm-terms-js as dependency
-            '1.1.0', // Updated version for cache busting
+            '1.1.1', // Updated version for cache busting
             true
         );
         
@@ -1918,9 +1921,7 @@ add_action('wp_enqueue_scripts', 'enqueue_checkout_cc_copy_script');
 
 /**
  * Dynamic Terms and Conditions - PHP Logic Only
- * Add this to your functions.php file
  */
-
 /**
  * Enqueue provider terms script and pass data to JavaScript
  */
@@ -2594,18 +2595,30 @@ function ajax_process_moneris_payment() {
                     error_log('Payment details stored in session');
                 }
                 
-                // STEP 3: Get and store terms timestamp
-                error_log('Step 3: Getting terms timestamp...');
-                
-                $terms_timestamp = '';
-                if (WC()->session) {
-                    $terms_timestamp = WC()->session->get('terms_timestamp');
-                    if ($terms_timestamp) {
-                        error_log('Terms timestamp found: ' . $terms_timestamp);
-                    } else {
-                        error_log('WARNING: No terms timestamp in session');
-                    }
-                }
+
+                // STEP 3: Get terms timestamp - read directly from POST data to avoid guest session isolation issues
+error_log('Step 3: Getting terms timestamp...');
+
+$terms_timestamp = '';
+if (!empty($_POST['terms_timestamp'])) {
+    $terms_timestamp = sanitize_text_field($_POST['terms_timestamp']);
+    error_log('Terms timestamp from POST: ' . $terms_timestamp);
+    // Also write to WC session so dg_get_thank_you_page_data() can read it
+    if (WC()->session) {
+        WC()->session->set('terms_timestamp', $terms_timestamp);
+        error_log('Terms timestamp saved to WC session for thank you page');
+    }
+} else {
+    // Fallback to session in case POST value is missing
+    if (WC()->session) {
+        $terms_timestamp = WC()->session->get('terms_timestamp');
+    }
+    if ($terms_timestamp) {
+        error_log('Terms timestamp from WC session (fallback): ' . $terms_timestamp);
+    } else {
+        error_log('WARNING: No terms timestamp in POST or session');
+    }
+}
 
                 // STEP 4: Prepare order data for Diallog
                 error_log('Step 4: Preparing order data for Diallog...');
