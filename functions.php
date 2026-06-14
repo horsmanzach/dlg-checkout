@@ -7153,16 +7153,18 @@ function get_monthly_cart_items_for_thank_you() {
         }
         
         // NEW: Get promotional pricing fields
-        $monthly_promo_fee = 0;
-        $monthly_promo_blurb = '';
-        
+        $monthly_promo_fee_raw = null;
+	$monthly_promo_fee = null;
+		$monthly_promo_blurb = '';
         if (function_exists('get_field')) {
-            // Get promo fee
-            $monthly_promo_fee = get_field('monthly_promo_fee', $product_id);
-            if (empty($monthly_promo_fee) && $monthly_promo_fee !== '0') {
-                $monthly_promo_fee = get_field('monthly_promo_fee', 'product_' . $product_id);
-            }
-            $monthly_promo_fee = is_numeric($monthly_promo_fee) ? floatval($monthly_promo_fee) : 0;
+
+           // Get promo fee
+$monthly_promo_fee_raw = get_field('monthly_promo_fee', $product_id);
+if ($monthly_promo_fee_raw === null) {
+    $monthly_promo_fee_raw = get_field('monthly_promo_fee', 'product_' . $product_id);
+}
+$promo_is_set = is_numeric($monthly_promo_fee_raw);
+$monthly_promo_fee = $promo_is_set ? floatval($monthly_promo_fee_raw) : null;
             
             // Get promo blurb
             $monthly_promo_blurb = get_field('monthly_promo_blurb', $product_id);
@@ -7179,18 +7181,18 @@ function get_monthly_cart_items_for_thank_you() {
             }
 
         // Determine the final price to use (promo takes precedence if exists)
-        $final_price = $monthly_promo_fee > 0 ? $monthly_promo_fee : $monthly_fee;
+        $final_price = $promo_is_set ? $monthly_promo_fee : $monthly_fee;
 
         // FIXED: Add to items if monthly fee exists OR if it's the "I Have My Own Modem" product
-        if ($monthly_fee > 0 || $product_id == 267979) {
+        if ($monthly_fee > 0 || $promo_is_set || $product_id == 267979) {
             $items[] = array(
-                'name' => $product_name,
-                'price' => $final_price, // Use final price (promo or regular)
-                'original_price' => $monthly_fee, // Store original price
-                'promo_price' => $monthly_promo_fee, // Store promo price
-                'promo_blurb' => $monthly_promo_blurb, // Store promo blurb
-                'modem_details' => $modem_details, // Store modem details for 'I have my own modem' product
-                'category' => $primary_category
+                 'name'           => $product_name,
+    	'price'          => $final_price,
+    	'original_price' => $monthly_fee,
+    	'promo_price'    => $monthly_promo_fee,  // null if not set, 0 if explicitly free
+    	'promo_blurb'    => $monthly_promo_blurb,
+    	'modem_details'  => $modem_details,
+    	'category'       => $primary_category
             );
             error_log("Added monthly item: $product_name = $$final_price/month (original: $$monthly_fee, promo: $$monthly_promo_fee, modem_details: $modem_details)");
         }
