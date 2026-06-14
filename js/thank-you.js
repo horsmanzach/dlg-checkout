@@ -212,7 +212,7 @@ jQuery(document).ready(function ($) {
 
     // Step 1: Add regular products (not deposits, not totals)
     $.each(summary, function (key, value) {
-        if (skipKeys.indexOf(key) === -1 && value) {  // REMOVED: && value[1] > 0
+        if (skipKeys.indexOf(key) === -1 && value && (value[1] >= 0 || value[5])) {
             var itemName = value[0] || key;
 
             // Skip deposits for now
@@ -232,9 +232,8 @@ jQuery(document).ready(function ($) {
 
             // NEW: Check for promotional pricing (indexes [3] and [4])
             var originalPrice = value[3] || 0;  // [3] = original_price
-            var promoPrice = value[4] || 0;     // [4] = promo_price (can be 0 for free!)
-            // Show promo styling if we have an original price AND it's different from promo price
-            var hasPromo = (originalPrice > 0 && originalPrice !== promoPrice);
+			var promoPrice = (value[4] !== undefined) ? value[4] : null;
+			var hasPromo = (promoPrice !== null && originalPrice > 0);
 
             var row = '<tr>' +
                 '<td style="width: 50%; border: 1px solid #ddd; padding: 10px;">' + itemName;
@@ -334,12 +333,12 @@ jQuery(document).ready(function ($) {
         var skipKeys = ['subtotal', 'taxes', 'grand_total'];
 
         $.each(summary, function (key, value) {
-            if (skipKeys.indexOf(key) === -1 && value && (value[1] > 0 || value[5])) {
+            if (skipKeys.indexOf(key) === -1 && value && (value[1] >= 0 || value[5])) {
                 var itemName = value[0] || key;
 
                 // NEW: Check if this item has promotional pricing data
                 var originalPrice = value[2] || 0;  // [2] = original_price
-                var promoPrice = value[3] || 0;     // [3] = promo_price
+                var promoPrice = (value[3] !== undefined) ? value[3] : null;
                 var promoBlurb = value[4] || '';    // [4] = promo_blurb
                 var modemDetails = value[5] || '';   // [5] = modem_details
                 var finalPrice = value[1];          // [1] = final price (for display)
@@ -360,7 +359,8 @@ jQuery(document).ready(function ($) {
 
                 // Build the price cell with optional strikethrough
                 var priceCell = '';
-                if (promoPrice > 0) {
+                var promoIsSet = (promoPrice !== null && promoPrice !== undefined && originalPrice > 0);
+				if (promoIsSet) {
                     // Show strikethrough original price and green promo price (without bold)
                     priceCell = '<span style="text-decoration: line-through; color: grey; font-size: 0.9em;">' +
                         formatCurrency(originalPrice) + '</span><br>' +
