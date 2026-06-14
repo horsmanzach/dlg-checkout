@@ -245,7 +245,8 @@ jQuery(document).ready(function ($) {
             cvv: $('#moneris_cvv').val().trim(),
             postal_code: $('#moneris_postal_code').val().trim(),
             redirect_url: $submitBtn.data('redirect-url') || '',
-            success_message: $('input[name="success_message"]').val()
+            success_message: $('input[name="success_message"]').val(),
+			terms_timestamp: sessionStorage.getItem('termsTimestamp') || ''  
         };
 
         console.log('Sending payment data:', formData);
