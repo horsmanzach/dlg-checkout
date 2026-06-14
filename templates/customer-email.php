@@ -295,8 +295,8 @@ $customer_ip = isset($order_data['customer_ip']) ? $order_data['customer_ip'] : 
                 <td>
                     <?php 
                     // NEW: Check if this item has promotional pricing
-                    $has_promo = !empty($item['promo_price']) && $item['promo_price'] > 0 && 
-                                 !empty($item['original_price']) && $item['original_price'] > 0;
+                    $has_promo = isset($item['promo_price']) && $item['promo_price'] !== null && $item['original_price'] > 0;
+                                
                     
                     if ($has_promo): 
                         // Show strikethrough original price and green promo price
@@ -392,7 +392,7 @@ $customer_ip = isset($order_data['customer_ip']) ? $order_data['customer_ip'] : 
                                 <td>
                                     <?php 
                                     // Check if this item has promotional pricing
-                                    $has_promo = !empty($item['promo_price']) && $item['promo_price'] > 0;
+                                    $has_promo = isset($item['promo_price']) && $item['promo_price'] !== null && $item['original_price'] > 0;
                                     
                                     if ($has_promo): 
                                         // Show strikethrough original price and green promo price
