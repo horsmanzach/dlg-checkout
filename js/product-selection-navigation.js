@@ -362,12 +362,6 @@ setTimeout(function () {
 
                 currentScreen++;
 
-				if (currentScreen === 4) {
-    			const link = document.createElement('link');
-    			link.rel = 'prefetch';
-    				link.href = 'https://staging.diallog.com/checkout';
-    			document.head.appendChild(link);
-					}
                 console.log('Screen updated to:', currentScreen);
 
                 updateButtonStates();
@@ -798,6 +792,7 @@ setTimeout(function () {
     // Make sure to call updateCheckoutButtonState when selections change
   $(document).on('click', '.divi-portable-row, .installation-row, .divi-portable-tv, .divi-portable-phone', function () {
         setTimeout(function () {
+			isScrolling = false;  // card clicks always win over scroll state
             updateButtonStates(); // This now includes checkout button validation
             updateCheckoutButtonState(); // Extra call for safety
         }, 300);
