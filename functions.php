@@ -2860,8 +2860,22 @@ foreach ($upfront_summary as $key => $value) {
             continue;
         }
         
-        // NEW: Use helper function to get primary category
-        $product_category = dg_get_primary_product_category($product_cat_ids);
+        // Find matching category by iterating all category IDs
+        $product_category = null;
+        foreach ($product_cat_ids as $cat_id) {
+            $product_cat = get_term($cat_id, 'product_cat');
+            if (is_wp_error($product_cat)) {
+                continue;
+            }
+            $cat_slug = $product_cat->slug;
+            if ($cat_slug == 'modems-new') {
+                $cat_slug = 'modems';
+            }
+            if ($cat_slug === $key) {
+                $product_category = $cat_slug;
+                break;
+            }
+        }
         
         error_log("FORMAT DIALLOG - Primary category detected: " . ($product_category ? $product_category : 'NULL'));
         
@@ -2878,7 +2892,7 @@ foreach ($upfront_summary as $key => $value) {
             
             // Convert to object
             $original_name = $upfront_summary[$key][0];
-            $original_price = $upfront_summary[$key][1];
+            $original_price = ($key === 'modems') ? round(floatval($product->get_regular_price()), 2) : $upfront_summary[$key][1];
             
             $upfront_summary[$key] = array(
                 'Title' => $original_name,
@@ -2901,25 +2915,6 @@ foreach ($upfront_summary as $key => $value) {
             break;
         } else {
             error_log("FORMAT DIALLOG - No match: $product_category !== $key");
-        }
-    }
-}
-
-    // Fix modem price
-if (isset($upfront_summary['modems']) && isset($upfront_summary['modems']['Deposit Amount'])) {
-    foreach (WC()->cart->get_cart() as $cart_item) {
-        $product = $cart_item['data'];
-        $product_cat_ids = $product->get_category_ids();
-    
-        if (!empty($product_cat_ids)) {
-            // Use helper function to get primary category
-            $product_category = dg_get_primary_product_category($product_cat_ids);
-            
-            if ($product_category === 'modems') {
-                $actual_price = round(floatval($product->get_price()), 2);
-                $upfront_summary['modems']['Price'] = $actual_price;
-                break;
-            }
         }
     }
 }
@@ -3025,13 +3020,14 @@ if (isset($upfront_summary['modems']) && isset($upfront_summary['modems']['Depos
         // Add promotional pricing
         if (function_exists('get_field')) {
             $promo_blurb = get_field('monthly_promo_blurb', $product_id);
-            $promo_fee = get_field('monthly_promo_fee', $product_id);
-            $promo_fee = is_numeric($promo_fee) ? floatval($promo_fee) : 0;
+            $promo_fee_raw = get_field('monthly_promo_fee', $product_id);
+            $promo_is_set = is_numeric($promo_fee_raw);
+            $promo_fee = $promo_is_set ? floatval($promo_fee_raw) : null;
             
-            if (!empty($promo_blurb) || $promo_fee > 0) {
+            if (!empty($promo_blurb) || $promo_is_set) {
                 $monthly_summary[$product_category]['Promotional Blurb'] = $promo_blurb ? $promo_blurb : '';
-                $monthly_summary[$product_category]['Promotional Price'] = round($promo_fee, 2);
-                $monthly_subtotal += ($promo_fee > 0) ? $promo_fee : $monthly_fee;
+                $monthly_summary[$product_category]['Promotional Price'] = $promo_is_set ? round($promo_fee, 2) : 0;
+                $monthly_subtotal += $promo_is_set ? $promo_fee : $monthly_fee;
             } else {
                 $monthly_subtotal += $monthly_fee;
             }
@@ -3068,17 +3064,18 @@ if (isset($upfront_summary['modems']) && isset($upfront_summary['modems']['Depos
                     }
                     
                     $promo_blurb = '';
-                    $promo_fee = 0;
+                    $promo_fee_raw = null;
                     if (function_exists('get_field')) {
                         $promo_blurb = get_field('monthly_promo_blurb', $product_id);
-                        $promo_fee = get_field('monthly_promo_fee', $product_id);
-                        $promo_fee = is_numeric($promo_fee) ? floatval($promo_fee) : 0;
+                        $promo_fee_raw = get_field('monthly_promo_fee', $product_id);
                     }
+                    $promo_is_set = is_numeric($promo_fee_raw);
+                    $promo_fee = $promo_is_set ? floatval($promo_fee_raw) : null;
                     
-                    if (!empty($promo_blurb) || $promo_fee > 0) {
+                    if (!empty($promo_blurb) || $promo_is_set) {
                         $tv_plan_object['Promotional Blurb'] = $promo_blurb ? $promo_blurb : '';
-                        $tv_plan_object['Promotional Price'] = round($promo_fee, 2);
-                        $monthly_subtotal += ($promo_fee > 0) ? $promo_fee : $monthly_fee;
+                        $tv_plan_object['Promotional Price'] = $promo_is_set ? round($promo_fee, 2) : 0;
+                        $monthly_subtotal += $promo_is_set ? $promo_fee : $monthly_fee;
                     } else {
                         $monthly_subtotal += $monthly_fee;
                     }
@@ -6624,17 +6621,15 @@ function get_upfront_fee_summary() {
             $final_deposit = max($deposit_fee, $security_deposit_attr);
             
             
+            
             // Handle modem with deposit
             if ( $product_category == "modems" && $final_deposit > 0 ) {
+                $modem_price = floatval($_product->get_regular_price());
                 $summary[$product_category][0] = $_product->get_title()." ".( $show_included_taxes ?"(inc taxes)":"")."" ;
-                $summary[$product_category][1] = round(floatval($final_deposit), 2);
+                $summary[$product_category][1] = round($modem_price, 2);
+                $summary['taxes'][1] += round(floatval(($modem_price * $tax_rate) / 100), 2);
                 $do_not_include_modem_deposit = true;
                 $modem_deposit = $final_deposit;
-                
-                // Also add the modem price to subtotal if it has a price
-                $modem_price = $_product->get_price();
-                if ($modem_price > 0) {
-                }
             } else {
                 // Handle regular products
                 $product_price = $_product->get_price();
@@ -6700,14 +6695,14 @@ function get_upfront_fee_summary() {
 
     // Calculate totals
     if( $do_not_include_modem_deposit ) {
-        $summary['subtotal'][1] = $summary['internet-plan'][1] + $summary['installation'][1] + $summary['phone-plan'][1] + $summary['tv-plan'][1];
-        $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['deposit'][1] + $summary['taxes'][1] + $summary['modems'][1];
+        $summary['subtotal'][1] = $summary['internet-plan'][1] + $summary['installation'][1] + $summary['modems'][1] + $summary['phone-plan'][1] + $summary['tv-plan'][1];
+        $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['deposit'][1] + $summary['taxes'][1] + $modem_deposit;
 
         if (wc_tax_enabled() && !$show_included_taxes ) {
             $summary['taxes'][0] = esc_html( WC()->countries->tax_or_vat() );
         } elseif (!wc_tax_enabled()) {
             $summary['taxes'][0] = "Tax";
-            $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['deposit'][1] + $summary['modems'][1];
+            $summary['grand_total'][1] = $summary['subtotal'][1] + $summary['deposit'][1] + $modem_deposit;
         }
     } else {
         $summary['subtotal'][1] = $summary['internet-plan'][1] + $summary['installation'][1] + $summary['modems'][1] + $summary['phone-plan'][1] + $summary['tv-plan'][1];
