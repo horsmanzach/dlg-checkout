@@ -5000,6 +5000,8 @@ function debug_cart_contents() {
 
 // --------------------Monthly Fee Summary Table Shortcode with Internet Plan and Promotional Pricing
 
+// --------------------Monthly Fee Summary Table Shortcode with Internet Plan and Promotional Pricing
+
 function monthly_fee_summary_shortcode() {
     global $post;
 
@@ -5007,21 +5009,135 @@ function monthly_fee_summary_shortcode() {
     if ( is_null( WC()->cart ) ) {
         return '';
     }
-
+    
+    $current_url = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
+    error_log("Current URL: " . $current_url);
+    
+    if (strpos($current_url, 'admin-ajax.php') !== false) {
+        error_log("AJAX context detected - loading from session");
+        if (WC()->session) {
+            $stored_product_id = WC()->session->get('current_viewing_product_id');
+            if ($stored_product_id) {
+                $post = get_post($stored_product_id);
+                error_log("✓ Product loaded from session: " . $stored_product_id);
+            } else {
+                error_log("✗ No product ID in session");
+            }
+        }
+    } else {
+        error_log("Normal page context");
+        if (!$post && strpos($current_url, '/product/') !== false) {
+            $slug = basename(trim(parse_url($current_url, PHP_URL_PATH), '/'));
+            $product_query = new WP_Query(array(
+                'post_type' => 'product',
+                'name' => $slug,
+                'posts_per_page' => 1
+            ));
+            if ($product_query->have_posts()) {
+                $post = $product_query->posts[0];
+                error_log("✓ Product loaded from URL: " . $post->ID);
+            }
+        }
+    }
+    
+    if ($post && isset($post->ID) && strpos($current_url, 'admin-ajax.php') === false) {
+        if (WC()->session) {
+            $old_id = WC()->session->get('current_viewing_product_id');
+            if ($old_id != $post->ID) {
+                error_log("Updating stored product ID in session: $old_id → " . $post->ID);
+            }
+            WC()->session->set('current_viewing_product_id', $post->ID);
+            error_log("Session updated with current product: " . $post->ID);
+        }
+    }
+    
+    error_log("Final product status: " . ($post && isset($post->post_type) && $post->post_type === 'product' ? 'ID=' . $post->ID : 'NO PRODUCT'));
+    
+    do_action('monthly_fee_summary_calculation');
+    
     $cart = WC()->cart;
-
     $subtotal = 0;
+    $internet_plan_in_cart = false;
     $current_product_id = 0;
+    
+    $installation_category_id = 60;
+    $installation_product_id = 267986;
+    $deposit_category_id = get_term_by('slug', 'deposit', 'product_cat');
+    $deposit_category_id = $deposit_category_id ? $deposit_category_id->term_id : null;
+    
+    $internet_plan_category = get_term_by('slug', 'internet-plan', 'product_cat');
+    $internet_plan_category_id = $internet_plan_category ? $internet_plan_category->term_id : 19;
+    
+    error_log("=== MONTHLY FEE SUMMARY DEBUG ===");
+    error_log("Internet plan category ID: " . $internet_plan_category_id);
+    error_log("Is product page: " . ($post && $post->post_type === 'product' ? 'YES' : 'NO'));
+    error_log("Post ID: " . ($post ? $post->ID : 'NO POST'));
+    error_log("Post Type: " . ($post ? $post->post_type : 'N/A'));
 
-    // IDs / category IDs used for filtering
-    $installation_category_id   = 60;
-    $installation_product_id    = 267986;
-    $deposit_category_id        = get_term_by( 'slug', 'deposit', 'product_cat' );
-    $deposit_category_id        = $deposit_category_id ? $deposit_category_id->term_id : null;
-    $internet_plan_category_id  = 19;
-    $pay_after_deposit_id       = 267989;
+    if ($post && $post->post_type === 'product' && !is_checkout() && !is_cart()) {
+        $current_product_id = $post->ID;
+        error_log("Current product ID: " . $current_product_id);
+        
+        if ($current_product_id != $installation_product_id) {
+            $current_product = wc_get_product($current_product_id);
+            
+            if ($current_product && $current_product->get_type() === 'simple') {
+                $product_cats = wp_get_post_terms($current_product_id, 'product_cat', array('fields' => 'ids'));
+                $is_internet_plan = in_array($internet_plan_category_id, $product_cats);
+                
+                error_log("Product categories: " . print_r($product_cats, true));
+                error_log("Is internet plan: " . ($is_internet_plan ? 'YES' : 'NO'));
+                
+                if ($is_internet_plan) {
+                    error_log("=== CHECKING FOR DIFFERENT INTERNET PLAN ===");
+                    error_log("Current product ID: " . $current_product_id);
+                    
+                    $different_plan_found = false;
+                    foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
+                        $cart_product_cats = wp_get_post_terms($cart_item['product_id'], 'product_cat', array('fields' => 'ids'));
+                        $cart_item_is_internet_plan = in_array($internet_plan_category_id, $cart_product_cats);
+                        if ($cart_item_is_internet_plan && $cart_item['product_id'] != $current_product_id) {
+                            $different_plan_found = true;
+                            error_log("✓ Found different internet plan in cart: " . $cart_item['product_id']);
+                            break;
+                        }
+                    }
+                    
+                    if ($different_plan_found) {
+                        error_log("CLEARING ENTIRE CART - Switching from different internet plan");
+                        WC()->cart->empty_cart();
+                        if (WC()->session) { WC()->session->set('cart', array()); }
+                        WC()->cart->set_cart_contents(array());
+                        error_log("✓ Cart cleared - Item count after clearing: " . WC()->cart->get_cart_contents_count());
+                    } else {
+                        error_log("No different internet plan found - keeping existing cart items");
+                    }
+                    
+                    error_log("=== END DIFFERENT PLAN CHECK ===");
+                    
+                    $current_plan_in_cart = false;
+                    foreach ($cart->get_cart() as $cart_item) {
+                        if ($cart_item['product_id'] == $current_product_id) {
+                            $current_plan_in_cart = true;
+                            $internet_plan_in_cart = true;
+                            error_log("Current internet plan already in cart");
+                            break;
+                        }
+                    }
+                    
+                    if (!$current_plan_in_cart) {
+                        $added = $cart->add_to_cart($current_product_id, 1);
+                        if ($added) {
+                            $internet_plan_in_cart = true;
+                            error_log("Added current internet plan to cart: " . $current_product_id);
+                        }
+                    }
+                }
+            }
+        }
+    }
 
-    // Canonical display order — keys are category slugs
+    // ── Canonical display order ──────────────────────────────────────────
     $category_order = array(
         'internet-plan' => 1,
         'installation'  => 2,
@@ -5030,223 +5146,247 @@ function monthly_fee_summary_shortcode() {
         'phone-plan'    => 5,
     );
 
-    // Buckets: keyed by category slug, each holds one rendered <tr> string
-    // (only one product per category is expected)
-    $row_buckets = array();
+    // Collect rows into buckets keyed by category slug, render in order at end
+    $row_buckets = array(); // [ slug => [ 'html' => '', 'price' => 0.0 ] ]
 
-    // ── Handle the current product page item (internet plan special case) ──
-    if ( is_product() && $post ) {
-        $current_product_id  = $post->ID;
-        $current_product     = wc_get_product( $current_product_id );
-
-        if ( $current_product && $current_product->get_type() === 'simple'
-             && $current_product_id != $installation_product_id ) {
-
-            $product_cats   = wp_get_post_terms( $current_product_id, 'product_cat', array( 'fields' => 'ids' ) );
-            $is_internet    = in_array( $internet_plan_category_id, $product_cats );
-
-            if ( $is_internet ) {
-                $monthly_fee = 0;
-                if ( function_exists( 'get_field' ) ) {
-                    $monthly_fee = get_field( 'monthly_fee', $current_product_id );
-                    if ( empty( $monthly_fee ) && $monthly_fee !== '0' ) {
-                        $monthly_fee = get_field( 'monthly_fee', 'product_' . $current_product_id );
-                    }
-                    $monthly_fee = is_numeric( $monthly_fee ) ? floatval( $monthly_fee ) : 0;
-                }
-
-                $monthly_promo_fee_raw = null;
-                if ( function_exists( 'get_field' ) ) {
-                    $monthly_promo_fee_raw = get_field( 'monthly_promo_fee', $current_product_id );
-                    if ( $monthly_promo_fee_raw === null ) {
-                        $monthly_promo_fee_raw = get_field( 'monthly_promo_fee', 'product_' . $current_product_id );
-                    }
-                }
-                $promo_is_set      = is_numeric( $monthly_promo_fee_raw );
-                $monthly_promo_fee = $promo_is_set ? floatval( $monthly_promo_fee_raw ) : null;
-                $final_monthly_fee = $promo_is_set ? $monthly_promo_fee : $monthly_fee;
-
-                $product_name_display = esc_html( $current_product->get_name() );
-                if ( $promo_is_set && $monthly_promo_fee < $monthly_fee ) {
-                    $pricing_display = '<span class="monthly-fee-regular-price" style="text-decoration:line-through;">'
-                        . wc_price( $monthly_fee ) . '</span><br>'
-                        . '<span class="monthly-fee-sale-price">' . wc_price( $monthly_promo_fee ) . '</span>';
-                } else {
-                    $pricing_display = wc_price( $monthly_fee );
-                }
-
-                $promo_blurb = '';
-                if ( function_exists( 'get_field' ) ) {
-                    $promo_blurb = get_field( 'monthly_promo_blurb', $current_product_id );
-                }
-                if ( $promo_blurb ) {
-                    $product_name_display .= '<br><span style="color:green;font-style:italic;font-size:0.9em;">'
-                        . esc_html( $promo_blurb ) . '</span>';
-                }
-
-                $row = '<tr>';
-                $row .= '<td>' . $product_name_display . '</td>';
-                $row .= '<td>Internet Plan</td>';
-                $row .= '<td>' . $pricing_display . '</td>';
-                $row .= '</tr>';
-
-                $row_buckets['internet-plan'] = array(
-                    'row'   => $row,
-                    'price' => $final_monthly_fee,
-                );
+    // ── Internet plan row (product page context) ─────────────────────────
+    if ($post && $post->post_type === 'product' && $current_product_id && $internet_plan_in_cart) {
+        $monthly_fee = 0;
+        if (function_exists('get_field')) {
+            $monthly_fee = get_field('monthly_fee', $current_product_id);
+            if (empty($monthly_fee) && $monthly_fee !== '0') {
+                $monthly_fee = get_field('monthly_fee', 'product_' . $current_product_id);
+            }
+            $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
+        }
+        
+        $monthly_promo_fee_raw = null;
+        if (function_exists('get_field')) {
+            $monthly_promo_fee_raw = get_field('monthly_promo_fee', $current_product_id);
+            if ($monthly_promo_fee_raw === null) {
+                $monthly_promo_fee_raw = get_field('monthly_promo_fee', 'product_' . $current_product_id);
             }
         }
+        $promo_is_set = is_numeric($monthly_promo_fee_raw);
+        $monthly_promo_fee = $promo_is_set ? floatval($monthly_promo_fee_raw) : null;
+        
+        $monthly_promo_blurb = '';
+        if (function_exists('get_field')) {
+            $monthly_promo_blurb = get_field('monthly_promo_blurb', $current_product_id);
+            if (empty($monthly_promo_blurb)) {
+                $monthly_promo_blurb = get_field('monthly_promo_blurb', 'product_' . $current_product_id);
+            }
+        }
+        
+        $final_monthly_fee = $promo_is_set ? $monthly_promo_fee : $monthly_fee;
+        $current_product   = wc_get_product($current_product_id);
+        $product_name_display = esc_html($current_product->get_name());
+        if (!empty($monthly_promo_blurb)) {
+            $product_name_display .= '<br><span class="promo-blurb" style="color: green; font-style: italic; font-size: 0.9em;">' . esc_html($monthly_promo_blurb) . '</span>';
+        }
+        
+        if ($promo_is_set && $monthly_promo_fee != $monthly_fee) {
+            $pricing_display = '<span class="monthly-fee-original-price" style="text-decoration: line-through;">' . wc_price($monthly_fee) . '</span><br><span class="monthly-fee-sale-price">' . wc_price($monthly_promo_fee) . '</span>';
+        } else {
+            $pricing_display = wc_price($monthly_fee);
+        }
+        
+        $row  = '<tr>';
+        $row .= '<td>' . $product_name_display . '</td>';
+        $row .= '<td>Internet Plan</td>';
+        $row .= '<td>' . $pricing_display . '</td>';
+        $row .= '</tr>';
+        
+        $row_buckets['internet-plan'] = array( 'html' => $row, 'price' => $final_monthly_fee );
     }
-
-    // ── Loop through cart items ──
-    foreach ( $cart->get_cart() as $cart_item_key => $cart_item ) {
+    
+    // ── Cart item rows ───────────────────────────────────────────────────
+    foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
         $product    = $cart_item['data'];
         $product_id = $product->get_id();
         $parent_id  = $product->get_parent_id();
-
-        $product_cats = wp_get_post_terms( $product_id, 'product_cat', array( 'fields' => 'ids' ) );
-
-        // Skip installation
-        $is_installation = in_array( $installation_category_id, $product_cats )
-                           || $parent_id == $installation_product_id;
-        if ( $is_installation ) { continue; }
-
-        // Skip deposit
-        $is_deposit = $deposit_category_id && in_array( $deposit_category_id, $product_cats );
-        if ( $is_deposit ) { continue; }
-
-        // Skip Pay After deposit
-        if ( $product_id == $pay_after_deposit_id ) { continue; }
-
-        // Skip internet plan already rendered from the product page
-        $is_internet_plan = in_array( $internet_plan_category_id, $product_cats );
-        if ( $is_internet_plan && isset( $row_buckets['internet-plan'] ) ) { continue; }
-
-        // Determine which canonical category bucket this item belongs to
-        $bucket_key = null;
-        $category_name = '';
-
-        // Check internet plan first (for cart-only context, i.e. no product page)
-        if ( $is_internet_plan ) {
-            $bucket_key    = 'internet-plan';
-            $category_name = 'Internet Plan';
+        
+        $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'ids'));
+        
+        $is_installation = in_array($installation_category_id, $product_cats) || $parent_id == $installation_product_id;
+        if ($is_installation) { continue; }
+        
+        $is_deposit = $deposit_category_id && in_array($deposit_category_id, $product_cats);
+        if ($is_deposit) { continue; }
+        
+        if ($product_id == 267989) { continue; }
+        
+        $is_internet_plan_item = in_array($internet_plan_category_id, $product_cats);
+        if ($is_internet_plan_item && $post && $post->post_type === 'product' && $current_product_id == $product_id) {
+            continue; // Already added above
+        }
+        
+        // Monthly fee
+        $monthly_fee = 0;
+        if (function_exists('get_field')) {
+            $monthly_fee = get_field('monthly_fee', $product_id);
+            if (empty($monthly_fee) && $monthly_fee !== '0') {
+                $monthly_fee = get_field('monthly_fee', 'product_' . $product_id);
+            }
+            $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
+        }
+        
+        // Promo pricing
+        $monthly_promo_fee_raw = null;
+        if (function_exists('get_field')) {
+            $monthly_promo_fee_raw = get_field('monthly_promo_fee', $product_id);
+            if ($monthly_promo_fee_raw === null) {
+                $monthly_promo_fee_raw = get_field('monthly_promo_fee', 'product_' . $product_id);
+            }
+        }
+        $promo_is_set      = is_numeric($monthly_promo_fee_raw);
+        $monthly_promo_fee = $promo_is_set ? floatval($monthly_promo_fee_raw) : null;
+        
+        $monthly_promo_blurb = '';
+        if (function_exists('get_field')) {
+            $monthly_promo_blurb = get_field('monthly_promo_blurb', $product_id);
+            if (empty($monthly_promo_blurb)) {
+                $monthly_promo_blurb = get_field('monthly_promo_blurb', 'product_' . $product_id);
+            }
+        }
+        
+        $final_monthly_fee = $promo_is_set ? $monthly_promo_fee : $monthly_fee;
+        
+        $product_name         = $product->get_name();
+        $product_name_display = esc_html($product_name);
+        if (!empty($monthly_promo_blurb)) {
+            $product_name_display .= '<br><span class="promo-blurb" style="color: green; font-style: italic; font-size: 0.9em;">' . esc_html($monthly_promo_blurb) . '</span>';
+        }
+        
+        // ── Category resolution (identical to old version) ───────────────
+        $category_name = 'Product';
+        $category_slug = '';
+        
+        if ($parent_id > 0) {
+            $terms = get_the_terms($parent_id, 'product_cat');
         } else {
-            // Walk through all product categories and match against our canonical order
-            $all_terms = wp_get_post_terms( $product_id, 'product_cat' );
-            foreach ( $all_terms as $term ) {
-                if ( isset( $category_order[ $term->slug ] ) ) {
-                    $bucket_key    = $term->slug;
-                    $category_name = $term->name;
-                    break;
+            $terms = get_the_terms($product_id, 'product_cat');
+        }
+        
+        if (!empty($terms) && !is_wp_error($terms)) {
+            if ($is_internet_plan_item) {
+                $internet_plan_term = get_term($internet_plan_category_id, 'product_cat');
+                if ($internet_plan_term && !is_wp_error($internet_plan_term)) {
+                    $category_name = $internet_plan_term->name;
+                    $category_slug = $internet_plan_term->slug;
+                } else {
+                    $category_name = 'Internet Plan';
+                    $category_slug = 'internet-plan';
+                }
+            } else {
+                $primary_category_slug = dg_get_primary_product_category($product_cats);
+                if ($primary_category_slug) {
+                    $primary_term = get_term_by('slug', $primary_category_slug, 'product_cat');
+                    if ($primary_term && !is_wp_error($primary_term)) {
+                        $category_name = $primary_term->name;
+                        $category_slug = $primary_term->slug;
+                    } else {
+                        $category_name = ucfirst(str_replace('-', ' ', $primary_category_slug));
+                        $category_slug = $primary_category_slug;
+                    }
+                } else {
+                    $category_name = $terms[0]->name;
+                    $category_slug = $terms[0]->slug;
                 }
             }
         }
-
-        if ( $bucket_key === null ) { continue; } // Not a display category — skip
-
-        // Get ACF monthly fee
-        $monthly_fee = 0;
-        if ( function_exists( 'get_field' ) ) {
-            $monthly_fee = get_field( 'monthly_fee', $product_id );
-            if ( empty( $monthly_fee ) && $monthly_fee !== '0' ) {
-                $monthly_fee = get_field( 'monthly_fee', 'product_' . $product_id );
-            }
-            $monthly_fee = is_numeric( $monthly_fee ) ? floatval( $monthly_fee ) : 0;
-        }
-
-        // Promo pricing
-        $monthly_promo_fee_raw = null;
-        if ( function_exists( 'get_field' ) ) {
-            $monthly_promo_fee_raw = get_field( 'monthly_promo_fee', $product_id );
-            if ( $monthly_promo_fee_raw === null ) {
-                $monthly_promo_fee_raw = get_field( 'monthly_promo_fee', 'product_' . $product_id );
-            }
-        }
-        $promo_is_set      = is_numeric( $monthly_promo_fee_raw );
-        $monthly_promo_fee = $promo_is_set ? floatval( $monthly_promo_fee_raw ) : null;
-        $final_monthly_fee = $promo_is_set ? $monthly_promo_fee : $monthly_fee;
-
-        $product_name_display = esc_html( $product->get_name() );
-
-        // Promo blurb
-        $promo_blurb = '';
-        if ( function_exists( 'get_field' ) ) {
-            $promo_blurb = get_field( 'monthly_promo_blurb', $product_id );
-        }
-        if ( $promo_blurb ) {
-            $product_name_display .= '<br><span style="color:green;font-style:italic;font-size:0.9em;">'
-                . esc_html( $promo_blurb ) . '</span>';
-        }
-
-        // Modem details (e.g. "I have my own modem")
-        if ( isset( $cart_item['modem_details'] ) && ! empty( $cart_item['modem_details'] ) ) {
-            $product_name_display .= '<br><em style="font-style:italic;font-size:0.9em;color:#666;">'
-                . esc_html( $cart_item['modem_details'] ) . '</em>';
-        }
-
-        if ( $promo_is_set && $monthly_promo_fee < $monthly_fee ) {
-            $pricing_display = '<span class="monthly-fee-regular-price" style="text-decoration:line-through;">'
-                . wc_price( $monthly_fee ) . '</span><br>'
-                . '<span class="monthly-fee-sale-price">' . wc_price( $monthly_promo_fee ) . '</span>';
+        
+        // Pricing display
+        if ($promo_is_set && $monthly_promo_fee != $monthly_fee) {
+            $pricing_display = '<span class="monthly-fee-original-price" style="text-decoration: line-through;">' . wc_price($monthly_fee) . '</span><br><span class="monthly-fee-sale-price">' . wc_price($monthly_promo_fee) . '</span>';
         } else {
-            $pricing_display = wc_price( $monthly_fee );
+            $pricing_display = wc_price($monthly_fee);
         }
-
-        $row = '<tr>';
+        
+        $row  = '<tr>';
         $row .= '<td>' . $product_name_display . '</td>';
-        $row .= '<td>' . esc_html( $category_name ) . '</td>';
+        $row .= '<td>' . esc_html($category_name) . '</td>';
         $row .= '<td>' . $pricing_display . '</td>';
         $row .= '</tr>';
 
-        $row_buckets[ $bucket_key ] = array(
-            'row'   => $row,
-            'price' => $final_monthly_fee,
-        );
+        // ── Determine bucket key from $category_slug ─────────────────────
+        // Normalise modems slug (dg_get_primary_product_category returns 'modems', order uses 'modems-new')
+        $bucket_key = $category_slug;
+        if ( $bucket_key === 'modems' ) {
+            $bucket_key = 'modems-new';
+        }
+        // Internet plan items not on product page land here
+        if ( $is_internet_plan_item ) {
+            $bucket_key = 'internet-plan';
+        }
+
+        if ( isset( $category_order[ $bucket_key ] ) ) {
+            $row_buckets[ $bucket_key ] = array( 'html' => $row, 'price' => $final_monthly_fee );
+        } else {
+            // Unknown category — append at end outside buckets (shouldn't happen normally)
+            $row_buckets[ 'zzz_' . $product_id ] = array( 'html' => $row, 'price' => $final_monthly_fee );
+        }
     }
 
-    // ── Render rows in canonical order ──
-    $output = '<table class="monthly-fee-summary-table">';
+    // ── Build output in canonical order ──────────────────────────────────
+    $output  = '<table class="fee-summary-table monthly-fee-table">';
     $output .= '<thead><tr><th>Product</th><th>Category</th><th>Monthly Fee</th></tr></thead>';
     $output .= '<tbody>';
 
     foreach ( $category_order as $slug => $position ) {
         if ( isset( $row_buckets[ $slug ] ) ) {
-            $output  .= $row_buckets[ $slug ]['row'];
+            $output   .= $row_buckets[ $slug ]['html'];
             $subtotal += $row_buckets[ $slug ]['price'];
         }
     }
-
-    // ── Tax ──
-    $tax_total = 0;
-    if ( wc_tax_enabled() ) {
-        $searched_address = dg_get_user_meta( 'searched_address' );
-        $state = '';
-        if ( isset( $searched_address['administrative_area_level_1'] ) ) {
-            $state = $searched_address['administrative_area_level_1'];
-        } elseif ( isset( $searched_address['provinceOrState'] ) ) {
-            $state = $searched_address['provinceOrState'];
-        }
-        $tax_rates = WC_Tax::find_rates( array(
-            'country'  => 'CA',
-            'state'    => $state,
-            'city'     => '',
-            'postcode' => '',
-        ) );
-        if ( ! empty( $tax_rates ) ) {
-            $taxes     = WC_Tax::calc_tax( $subtotal, $tax_rates );
-            $tax_total = array_sum( $taxes );
+    // Append any unknown-category items
+    foreach ( $row_buckets as $key => $bucket ) {
+        if ( strpos( $key, 'zzz_' ) === 0 ) {
+            $output   .= $bucket['html'];
+            $subtotal += $bucket['price'];
         }
     }
-
-    $output .= '<tr class="subtotal-row"><td colspan="2">Subtotal</td><td>' . wc_price( $subtotal ) . '</td></tr>';
-    $output .= '<tr class="tax-row"><td colspan="2">Tax</td><td>' . wc_price( $tax_total ) . '</td></tr>';
-    $output .= '<tr class="total-row"><td colspan="2">Total Monthly</td><td>' . wc_price( $subtotal + $tax_total ) . '</td></tr>';
-
+    
+    // ── Tax ──────────────────────────────────────────────────────────────
+    $tax_total = 0;
+    if (wc_tax_enabled()) {
+        $searched_address = dg_get_user_meta("searched_address");
+        error_log('Monthly summary - searched address: ' . print_r($searched_address, true));
+        
+        $state = '';
+        if (isset($searched_address['administrative_area_level_1'])) {
+            $state = $searched_address['administrative_area_level_1'];
+        } elseif (isset($searched_address['provinceOrState'])) {
+            $state = $searched_address['provinceOrState'];
+        }
+        error_log('Monthly summary - province: ' . $state);
+        
+        $tax_rates = WC_Tax::find_rates(array(
+            'country'   => 'CA',
+            'state'     => $state,
+            'city'      => '',
+            'postcode'  => ''
+        ));
+        error_log('Monthly summary - tax rates: ' . print_r($tax_rates, true));
+        
+        if (!empty($tax_rates)) {
+            $taxes     = WC_Tax::calc_tax($subtotal, $tax_rates);
+            $tax_total = array_sum($taxes);
+        }
+    }
+    
+    $output .= '<tr class="subtotal-row"><td colspan="2">Subtotal</td><td>' . wc_price($subtotal) . '</td></tr>';
+    $output .= '<tr class="tax-row"><td colspan="2">Tax</td><td>' . wc_price($tax_total) . '</td></tr>';
+    $output .= '<tr class="total-row"><td colspan="2">Total Monthly</td><td>' . wc_price($subtotal + $tax_total) . '</td></tr>';
+    
     $output .= '</tbody></table>';
-
+    
+    error_log("Final internet_plan_in_cart status: " . ($internet_plan_in_cart ? 'TRUE' : 'FALSE'));
+    error_log("=== END MONTHLY FEE SUMMARY DEBUG ===");
+    
     return $output;
 }
-add_shortcode( 'monthly_fee_summary', 'monthly_fee_summary_shortcode' );
+add_shortcode('monthly_fee_summary', 'monthly_fee_summary_shortcode');
 
 
 // -------- Edit Order popup Shortcode
@@ -6911,14 +7051,14 @@ function get_monthly_fee_summary() {
 
 function get_monthly_cart_items_for_thank_you() {
     $items = array();
-
-    if ( ! WC()->cart || WC()->cart->is_empty() ) {
+    
+    if (!WC()->cart || WC()->cart->is_empty()) {
         return $items;
     }
+    
+    error_log('=== GETTING MONTHLY CART ITEMS FOR THANK YOU PAGE (WITH PROMO SUPPORT) ===');
 
-    error_log( '=== GETTING MONTHLY CART ITEMS FOR THANK YOU PAGE (WITH PROMO SUPPORT) ===' );
-
-    // Canonical category order — lower number = earlier in table
+    // Canonical category order for display sorting
     $category_order = array(
         'internet-plan' => 1,
         'installation'  => 2,
@@ -6926,103 +7066,105 @@ function get_monthly_cart_items_for_thank_you() {
         'tv-plan'       => 4,
         'phone-plan'    => 5,
     );
-
+    
     // Categories that should NOT be in monthly billing
-    $exclude_categories = array( 'deposit', 'installation' );
-
-    foreach ( WC()->cart->get_cart() as $cart_item_key => $cart_item ) {
-        $product      = $cart_item['data'];
-        $product_id   = $product->get_id();
+    $exclude_categories = array('deposit', 'installation');
+    
+    foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
+        $product = $cart_item['data'];
+        $product_id = $product->get_id();
         $product_name = $product->get_name();
-
-        // Get product categories (slugs)
-        $product_cats     = wp_get_post_terms( $product_id, 'product_cat', array( 'fields' => 'slugs' ) );
-        $primary_category = ! empty( $product_cats ) ? $product_cats[0] : 'uncategorized';
-
+        
+        // Get product categories
+        $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'slugs'));
+        $primary_category = !empty($product_cats) ? $product_cats[0] : 'uncategorized';
+        
         // Skip excluded categories
-        if ( in_array( $primary_category, $exclude_categories ) ) {
+        if (in_array($primary_category, $exclude_categories)) {
             continue;
         }
-
+        
         // Skip Pay After deposit
-        if ( $product_id == 267989 ) {
+        if ($product_id == 267989) {
             continue;
         }
-
+        
         // Get monthly fee from ACF
         $monthly_fee = 0;
-        if ( function_exists( 'get_field' ) ) {
-            $monthly_fee = get_field( 'monthly_fee', $product_id );
-            if ( empty( $monthly_fee ) && $monthly_fee !== '0' ) {
-                $monthly_fee = get_field( 'monthly_fee', 'product_' . $product_id );
+        if (function_exists('get_field')) {
+            $monthly_fee = get_field('monthly_fee', $product_id);
+            
+            if (empty($monthly_fee) && $monthly_fee !== '0') {
+                $monthly_fee = get_field('monthly_fee', 'product_' . $product_id);
             }
-            $monthly_fee = is_numeric( $monthly_fee ) ? floatval( $monthly_fee ) : 0;
+            
+            $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
         }
-
-        // Get promotional pricing fields
+        
+        // NEW: Get promotional pricing fields
         $monthly_promo_fee_raw = null;
-        $monthly_promo_fee     = null;
-        $monthly_promo_blurb   = '';
-        if ( function_exists( 'get_field' ) ) {
-            $monthly_promo_fee_raw = get_field( 'monthly_promo_fee', $product_id );
-            if ( $monthly_promo_fee_raw === null ) {
-                $monthly_promo_fee_raw = get_field( 'monthly_promo_fee', 'product_' . $product_id );
+	$monthly_promo_fee = null;
+		$monthly_promo_blurb = '';
+        if (function_exists('get_field')) {
+           // Get promo fee
+$monthly_promo_fee_raw = get_field('monthly_promo_fee', $product_id);
+if ($monthly_promo_fee_raw === null) {
+    $monthly_promo_fee_raw = get_field('monthly_promo_fee', 'product_' . $product_id);
+}
+$promo_is_set = is_numeric($monthly_promo_fee_raw);
+$monthly_promo_fee = $promo_is_set ? floatval($monthly_promo_fee_raw) : null;
+            
+            // Get promo blurb
+            $monthly_promo_blurb = get_field('monthly_promo_blurb', $product_id);
+            if (empty($monthly_promo_blurb)) {
+                $monthly_promo_blurb = get_field('monthly_promo_blurb', 'product_' . $product_id);
             }
-            $promo_is_set      = is_numeric( $monthly_promo_fee_raw );
-            $monthly_promo_fee = $promo_is_set ? floatval( $monthly_promo_fee_raw ) : null;
-
-            $monthly_promo_blurb = get_field( 'monthly_promo_blurb', $product_id );
-            if ( empty( $monthly_promo_blurb ) ) {
-                $monthly_promo_blurb = get_field( 'monthly_promo_blurb', 'product_' . $product_id );
-            }
-        } else {
-            $promo_is_set = false;
         }
 
-        // Get modem details if this is "I Have My Own Modem" product
-        $modem_details = '';
-        if ( $product_id == 267979 && isset( $cart_item['modem_details'] ) && ! empty( $cart_item['modem_details'] ) ) {
-            $modem_details = $cart_item['modem_details'];
-            error_log( "Found modem details for product $product_id: " . $modem_details );
-        }
+        // NEW: Get modem details if this is "I Have My Own Modem" product (ID: 267979)
+            $modem_details = '';
+            if ($product_id == 267979 && isset($cart_item['modem_details']) && !empty($cart_item['modem_details'])) {
+                $modem_details = $cart_item['modem_details'];
+                error_log("Found modem details for product $product_id: " . $modem_details);
+            }
 
-        // Determine the final price to use
+        // Determine the final price to use (promo takes precedence if exists)
         $final_price = $promo_is_set ? $monthly_promo_fee : $monthly_fee;
 
-        if ( $monthly_fee > 0 || $promo_is_set || $product_id == 267979 ) {
-            // Determine the sort position for this item
-            $sort_order = PHP_INT_MAX; // Unknown categories go to the bottom
-            foreach ( $product_cats as $slug ) {
-                if ( isset( $category_order[ $slug ] ) ) {
-                    $sort_order = $category_order[ $slug ];
+        // FIXED: Add to items if monthly fee exists OR if it's the "I Have My Own Modem" product
+        if ($monthly_fee > 0 || $promo_is_set || $product_id == 267979) {
+
+            // Determine sort position from category slugs
+            $sort_order = PHP_INT_MAX;
+            foreach ($product_cats as $slug) {
+                if (isset($category_order[$slug])) {
+                    $sort_order = $category_order[$slug];
                     break;
                 }
             }
 
             $items[] = array(
-                'name'           => $product_name,
-                'price'          => $final_price,
-                'original_price' => $monthly_fee,
-                'promo_price'    => $monthly_promo_fee,
-                'promo_blurb'    => $monthly_promo_blurb,
-                'modem_details'  => $modem_details,
-                'category'       => $primary_category,
-                'sort_order'     => $sort_order,
+                 'name'           => $product_name,
+    	'price'          => $final_price,
+    	'original_price' => $monthly_fee,
+    	'promo_price'    => $monthly_promo_fee,  // null if not set, 0 if explicitly free
+    	'promo_blurb'    => $monthly_promo_blurb,
+    	'modem_details'  => $modem_details,
+    	'category'       => $primary_category,
+    	'sort_order'     => $sort_order,
             );
-
-            error_log( "Added monthly item: $product_name = \$$final_price/month (category: $primary_category, sort: $sort_order)" );
+            error_log("Added monthly item: $product_name = $$final_price/month (original: $$monthly_fee, promo: $$monthly_promo_fee, modem_details: $modem_details)");
         }
     }
 
-    // Sort items into canonical category order
-    usort( $items, function( $a, $b ) {
+    // Sort into canonical category order
+    usort($items, function($a, $b) {
         return $a['sort_order'] - $b['sort_order'];
-    } );
-
-    error_log( 'Total monthly items for thank you page: ' . count( $items ) );
+    });
+    
+    error_log('Total monthly items for thank you page: ' . count($items));
     return $items;
 }
-
 
 /**
  * Get formatted monthly summary for thank you page
@@ -7293,7 +7435,7 @@ function verify_card_ex($payment_info) {
         $mpg_response->getResponseCode() == null ||
         $mpg_response->getResponseCode() >= 50) {
 
-        $msg = "Invalid credit card number. Please double check the card number entered — if your card number is correct, also verify your expiry date. " . $mpg_response->getMessage();
+        $msg = "The credit card details entered are invalid. Please ensure the credit card number, expiry date and CVV are all correct.";
         $response = array(
             'status' => 'failed',
             'msg'    => $msg,
@@ -7364,6 +7506,7 @@ function verify_card_ex($payment_info) {
     error_log("Got response back " . $mpg_response->getComplete());
     return array('status' => 'success');
 }
+
 /*================================================
 #Load custom Contact Form Module
 ================================================*/
