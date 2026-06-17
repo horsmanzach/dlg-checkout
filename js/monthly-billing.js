@@ -208,215 +208,208 @@ jQuery(document).ready(function ($) {
     }
 
     function initializeCardValidation() {
-        $(document).on('click', '.validate-card-btn', function () {
-            const button = $(this);
-            let isValid = true;
+    $(document).on('click', '.validate-card-btn', function () {
+        const button = $(this);
+        let isValid = true;
 
-            // Collect card data using actual field IDs
-            const cardData = {
-                cardholder_name: $('#cc_cardholder_name').val().trim(),
-                card_number: $('#cc_card_number').val().replace(/\s/g, ''),
-                expiry: $('#cc_expiry').val().trim(),
-                cvv: $('#cc_cvv').val().trim(),
-                postal_code: $('#cc_postal_code').val().trim()
-            };
+        // Collect card data using actual field IDs
+        const cardData = {
+            cardholder_name: $('#cc_cardholder_name').val().trim(),
+            card_number: $('#cc_card_number').val().replace(/\s/g, ''),
+            expiry: $('#cc_expiry').val().trim(),
+            cvv: $('#cc_cvv').val().trim(),
+            postal_code: $('#cc_postal_code').val().trim()
+        };
 
-            // Reset previous validation states
-            $('.cc-form-fields input').removeClass('error');
-            $('.cc-form-fields .field-error-message').hide();
-            $('.cc-validation-message').hide();
+        // Reset previous validation states
+        $('.cc-form-fields input').removeClass('error');
+        $('.cc-form-fields .field-error-message').hide();
+        $('.cc-validation-message').hide();
 
-            // Validate each field with actual field names
-            if (!cardData.cardholder_name || cardData.cardholder_name.length < 2) {
-                $('#cc_cardholder_name').addClass('error');
-                $('#cc_cardholder_name').siblings('.field-error-message').text('Please enter cardholder name').show();
-                isValid = false;
-            }
+        // Validate each field with actual field names
+        if (!cardData.cardholder_name || cardData.cardholder_name.length < 2) {
+            $('#cc_cardholder_name').addClass('error');
+            $('#cc_cardholder_name').siblings('.field-error-message').text('Please enter cardholder name').show();
+            isValid = false;
+        }
 
-            if (!cardData.card_number || cardData.card_number.length < 13) {
-                $('#cc_card_number').addClass('error');
-                $('#cc_card_number').siblings('.field-error-message').text('Please enter valid card number').show();
-                isValid = false;
-            }
+        if (!cardData.card_number || cardData.card_number.length < 13) {
+            $('#cc_card_number').addClass('error');
+            $('#cc_card_number').siblings('.field-error-message').text('Please enter valid card number').show();
+            isValid = false;
+        }
 
-            if (!cardData.expiry || cardData.expiry.length !== 5) {
-                $('#cc_expiry').addClass('error');
-                $('#cc_expiry').siblings('.field-error-message').text('Please enter MM/YY format').show();
-                isValid = false;
-            }
+        if (!cardData.expiry || cardData.expiry.length !== 5) {
+            $('#cc_expiry').addClass('error');
+            $('#cc_expiry').siblings('.field-error-message').text('Please enter MM/YY format').show();
+            isValid = false;
+        }
 
-            if (!cardData.cvv || cardData.cvv.length < 3) {
-                $('#cc_cvv').addClass('error');
-                $('#cc_cvv').siblings('.field-error-message').text('Please enter CVV').show();
-                isValid = false;
-            }
+        if (!cardData.cvv || cardData.cvv.length < 3) {
+            $('#cc_cvv').addClass('error');
+            $('#cc_cvv').siblings('.field-error-message').text('Please enter CVV').show();
+            isValid = false;
+        }
 
-            if (!cardData.postal_code || cardData.postal_code.length < 6) {
-                $('#cc_postal_code').addClass('error');
-                $('#cc_postal_code').siblings('.field-error-message').text('Please enter valid postal code').show();
-                isValid = false;
-            }
+        if (!cardData.postal_code || cardData.postal_code.length < 6) {
+            $('#cc_postal_code').addClass('error');
+            $('#cc_postal_code').siblings('.field-error-message').text('Please enter valid postal code').show();
+            isValid = false;
+        }
 
-            if (!isValid) {
-                $('.cc-validation-message').html('<div style="color: #e74c3c; padding: 10px; background: #fdf2f2; border: 1px solid #e74c3c; border-radius: 4px;"><strong>⚠ Please fix the errors above</strong></div>').show();
-                return;
-            }
+        if (!isValid) {
+            $('.cc-validation-message').html('<div style="color: #e74c3c; padding: 10px; background: #fdf2f2; border: 1px solid #e74c3c; border-radius: 4px;"><strong>⚠ Please fix the errors above</strong></div>').show();
+            return;
+        }
 
-            // Disable button and show loading
-            button.prop('disabled', true).text('Validating...');
+        // Disable button and show loading
+        button.prop('disabled', true).text('Validating...');
 
-            // Call actual Moneris API validation
-            $.ajax({
-                url: monthlyBilling.ajaxUrl,
-                type: 'POST',
-                data: {
-                    action: 'validate_credit_card',
-                    card_data: {
-                        cardholder_name: cardData.cardholder_name,
-                        card_number: cardData.card_number,
-                        expiry: cardData.expiry,
-                        cvv: cardData.cvv,
-                        postal_code: cardData.postal_code
-                    },
-                    nonce: monthlyBilling.checkoutNonce
+        // Call actual Moneris API validation
+        $.ajax({
+            url: monthlyBilling.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'validate_credit_card',
+                card_data: {
+                    cardholder_name: cardData.cardholder_name,
+                    card_number: cardData.card_number,
+                    expiry: cardData.expiry,
+                    cvv: cardData.cvv,
+                    postal_code: cardData.postal_code
                 },
-                success: function (response) {
-                    console.log('Full response:', response);
-                    button.prop('disabled', false);
+                nonce: monthlyBilling.checkoutNonce
+            },
+            success: function (response) {
+                console.log('Full response:', response);
+                button.prop('disabled', false);
 
-                    if (response.success) {
-                        // SUCCESS: Show success message
-                        $('.cc-validation-message').html('<div style="color: #27ae60; padding: 10px; background: #e8f5e8; border: 1px solid #27ae60; border-radius: 4px;"><strong>✓ Card validated through Moneris!</strong><br><br>   Your credit card information has been validated for monthly billing.</div>').show();
+                if (response.success) {
+                    // SUCCESS: Show success message
+                    $('.cc-validation-message').html('<div style="color: #27ae60; padding: 10px; background: #e8f5e8; border: 1px solid #27ae60; border-radius: 4px;"><strong>✓ Card validated successfully!</strong><br><br>   Your credit card information has been validated for monthly billing.</div>').show();
 
-                        // SUCCESS: Apply green borders to ALL fields
-                        $('#cc_cardholder_name, #cc_card_number, #cc_expiry, #cc_cvv, #cc_postal_code').removeClass('error').addClass('valid');
+                    // SUCCESS: Apply green borders to ALL fields
+                    $('#cc_cardholder_name, #cc_card_number, #cc_expiry, #cc_cvv, #cc_postal_code').removeClass('error').addClass('valid');
 
-                        button.text('Card Confirmed ✓').addClass('confirmed');
+                    button.text('Card Confirmed ✓').addClass('confirmed');
 
-                        // Save the selection
-                        saveMonthlyBillingSelection('cc', {
-                            monthly_bill_payment_option: 'cc',
-                            cc_monthly_billing_card_number: cardData.card_number,
-                            cc_monthly_billing_card_expiry: cardData.expiry,
-                            cc_monthly_billing_card_cvv: cardData.cvv,
-                            cc_monthly_billing_full_name: cardData.cardholder_name,
-                            cc_monthly_billing_postcode: cardData.postal_code,
-                            // Clear bank fields
-                            bank_monthly_billing_first_name: "",
-                            bank_monthly_billing_last_name: "",
-                            bank_monthly_billing_account_type: "",
-                            bank_monthly_billing_financial_institution: "",
-                            bank_monthly_billing_transit_number: "",
-                            bank_monthly_billing_institution_number: "",
-                            bank_monthly_billing_account_number: ""
-                        });
+                    // Save the selection
+                    saveMonthlyBillingSelection('cc', {
+                        monthly_bill_payment_option: 'cc',
+                        cc_monthly_billing_card_number: cardData.card_number,
+                        cc_monthly_billing_card_expiry: cardData.expiry,
+                        cc_monthly_billing_card_cvv: cardData.cvv,
+                        cc_monthly_billing_full_name: cardData.cardholder_name,
+                        cc_monthly_billing_postcode: cardData.postal_code,
+                        // Clear bank fields
+                        bank_monthly_billing_first_name: "",
+                        bank_monthly_billing_last_name: "",
+                        bank_monthly_billing_account_type: "",
+                        bank_monthly_billing_financial_institution: "",
+                        bank_monthly_billing_transit_number: "",
+                        bank_monthly_billing_institution_number: "",
+                        bank_monthly_billing_account_number: ""
+                    });
 
-                        // Clear other options FIRST, then mark as confirmed
-                        clearOtherMonthlyBillingOptions('cc');
-                        markMethodAsConfirmed('cc');
+                    // Clear other options FIRST, then mark as confirmed
+                    clearOtherMonthlyBillingOptions('cc');
+                    markMethodAsConfirmed('cc');
 
-                        // UPDATED: Trigger copy checkbox state update events
-                        $(document).trigger('monthlyBillingValidationSuccess', {
-                            method: 'cc',
-                            cardData: cardData
-                        });
+                    // Trigger copy checkbox state update events
+                    $(document).trigger('monthlyBillingValidationSuccess', {
+                        method: 'cc',
+                        cardData: cardData
+                    });
 
-                        // Also trigger a general update event for the copy checkbox
-                        setTimeout(function () {
-                            if (typeof window.updateCopyCheckboxState === 'function') {
-                                window.updateCopyCheckboxState();
+                    // Also trigger a general update event for the copy checkbox
+                    setTimeout(function () {
+                        if (typeof window.updateCopyCheckboxState === 'function') {
+                            window.updateCopyCheckboxState();
+                        }
+                        $(document).trigger('monthlyBillingStateChanged');
+                    }, 100);
+
+                } else {
+                    // Extract error message and field hint from response
+                    let errorMessage = 'Unknown error';
+                    let errorField = null;
+
+                    console.log('Response data:', response.data);
+                    console.log('Response message:', response.message);
+                    console.log('Full response object:', JSON.stringify(response));
+
+                    if (response.data && response.data.message) {
+                        errorMessage = response.data.message;
+                        errorField = response.data.field || null;
+						console.log('Error field from PHP:', errorField); 
+                    } else if (response.message) {
+                        errorMessage = response.message;
+                    } else if (typeof response === 'string') {
+                        try {
+                            const parsedResponse = JSON.parse(response);
+                            if (parsedResponse.msg) {
+                                errorMessage = parsedResponse.msg;
+                            } else if (parsedResponse.message) {
+                                errorMessage = parsedResponse.message;
                             }
-                            // Also trigger a custom event that checkout-cc-copy.js can listen for
-                            $(document).trigger('monthlyBillingStateChanged');
-                        }, 100);
+                        } catch (e) {
+                            errorMessage = response;
+                        }
+                    }
 
+                    // Display error message
+                    $('.cc-validation-message').html('<div style="color: #e74c3c; padding: 10px; background: #fdf2f2; border: 1px solid #e74c3c; border-radius: 4px;"><strong>❌ Card validation failed</strong><br><br> &nbsp; &nbsp; ' + errorMessage + '</div>').show();
+
+                    // Reset all field styling
+                    $('#cc_cardholder_name, #cc_card_number, #cc_expiry, #cc_cvv, #cc_postal_code').removeClass('error valid');
+
+                    // Use field hint from PHP first, fall back to keyword matching
+                    if (errorField === 'card_number') {
+                        $('#cc_card_number').addClass('error');
+                    } else if (errorField === 'expiry') {
+                        $('#cc_expiry').addClass('error');
+                    } else if (errorField === 'cvv') {
+                        $('#cc_cvv').addClass('error');
+                    } else if (errorField === 'postal_code') {
+                        $('#cc_postal_code').addClass('error');
                     } else {
-                        // ERROR HANDLING: First check if response.data exists and has message
-                        let errorMessage = 'Unknown error';
-
-                        // Fix for "response data is undefined" - check response structure properly
-                        console.log('Response data:', response.data);
-                        console.log('Response message:', response.message);
-                        console.log('Full response object:', JSON.stringify(response));
-
-                        if (response.data && response.data.message) {
-                            // WordPress AJAX success=false, message in response.data.message
-                            errorMessage = response.data.message;
-                        } else if (response.message) {
-                            // Direct message in response.message
-                            errorMessage = response.message;
-                        } else if (typeof response === 'string') {
-                            // Sometimes the response might be a string
-                            try {
-                                const parsedResponse = JSON.parse(response);
-                                if (parsedResponse.msg) {
-                                    errorMessage = parsedResponse.msg;
-                                } else if (parsedResponse.message) {
-                                    errorMessage = parsedResponse.message;
-                                }
-                            } catch (e) {
-                                errorMessage = response;
-                            }
-                        }
-
-                        // Display the specific error message to user
-                        $('.cc-validation-message').html('<div style="color: #e74c3c; padding: 10px; background: #fdf2f2; border: 1px solid #e74c3c; border-radius: 4px;"><strong>❌ Card validation failed</strong><br><br> &nbsp; &nbsp; ' + errorMessage + '</div>').show();
-
-                        // FIELD-SPECIFIC ERROR STYLING: Apply red borders based on error message content
-                        // First, remove all previous error/valid classes
-                        $('#cc_cardholder_name, #cc_card_number, #cc_expiry, #cc_cvv, #cc_postal_code').removeClass('error valid');
-
-                        // Apply red borders to specific fields based on error message
+                        // Fallback keyword matching if no field hint from PHP
                         const lowerErrorMessage = errorMessage.toLowerCase();
-
-                        if (lowerErrorMessage.includes('card number') || lowerErrorMessage.includes('invalid credit card')) {
-                            $('#cc_card_number').addClass('error');
-                        }
-
-                        if (lowerErrorMessage.includes('expiry') || lowerErrorMessage.includes('expired')) {
-                            $('#cc_expiry').addClass('error');
-                        }
-
-                        if (lowerErrorMessage.includes('cvv') || lowerErrorMessage.includes('security code') || lowerErrorMessage.includes('cvd')) {
-                            $('#cc_cvv').addClass('error');
-                        }
 
                         if (lowerErrorMessage.includes('postal') || lowerErrorMessage.includes('zip') || lowerErrorMessage.includes('billing')) {
                             $('#cc_postal_code').addClass('error');
-                        }
-
-                        if (lowerErrorMessage.includes('name') || lowerErrorMessage.includes('cardholder')) {
+                        } else if (lowerErrorMessage.includes('expiry') || lowerErrorMessage.includes('expired')) {
+                            $('#cc_expiry').addClass('error');
+                        } else if (lowerErrorMessage.includes('cvv') || lowerErrorMessage.includes('security code') || lowerErrorMessage.includes('cvd')) {
+                            $('#cc_cvv').addClass('error');
+                        } else if (lowerErrorMessage.includes('name') || lowerErrorMessage.includes('cardholder')) {
                             $('#cc_cardholder_name').addClass('error');
-                        }
-
-                        // If we can't determine the specific field, highlight the most likely culprit based on common errors
-                        if (!$('#cc_card_number, #cc_expiry, #cc_cvv, #cc_postal_code, #cc_cardholder_name').hasClass('error')) {
-                            // Default to card number field for generic errors
+                        } else {
+                            // Default to card number for generic errors
                             $('#cc_card_number').addClass('error');
                         }
-
-                        button.text('Validate Card').removeClass('confirmed');
-
-                        // UPDATED: Trigger copy checkbox state update when validation fails
-                        setTimeout(function () {
-                            $(document).trigger('monthlyBillingStateChanged');
-                        }, 100);
                     }
-                },
-                error: function (xhr, status, error) {
-                    console.log('AJAX error:', xhr.responseText);
-                    button.prop('disabled', false);
-                    $('.cc-validation-message').html('<div style="color: #e74c3c; padding: 10px; background: #fdf2f2; border: 1px solid #e74c3c; border-radius: 4px;"><strong>❌ Validation error</strong><br><br>Please try again.</div>').show();
+
                     button.text('Validate Card').removeClass('confirmed');
 
-                    // UPDATED: Trigger copy checkbox state update when validation error occurs
                     setTimeout(function () {
                         $(document).trigger('monthlyBillingStateChanged');
                     }, 100);
                 }
-            });
+            },
+            error: function (xhr, status, error) {
+                console.log('AJAX error:', xhr.responseText);
+                button.prop('disabled', false);
+                $('.cc-validation-message').html('<div style="color: #e74c3c; padding: 10px; background: #fdf2f2; border: 1px solid #e74c3c; border-radius: 4px;"><strong>❌ Validation error</strong><br><br>Please try again.</div>').show();
+                button.text('Validate Card').removeClass('confirmed');
+
+                setTimeout(function () {
+                    $(document).trigger('monthlyBillingStateChanged');
+                }, 100);
+            }
         });
-    }
+    });
+}
 
     function initializeBankValidation() {
         $(document).on('click', '.validate-bank-btn', function () {
