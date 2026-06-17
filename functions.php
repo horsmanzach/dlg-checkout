@@ -1633,7 +1633,7 @@ function ajax_validate_credit_card() {
     $card_data = $_POST['card_data'];
     
     // ============================================================
-    // NEW FIX: Store last 4 digits in session BEFORE encoding
+    // Store last 4 digits in session BEFORE encoding
     // This prevents the base64 + sanitize_text_field corruption issue
     // ============================================================
     $clean_card_number = preg_replace('/\s+/', '', $card_data['card_number']);
@@ -1648,14 +1648,14 @@ function ajax_validate_credit_card() {
     
     // Basic postal code validation
     if (empty($card_data['postal_code'])) {
-        wp_send_json_error(array('message' => 'Billing postal code is required'));
+        wp_send_json_error(array('message' => 'Billing postal code is required', 'field' => 'postal_code'));
         return;
     }
     
     // Clean and validate Canadian postal code format  
     $postal_code = strtoupper(preg_replace('/[^A-Z0-9]/', '', $card_data['postal_code']));
     if (!preg_match('/^[A-Z]\d[A-Z]\d[A-Z]\d$/', $postal_code)) {
-        wp_send_json_error(array('message' => 'Please enter a valid Canadian postal code (A1A 1A1)'));
+        wp_send_json_error(array('message' => 'Please enter a valid Canadian postal code (A1A 1A1)', 'field' => 'postal_code'));
         return;
     }
     
@@ -1669,34 +1669,30 @@ function ajax_validate_credit_card() {
     }
     
     $payment_info = array(
-        'custid' => '',
-        'orderid' => 'validate-' . time(),
-        'amount' => '0.01',
-        'cardno' => $card_data['card_number'],
-        'expdate' => $formatted_expiry,
-        'cvd' => $card_data['cvv'],
+        'custid'      => '',
+        'orderid'     => 'validate-' . time(),
+        'amount'      => '0.01',
+        'cardno'      => $clean_card_number,
+        'expdate'     => $formatted_expiry,
+        'cvd'         => $card_data['cvv'],
         'postal_code' => $postal_code
     );
     
-    // Capture the die() output from verify_card_ex
-    ob_start();
-    verify_card_ex($payment_info);
-    $output = ob_get_clean();
+    // Call verify_card_ex and use its return value
+    $verify_result = verify_card_ex($payment_info);
     
-    // If we get here without dying, validation passed
-    if (empty($output)) {
-        wp_send_json_success(array('message' => 'Card is valid'));
-    } else {
-        // Parse the JSON error response
-        $error_data = json_decode($output, true);
-        if ($error_data && isset($error_data['msg'])) {
-            wp_send_json_error(array('message' => $error_data['msg']));
-        } else {
-            wp_send_json_error(array('message' => 'Card validation failed'));
-        }
+    if ($verify_result['status'] === 'failed') {
+        wp_send_json_error(array(
+            'message' => $verify_result['msg'],
+            'field'   => $verify_result['field'],
+            'code'    => isset($verify_result['code']) ? $verify_result['code'] : '',
+        ));
+        return;
     }
+    
+    // Verification passed
+    wp_send_json_success(array('message' => 'Card is valid'));
 }
-
 
 // Add Pay After deposit AJAX handler
 add_action('wp_ajax_add_payafter_deposit', 'ajax_add_payafter_deposit');
@@ -5011,433 +5007,246 @@ function monthly_fee_summary_shortcode() {
     if ( is_null( WC()->cart ) ) {
         return '';
     }
-    
-    $current_url = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
-    error_log("Current URL: " . $current_url);
-    
-    // If AJAX context, try to load product from session
-    if (strpos($current_url, 'admin-ajax.php') !== false) {
-        error_log("AJAX context detected - loading from session");
-        
-        if (WC()->session) {
-            $stored_product_id = WC()->session->get('current_viewing_product_id');
-            
-            if ($stored_product_id) {
-                $post = get_post($stored_product_id);
-                error_log("✓ Product loaded from session: " . $stored_product_id);
-            } else {
-                error_log("✗ No product ID in session");
-            }
-        }
-    } else {
-        // Normal page load - try to get product normally
-        error_log("Normal page context");
-        
-        if (!$post && strpos($current_url, '/product/') !== false) {
-            $slug = basename(trim(parse_url($current_url, PHP_URL_PATH), '/'));
-            
-            $product_query = new WP_Query(array(
-                'post_type' => 'product',
-                'name' => $slug,
-                'posts_per_page' => 1
-            ));
-            
-            if ($product_query->have_posts()) {
-                $post = $product_query->posts[0];
-                error_log("✓ Product loaded from URL: " . $post->ID);
-            }
-        }
-    }
-    
-    // NEW: If we loaded a product from URL (not AJAX), update the session
-    if ($post && isset($post->ID) && strpos($current_url, 'admin-ajax.php') === false) {
-        if (WC()->session) {
-            $old_id = WC()->session->get('current_viewing_product_id');
-            
-            if ($old_id != $post->ID) {
-                error_log("Updating stored product ID in session: $old_id → " . $post->ID);
-            }
-            
-            WC()->session->set('current_viewing_product_id', $post->ID);
-            error_log("Session updated with current product: " . $post->ID);
-        }
-    }
-    
-    error_log("Final product status: " . ($post && isset($post->post_type) && $post->post_type === 'product' ? 'ID=' . $post->ID : 'NO PRODUCT'));
-    
-    // Continue with rest of function...
-    do_action('monthly_fee_summary_calculation');
-    
-    // Get cart items
-    $cart = WC()->cart;
-    
-    $subtotal = 0;
-    $internet_plan_in_cart = false;
-    $current_product_id = 0;
-    
-    // Installation category ID to exclude from monthly fee table
-    $installation_category_id = 60;
-    $installation_product_id = 267986;
-    $deposit_category_id = get_term_by('slug', 'deposit', 'product_cat');
-    $deposit_category_id = $deposit_category_id ? $deposit_category_id->term_id : null;
-    
-    // Get the correct internet plan category ID
-    $internet_plan_category = get_term_by('slug', 'internet-plan', 'product_cat');
-    $internet_plan_category_id = $internet_plan_category ? $internet_plan_category->term_id : 19; // fallback to 19
-    
-    error_log("=== MONTHLY FEE SUMMARY DEBUG ===");
-    error_log("Internet plan category ID: " . $internet_plan_category_id);
-    error_log("Is product page: " . ($post && $post->post_type === 'product' ? 'YES' : 'NO'));
-    error_log("Post ID: " . ($post ? $post->ID : 'NO POST'));
-    error_log("Post Type: " . ($post ? $post->post_type : 'N/A'));
 
-    if ($post && $post->post_type === 'product' && !is_checkout() && !is_cart()) {
-        $current_product_id = $post->ID;
-        error_log("Current product ID: " . $current_product_id);
-        
-        // Skip if this is the installation product
-        if ($current_product_id != $installation_product_id) {
-            $current_product = wc_get_product($current_product_id);
-            
-            if ($current_product && $current_product->get_type() === 'simple') {
-                // Check if this is an internet plan product
-                $product_cats = wp_get_post_terms($current_product_id, 'product_cat', array('fields' => 'ids'));
-                $is_internet_plan = in_array($internet_plan_category_id, $product_cats);
-                
-                error_log("Product categories: " . print_r($product_cats, true));
-                error_log("Is internet plan: " . ($is_internet_plan ? 'YES' : 'NO'));
-                
-                if ($is_internet_plan) {
-                    // Log what we're checking
-                    error_log("=== CHECKING FOR DIFFERENT INTERNET PLAN ===");
-                    error_log("Current product ID: " . $current_product_id);
-                    error_log("Current internet plan category ID: " . $internet_plan_category_id);
-                    error_log("Cart contents before check:");
-                    foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
-                        error_log("  - Product ID: " . $cart_item['product_id'] . " | Name: " . $cart_item['data']->get_name());
+    $cart = WC()->cart;
+
+    $subtotal = 0;
+    $current_product_id = 0;
+
+    // IDs / category IDs used for filtering
+    $installation_category_id   = 60;
+    $installation_product_id    = 267986;
+    $deposit_category_id        = get_term_by( 'slug', 'deposit', 'product_cat' );
+    $deposit_category_id        = $deposit_category_id ? $deposit_category_id->term_id : null;
+    $internet_plan_category_id  = 19;
+    $pay_after_deposit_id       = 267989;
+
+    // Canonical display order — keys are category slugs
+    $category_order = array(
+        'internet-plan' => 1,
+        'installation'  => 2,
+        'modems-new'    => 3,
+        'tv-plan'       => 4,
+        'phone-plan'    => 5,
+    );
+
+    // Buckets: keyed by category slug, each holds one rendered <tr> string
+    // (only one product per category is expected)
+    $row_buckets = array();
+
+    // ── Handle the current product page item (internet plan special case) ──
+    if ( is_product() && $post ) {
+        $current_product_id  = $post->ID;
+        $current_product     = wc_get_product( $current_product_id );
+
+        if ( $current_product && $current_product->get_type() === 'simple'
+             && $current_product_id != $installation_product_id ) {
+
+            $product_cats   = wp_get_post_terms( $current_product_id, 'product_cat', array( 'fields' => 'ids' ) );
+            $is_internet    = in_array( $internet_plan_category_id, $product_cats );
+
+            if ( $is_internet ) {
+                $monthly_fee = 0;
+                if ( function_exists( 'get_field' ) ) {
+                    $monthly_fee = get_field( 'monthly_fee', $current_product_id );
+                    if ( empty( $monthly_fee ) && $monthly_fee !== '0' ) {
+                        $monthly_fee = get_field( 'monthly_fee', 'product_' . $current_product_id );
                     }
-                    
-                    // Check if there's a DIFFERENT internet plan in cart
-                    $different_plan_found = false;
-                    
-                    foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
-                        $cart_product_cats = wp_get_post_terms($cart_item['product_id'], 'product_cat', array('fields' => 'ids'));
-                        $cart_item_is_internet_plan = in_array($internet_plan_category_id, $cart_product_cats);
-                        
-                        if ($cart_item_is_internet_plan && $cart_item['product_id'] != $current_product_id) {
-                            $different_plan_found = true;
-                            error_log("✓ Found different internet plan in cart: " . $cart_item['product_id']);
-                            break;
-                        }
+                    $monthly_fee = is_numeric( $monthly_fee ) ? floatval( $monthly_fee ) : 0;
+                }
+
+                $monthly_promo_fee_raw = null;
+                if ( function_exists( 'get_field' ) ) {
+                    $monthly_promo_fee_raw = get_field( 'monthly_promo_fee', $current_product_id );
+                    if ( $monthly_promo_fee_raw === null ) {
+                        $monthly_promo_fee_raw = get_field( 'monthly_promo_fee', 'product_' . $current_product_id );
                     }
-                    
-                    // If a different plan was found, CLEAR THE ENTIRE CART
-                    if ($different_plan_found) {
-                        error_log("CLEARING ENTIRE CART - Switching from different internet plan");
-                        
-                        WC()->cart->empty_cart();
-                        
-                        if (WC()->session) {
-                            WC()->session->set('cart', array());
-                        }
-                        
-                        WC()->cart->set_cart_contents(array());
-                        
-                        error_log("✓ Cart cleared - Item count after clearing: " . WC()->cart->get_cart_contents_count());
-                    } else {
-                        error_log("No different internet plan found - keeping existing cart items");
-                    }
-                    
-                    error_log("=== END DIFFERENT PLAN CHECK ===");
-                    error_log("");
-                    
-                    // Now check if current plan is already in cart
-                    $current_plan_in_cart = false;
-                    foreach ($cart->get_cart() as $cart_item) {
-                        if ($cart_item['product_id'] == $current_product_id) {
-                            $current_plan_in_cart = true;
-                            $internet_plan_in_cart = true;
-                            error_log("Current internet plan already in cart");
-                            break;
-                        }
-                    }
-                    
-                    // Add current plan if not already in cart
-                    if (!$current_plan_in_cart) {
-                        $added = $cart->add_to_cart($current_product_id, 1);
-                        if ($added) {
-                            $internet_plan_in_cart = true;
-                            error_log("Added current internet plan to cart: " . $current_product_id);
-                        }
-                    }
+                }
+                $promo_is_set      = is_numeric( $monthly_promo_fee_raw );
+                $monthly_promo_fee = $promo_is_set ? floatval( $monthly_promo_fee_raw ) : null;
+                $final_monthly_fee = $promo_is_set ? $monthly_promo_fee : $monthly_fee;
+
+                $product_name_display = esc_html( $current_product->get_name() );
+                if ( $promo_is_set && $monthly_promo_fee < $monthly_fee ) {
+                    $pricing_display = '<span class="monthly-fee-regular-price" style="text-decoration:line-through;">'
+                        . wc_price( $monthly_fee ) . '</span><br>'
+                        . '<span class="monthly-fee-sale-price">' . wc_price( $monthly_promo_fee ) . '</span>';
+                } else {
+                    $pricing_display = wc_price( $monthly_fee );
+                }
+
+                $promo_blurb = '';
+                if ( function_exists( 'get_field' ) ) {
+                    $promo_blurb = get_field( 'monthly_promo_blurb', $current_product_id );
+                }
+                if ( $promo_blurb ) {
+                    $product_name_display .= '<br><span style="color:green;font-style:italic;font-size:0.9em;">'
+                        . esc_html( $promo_blurb ) . '</span>';
+                }
+
+                $row = '<tr>';
+                $row .= '<td>' . $product_name_display . '</td>';
+                $row .= '<td>Internet Plan</td>';
+                $row .= '<td>' . $pricing_display . '</td>';
+                $row .= '</tr>';
+
+                $row_buckets['internet-plan'] = array(
+                    'row'   => $row,
+                    'price' => $final_monthly_fee,
+                );
+            }
+        }
+    }
+
+    // ── Loop through cart items ──
+    foreach ( $cart->get_cart() as $cart_item_key => $cart_item ) {
+        $product    = $cart_item['data'];
+        $product_id = $product->get_id();
+        $parent_id  = $product->get_parent_id();
+
+        $product_cats = wp_get_post_terms( $product_id, 'product_cat', array( 'fields' => 'ids' ) );
+
+        // Skip installation
+        $is_installation = in_array( $installation_category_id, $product_cats )
+                           || $parent_id == $installation_product_id;
+        if ( $is_installation ) { continue; }
+
+        // Skip deposit
+        $is_deposit = $deposit_category_id && in_array( $deposit_category_id, $product_cats );
+        if ( $is_deposit ) { continue; }
+
+        // Skip Pay After deposit
+        if ( $product_id == $pay_after_deposit_id ) { continue; }
+
+        // Skip internet plan already rendered from the product page
+        $is_internet_plan = in_array( $internet_plan_category_id, $product_cats );
+        if ( $is_internet_plan && isset( $row_buckets['internet-plan'] ) ) { continue; }
+
+        // Determine which canonical category bucket this item belongs to
+        $bucket_key = null;
+        $category_name = '';
+
+        // Check internet plan first (for cart-only context, i.e. no product page)
+        if ( $is_internet_plan ) {
+            $bucket_key    = 'internet-plan';
+            $category_name = 'Internet Plan';
+        } else {
+            // Walk through all product categories and match against our canonical order
+            $all_terms = wp_get_post_terms( $product_id, 'product_cat' );
+            foreach ( $all_terms as $term ) {
+                if ( isset( $category_order[ $term->slug ] ) ) {
+                    $bucket_key    = $term->slug;
+                    $category_name = $term->name;
+                    break;
                 }
             }
         }
+
+        if ( $bucket_key === null ) { continue; } // Not a display category — skip
+
+        // Get ACF monthly fee
+        $monthly_fee = 0;
+        if ( function_exists( 'get_field' ) ) {
+            $monthly_fee = get_field( 'monthly_fee', $product_id );
+            if ( empty( $monthly_fee ) && $monthly_fee !== '0' ) {
+                $monthly_fee = get_field( 'monthly_fee', 'product_' . $product_id );
+            }
+            $monthly_fee = is_numeric( $monthly_fee ) ? floatval( $monthly_fee ) : 0;
+        }
+
+        // Promo pricing
+        $monthly_promo_fee_raw = null;
+        if ( function_exists( 'get_field' ) ) {
+            $monthly_promo_fee_raw = get_field( 'monthly_promo_fee', $product_id );
+            if ( $monthly_promo_fee_raw === null ) {
+                $monthly_promo_fee_raw = get_field( 'monthly_promo_fee', 'product_' . $product_id );
+            }
+        }
+        $promo_is_set      = is_numeric( $monthly_promo_fee_raw );
+        $monthly_promo_fee = $promo_is_set ? floatval( $monthly_promo_fee_raw ) : null;
+        $final_monthly_fee = $promo_is_set ? $monthly_promo_fee : $monthly_fee;
+
+        $product_name_display = esc_html( $product->get_name() );
+
+        // Promo blurb
+        $promo_blurb = '';
+        if ( function_exists( 'get_field' ) ) {
+            $promo_blurb = get_field( 'monthly_promo_blurb', $product_id );
+        }
+        if ( $promo_blurb ) {
+            $product_name_display .= '<br><span style="color:green;font-style:italic;font-size:0.9em;">'
+                . esc_html( $promo_blurb ) . '</span>';
+        }
+
+        // Modem details (e.g. "I have my own modem")
+        if ( isset( $cart_item['modem_details'] ) && ! empty( $cart_item['modem_details'] ) ) {
+            $product_name_display .= '<br><em style="font-style:italic;font-size:0.9em;color:#666;">'
+                . esc_html( $cart_item['modem_details'] ) . '</em>';
+        }
+
+        if ( $promo_is_set && $monthly_promo_fee < $monthly_fee ) {
+            $pricing_display = '<span class="monthly-fee-regular-price" style="text-decoration:line-through;">'
+                . wc_price( $monthly_fee ) . '</span><br>'
+                . '<span class="monthly-fee-sale-price">' . wc_price( $monthly_promo_fee ) . '</span>';
+        } else {
+            $pricing_display = wc_price( $monthly_fee );
+        }
+
+        $row = '<tr>';
+        $row .= '<td>' . $product_name_display . '</td>';
+        $row .= '<td>' . esc_html( $category_name ) . '</td>';
+        $row .= '<td>' . $pricing_display . '</td>';
+        $row .= '</tr>';
+
+        $row_buckets[ $bucket_key ] = array(
+            'row'   => $row,
+            'price' => $final_monthly_fee,
+        );
     }
 
-    // Build the table output
-    $output = '<table class="fee-summary-table monthly-fee-table">';
+    // ── Render rows in canonical order ──
+    $output = '<table class="monthly-fee-summary-table">';
     $output .= '<thead><tr><th>Product</th><th>Category</th><th>Monthly Fee</th></tr></thead>';
     $output .= '<tbody>';
-    
-    // Check if we're on a product page and the current product is the internet plan
-    if ($post && $post->post_type === 'product' && $current_product_id && $internet_plan_in_cart) {
-        // Get current plan monthly fee from ACF
-        $monthly_fee = 0;
-        if (function_exists('get_field')) {
-            $monthly_fee = get_field('monthly_fee', $current_product_id);
-            if (empty($monthly_fee) && $monthly_fee !== '0') {
-                $monthly_fee = get_field('monthly_fee', 'product_' . $current_product_id);
-            }
-            $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
+
+    foreach ( $category_order as $slug => $position ) {
+        if ( isset( $row_buckets[ $slug ] ) ) {
+            $output  .= $row_buckets[ $slug ]['row'];
+            $subtotal += $row_buckets[ $slug ]['price'];
         }
-        
-        // Get promotional pricing for the internet plan
-        $monthly_promo_fee_raw = null;
-        if (function_exists('get_field')) {
-            $monthly_promo_fee_raw = get_field('monthly_promo_fee', $current_product_id);
-            if ($monthly_promo_fee_raw === null) {
-                $monthly_promo_fee_raw = get_field('monthly_promo_fee', 'product_' . $current_product_id);
-            }
-        }
-        $promo_is_set = is_numeric($monthly_promo_fee_raw);
-        $monthly_promo_fee = $promo_is_set ? floatval($monthly_promo_fee_raw) : null;
-        
-        // Get promotional blurb if exists
-        $monthly_promo_blurb = '';
-        if (function_exists('get_field')) {
-            $monthly_promo_blurb = get_field('monthly_promo_blurb', $current_product_id);
-            if (empty($monthly_promo_blurb)) {
-                $monthly_promo_blurb = get_field('monthly_promo_blurb', 'product_' . $current_product_id);
-            }
-        }
-        
-        // Determine final monthly fee (use promo fee if explicitly set, otherwise regular fee)
-        $final_monthly_fee = $promo_is_set ? $monthly_promo_fee : $monthly_fee;
-        
-        $current_product = wc_get_product($current_product_id);
-        $product_name = $current_product->get_name();
-        
-        // Build product name display with promo blurb if available
-        $product_name_display = esc_html($product_name);
-        if (!empty($monthly_promo_blurb)) {
-            $product_name_display .= '<br><span class="promo-blurb" style="color: green; font-style: italic; font-size: 0.9em;">' . esc_html($monthly_promo_blurb) . '</span>';
-        }
-        
-        // Build pricing display
-        $pricing_display = '';
-        if ($promo_is_set && $monthly_promo_fee != $monthly_fee) {
-            // Show strikethrough original price and promotional price
-            $pricing_display = '<span class="monthly-fee-original-price" style="text-decoration: line-through;">' . wc_price($monthly_fee) . '</span><br><span class="monthly-fee-sale-price">' . wc_price($monthly_promo_fee) . '</span>';
-        } else {
-            // Show regular price
-            $pricing_display = wc_price($monthly_fee);
-        }
-        
-        $output .= '<tr>';
-        $output .= '<td>' . $product_name_display . '</td>';
-        $output .= '<td>Internet Plan</td>';
-        $output .= '<td>' . $pricing_display . '</td>';
-        $output .= '</tr>';
-        
-        // Add the final fee to subtotal
-        $subtotal += $final_monthly_fee;
     }
-    
-    // Now loop through cart items and display their monthly fees
-    foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
-        $product = $cart_item['data'];
-        $product_id = $product->get_id();
-        $parent_id = $product->get_parent_id();
-        
-        // Get product categories
-        $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'ids'));
-        
-        // Check if this is an installation product - SKIP if it is
-        $is_installation = in_array($installation_category_id, $product_cats) || $parent_id == $installation_product_id;
-        
-        if ($is_installation) {
-            continue; // Skip installation products
-        }
-        
-        // Check if this is a deposit product - SKIP if it is
-        $is_deposit = $deposit_category_id && in_array($deposit_category_id, $product_cats);
-        
-        if ($is_deposit) {
-            continue; // Skip deposit products
-        }
-        
-        // Check if this is the Pay After Service deposit product - SKIP if it is
-        if ($product_id == 267989) {
-            continue; // Skip Pay After Service deposit
-        }
-        
-        // Check if this is an internet plan - we already added it above if on product page
-        $is_internet_plan_item = in_array($internet_plan_category_id, $product_cats);
-        
-        if ($is_internet_plan_item && $post && $post->post_type === 'product' && $current_product_id == $product_id) {
-            continue; // Skip - already added above
-        }
-        
-        // Get ACF monthly fee field
-        $monthly_fee = 0;
-        if (function_exists('get_field')) {
-            $monthly_fee = get_field('monthly_fee', $product_id);
-            
-            if (empty($monthly_fee) && $monthly_fee !== '0') {
-                $monthly_fee = get_field('monthly_fee', 'product_' . $product_id);
-            }
-            
-            $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
-        }
-        
-        // SKIP products with monthly_fee of 0 or not set - DISABLE BUT DO NOT DELETE
-        /* if ($monthly_fee <= 0) {
-            continue;
-        } */
-        
-        // Get promotional pricing for this product
-        $monthly_promo_fee_raw = null;
-        if (function_exists('get_field')) {
-            $monthly_promo_fee_raw = get_field('monthly_promo_fee', $product_id);
-            if ($monthly_promo_fee_raw === null) {
-                $monthly_promo_fee_raw = get_field('monthly_promo_fee', 'product_' . $product_id);
-            }
-        }
-        $promo_is_set = is_numeric($monthly_promo_fee_raw);
-        $monthly_promo_fee = $promo_is_set ? floatval($monthly_promo_fee_raw) : null;
-        
-        // Get promotional blurb if exists
-        $monthly_promo_blurb = '';
-        if (function_exists('get_field')) {
-            $monthly_promo_blurb = get_field('monthly_promo_blurb', $product_id);
-            if (empty($monthly_promo_blurb)) {
-                $monthly_promo_blurb = get_field('monthly_promo_blurb', 'product_' . $product_id);
-            }
-        }
-        
-        // Determine final monthly fee (use promo fee if explicitly set, otherwise regular fee)
-        $final_monthly_fee = $promo_is_set ? $monthly_promo_fee : $monthly_fee;
-        
-        // Get product name
-        $product_name = $product->get_name();
-        
-        // Build product name display with promo blurb if available
-        $product_name_display = esc_html($product_name);
-        if (!empty($monthly_promo_blurb)) {
-            $product_name_display .= '<br><span class="promo-blurb" style="color: green; font-style: italic; font-size: 0.9em;">' . esc_html($monthly_promo_blurb) . '</span>';
-        }
-        
-        // Get category for display
-        $category_name = 'Product';
-        $category_slug = '';
-        
-        // Get terms from parent product if this is a variation
-        if ($parent_id > 0) {
-            $terms = get_the_terms($parent_id, 'product_cat');
-        } else {
-            $terms = get_the_terms($product_id, 'product_cat');
-        }
-        
-        if (!empty($terms) && !is_wp_error($terms)) {
-            // Check if this product is an internet plan (has category ID 19)
-            $is_internet_plan = in_array($internet_plan_category_id, $product_cats);
-            
-            if ($is_internet_plan) {
-                // For internet plans, always show "Internet Plan" category
-                $internet_plan_term = get_term($internet_plan_category_id, 'product_cat');
-                if ($internet_plan_term && !is_wp_error($internet_plan_term)) {
-                    $category_name = $internet_plan_term->name;
-                    $category_slug = $internet_plan_term->slug;
-                } else {
-                    $category_name = 'Internet Plan';
-                    $category_slug = 'internet-plan';
-                }
-            } else {
-                // Use helper function to get primary category (ignores provider categories)
-                $primary_category_slug = dg_get_primary_product_category($product_cats);
-                
-                if ($primary_category_slug) {
-                    $primary_term = get_term_by('slug', $primary_category_slug, 'product_cat');
-                    if ($primary_term && !is_wp_error($primary_term)) {
-                        $category_name = $primary_term->name;
-                        $category_slug = $primary_term->slug;
-                    } else {
-                        $category_name = ucfirst(str_replace('-', ' ', $primary_category_slug));
-                        $category_slug = $primary_category_slug;
-                    }
-                } else {
-                    // Ultimate fallback - use first term
-                    $category_name = $terms[0]->name;
-                    $category_slug = $terms[0]->slug;
-                }
-            }
-        }
-        
-        // Build pricing display
-        $pricing_display = '';
-        if ($promo_is_set && $monthly_promo_fee != $monthly_fee) {
-            // Show strikethrough original price and promotional price
-            $pricing_display = '<span class="monthly-fee-original-price" style="text-decoration: line-through;">' . wc_price($monthly_fee) . '</span><br><span class="monthly-fee-sale-price">' . wc_price($monthly_promo_fee) . '</span>';
-        } else {
-            // Show regular price
-            $pricing_display = wc_price($monthly_fee);
-        }
-        
-        $output .= '<tr>';
-        $output .= '<td>' . $product_name_display . '</td>';
-        $output .= '<td>' . esc_html($category_name) . '</td>';
-        $output .= '<td>' . $pricing_display . '</td>';
-        $output .= '</tr>';
-        
-        // Add the final fee to subtotal
-        $subtotal += $final_monthly_fee;
-    }
-    
-    // Calculate tax using province-specific rates
+
+    // ── Tax ──
     $tax_total = 0;
-    if (wc_tax_enabled()) {
-        $searched_address = dg_get_user_meta("searched_address");
-        
-        error_log('Monthly summary - searched address: ' . print_r($searched_address, true));
-        
+    if ( wc_tax_enabled() ) {
+        $searched_address = dg_get_user_meta( 'searched_address' );
         $state = '';
-        if (isset($searched_address['administrative_area_level_1'])) {
+        if ( isset( $searched_address['administrative_area_level_1'] ) ) {
             $state = $searched_address['administrative_area_level_1'];
-        } elseif (isset($searched_address['provinceOrState'])) {
+        } elseif ( isset( $searched_address['provinceOrState'] ) ) {
             $state = $searched_address['provinceOrState'];
         }
-        
-        error_log('Monthly summary - province: ' . $state);
-        
-        $tax_rates = WC_Tax::find_rates(array(
-            'country'   => 'CA',
-            'state'     => $state,
-            'city'      => '',
-            'postcode'  => ''
-        ));
-        
-        error_log('Monthly summary - tax rates: ' . print_r($tax_rates, true));
-        
-        if (!empty($tax_rates)) {
-            $taxes = WC_Tax::calc_tax($subtotal, $tax_rates);
-            $tax_total = array_sum($taxes);
+        $tax_rates = WC_Tax::find_rates( array(
+            'country'  => 'CA',
+            'state'    => $state,
+            'city'     => '',
+            'postcode' => '',
+        ) );
+        if ( ! empty( $tax_rates ) ) {
+            $taxes     = WC_Tax::calc_tax( $subtotal, $tax_rates );
+            $tax_total = array_sum( $taxes );
         }
     }
-    
-    // Add subtotal, tax and total rows with original class names
-    $output .= '<tr class="subtotal-row"><td colspan="2">Subtotal</td><td>' . wc_price($subtotal) . '</td></tr>';
-    $output .= '<tr class="tax-row"><td colspan="2">Tax</td><td>' . wc_price($tax_total) . '</td></tr>';
-    $output .= '<tr class="total-row"><td colspan="2">Total Monthly</td><td>' . wc_price($subtotal + $tax_total) . '</td></tr>';
-    
+
+    $output .= '<tr class="subtotal-row"><td colspan="2">Subtotal</td><td>' . wc_price( $subtotal ) . '</td></tr>';
+    $output .= '<tr class="tax-row"><td colspan="2">Tax</td><td>' . wc_price( $tax_total ) . '</td></tr>';
+    $output .= '<tr class="total-row"><td colspan="2">Total Monthly</td><td>' . wc_price( $subtotal + $tax_total ) . '</td></tr>';
+
     $output .= '</tbody></table>';
-    
-    error_log("Final internet_plan_in_cart status: " . ($internet_plan_in_cart ? 'TRUE' : 'FALSE'));
-    error_log("=== END MONTHLY FEE SUMMARY DEBUG ===");
-    
+
     return $output;
 }
-add_shortcode('monthly_fee_summary', 'monthly_fee_summary_shortcode');
+add_shortcode( 'monthly_fee_summary', 'monthly_fee_summary_shortcode' );
 
 
 // -------- Edit Order popup Shortcode
@@ -5829,96 +5638,74 @@ function modem_add_to_cart_ajax() {
             // Remove any existing internet plans from cart
             foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
                 $cart_product_id = $cart_item['product_id'];
-                
-                // Check if this is an internet plan
                 $product_cats = wp_get_post_terms($cart_product_id, 'product_cat', array('fields' => 'ids'));
-                $is_cart_item_internet_plan = in_array(19, $product_cats); // Replace with your category ID
-                
+                $is_cart_item_internet_plan = in_array(19, $product_cats);
                 if ($is_cart_item_internet_plan) {
                     WC()->cart->remove_cart_item($cart_item_key);
                 }
             }
-            
-            // Add the new internet plan
             $added = WC()->cart->add_to_cart($product_id, 1);
         }
         // If this is a phone plan
         elseif ($product_type === 'phone') {
-            // Remove any existing phone plans from cart
-            $phone_category_id = 22; // Replace with your phone category ID
-            
+            $phone_category_id = 22;
             foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
                 $cart_product_id = $cart_item['product_id'];
-                
-                // Check if this is a phone plan
                 $product_cats = wp_get_post_terms($cart_product_id, 'product_cat', array('fields' => 'ids'));
                 $is_phone_plan = in_array($phone_category_id, $product_cats);
-                
                 if ($is_phone_plan) {
                     WC()->cart->remove_cart_item($cart_item_key);
                 }
             }
-            
-            // Add the new phone plan to cart
             $added = WC()->cart->add_to_cart($product_id, 1);
         }
         // If this is a TV plan
         elseif ($product_type === 'tv') {
-            // Remove any existing TV plans from cart
-            $tv_category_id = 61; // Your TV category ID
-            
+            $tv_category_id = 61;
             foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
                 $cart_product_id = $cart_item['product_id'];
-                
-                // Check if this is a TV plan
                 $product_cats = wp_get_post_terms($cart_product_id, 'product_cat', array('fields' => 'ids'));
                 $is_tv_plan = in_array($tv_category_id, $product_cats);
-                
                 if ($is_tv_plan) {
                     WC()->cart->remove_cart_item($cart_item_key);
                 }
             }
-            
-            // Add the new TV plan to cart
             $added = WC()->cart->add_to_cart($product_id, 1);
         }
-        // If this is a modem or other accessory
+        // If this is a modem
         elseif ($product_type === 'modem') {
-            // Remove any existing modems from cart
-            $modem_category_id = 59; // Replace with your modem category ID
-            
+            $modem_category_id = 59;
             foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
                 $cart_product_id = $cart_item['product_id'];
-                
-                // Check if this is a modem
                 $product_cats = wp_get_post_terms($cart_product_id, 'product_cat', array('fields' => 'ids'));
                 $is_modem = in_array($modem_category_id, $product_cats);
-                
                 if ($is_modem) {
                     WC()->cart->remove_cart_item($cart_item_key);
                 }
             }
-            
-            // Add the new modem to cart
             $added = WC()->cart->add_to_cart($product_id, 1);
         }
         // For any other product type
         else {
-            // Simply add to cart
             $added = WC()->cart->add_to_cart($product_id, 1);
         }
 
-		$upfront_total_display = '$0.00';
-		if (function_exists('get_upfront_fee_summary')) {
-    		$summary = get_upfront_fee_summary();
-    		$upfront_total_display = wc_price($summary['grand_total'][1]);
-		}
-        
-        wp_send_json_success(array(
-            'message' => 'Product added to cart',
-            'product_id' => $product_id,
-			'upfront_total' => $upfront_total_display
-        ));
+        if ($added) {
+            $upfront_total_display = '$0.00';
+            if (function_exists('get_upfront_fee_summary')) {
+                $summary = get_upfront_fee_summary();
+                $upfront_total_display = wc_price($summary['grand_total'][1]);
+            }
+            wp_send_json_success(array(
+                'message' => 'Product added to cart',
+                'product_id' => $product_id,
+                'upfront_total' => $upfront_total_display
+            ));
+        } else {
+            wp_send_json_error(array(
+                'message' => 'Failed to add product to cart'
+            ));
+        }
     } else {
         wp_send_json_error(array(
             'message' => 'Invalid product ID'
@@ -7124,96 +6911,118 @@ function get_monthly_fee_summary() {
 
 function get_monthly_cart_items_for_thank_you() {
     $items = array();
-    
-    if (!WC()->cart || WC()->cart->is_empty()) {
+
+    if ( ! WC()->cart || WC()->cart->is_empty() ) {
         return $items;
     }
-    
-    error_log('=== GETTING MONTHLY CART ITEMS FOR THANK YOU PAGE (WITH PROMO SUPPORT) ===');
-    
+
+    error_log( '=== GETTING MONTHLY CART ITEMS FOR THANK YOU PAGE (WITH PROMO SUPPORT) ===' );
+
+    // Canonical category order — lower number = earlier in table
+    $category_order = array(
+        'internet-plan' => 1,
+        'installation'  => 2,
+        'modems-new'    => 3,
+        'tv-plan'       => 4,
+        'phone-plan'    => 5,
+    );
+
     // Categories that should NOT be in monthly billing
-    $exclude_categories = array('deposit', 'installation');
-    
-    foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
-        $product = $cart_item['data'];
-        $product_id = $product->get_id();
+    $exclude_categories = array( 'deposit', 'installation' );
+
+    foreach ( WC()->cart->get_cart() as $cart_item_key => $cart_item ) {
+        $product      = $cart_item['data'];
+        $product_id   = $product->get_id();
         $product_name = $product->get_name();
-        
-        // Get product categories
-        $product_cats = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'slugs'));
-        $primary_category = !empty($product_cats) ? $product_cats[0] : 'uncategorized';
-        
+
+        // Get product categories (slugs)
+        $product_cats     = wp_get_post_terms( $product_id, 'product_cat', array( 'fields' => 'slugs' ) );
+        $primary_category = ! empty( $product_cats ) ? $product_cats[0] : 'uncategorized';
+
         // Skip excluded categories
-        if (in_array($primary_category, $exclude_categories)) {
+        if ( in_array( $primary_category, $exclude_categories ) ) {
             continue;
         }
-        
+
         // Skip Pay After deposit
-        if ($product_id == 267989) {
+        if ( $product_id == 267989 ) {
             continue;
         }
-        
+
         // Get monthly fee from ACF
         $monthly_fee = 0;
-        if (function_exists('get_field')) {
-            $monthly_fee = get_field('monthly_fee', $product_id);
-            
-            if (empty($monthly_fee) && $monthly_fee !== '0') {
-                $monthly_fee = get_field('monthly_fee', 'product_' . $product_id);
+        if ( function_exists( 'get_field' ) ) {
+            $monthly_fee = get_field( 'monthly_fee', $product_id );
+            if ( empty( $monthly_fee ) && $monthly_fee !== '0' ) {
+                $monthly_fee = get_field( 'monthly_fee', 'product_' . $product_id );
             }
-            
-            $monthly_fee = is_numeric($monthly_fee) ? floatval($monthly_fee) : 0;
+            $monthly_fee = is_numeric( $monthly_fee ) ? floatval( $monthly_fee ) : 0;
         }
-        
-        // NEW: Get promotional pricing fields
+
+        // Get promotional pricing fields
         $monthly_promo_fee_raw = null;
-	$monthly_promo_fee = null;
-		$monthly_promo_blurb = '';
-        if (function_exists('get_field')) {
-
-           // Get promo fee
-$monthly_promo_fee_raw = get_field('monthly_promo_fee', $product_id);
-if ($monthly_promo_fee_raw === null) {
-    $monthly_promo_fee_raw = get_field('monthly_promo_fee', 'product_' . $product_id);
-}
-$promo_is_set = is_numeric($monthly_promo_fee_raw);
-$monthly_promo_fee = $promo_is_set ? floatval($monthly_promo_fee_raw) : null;
-            
-            // Get promo blurb
-            $monthly_promo_blurb = get_field('monthly_promo_blurb', $product_id);
-            if (empty($monthly_promo_blurb)) {
-                $monthly_promo_blurb = get_field('monthly_promo_blurb', 'product_' . $product_id);
+        $monthly_promo_fee     = null;
+        $monthly_promo_blurb   = '';
+        if ( function_exists( 'get_field' ) ) {
+            $monthly_promo_fee_raw = get_field( 'monthly_promo_fee', $product_id );
+            if ( $monthly_promo_fee_raw === null ) {
+                $monthly_promo_fee_raw = get_field( 'monthly_promo_fee', 'product_' . $product_id );
             }
+            $promo_is_set      = is_numeric( $monthly_promo_fee_raw );
+            $monthly_promo_fee = $promo_is_set ? floatval( $monthly_promo_fee_raw ) : null;
+
+            $monthly_promo_blurb = get_field( 'monthly_promo_blurb', $product_id );
+            if ( empty( $monthly_promo_blurb ) ) {
+                $monthly_promo_blurb = get_field( 'monthly_promo_blurb', 'product_' . $product_id );
+            }
+        } else {
+            $promo_is_set = false;
         }
 
-        // NEW: Get modem details if this is "I Have My Own Modem" product (ID: 267979)
-            $modem_details = '';
-            if ($product_id == 267979 && isset($cart_item['modem_details']) && !empty($cart_item['modem_details'])) {
-                $modem_details = $cart_item['modem_details'];
-                error_log("Found modem details for product $product_id: " . $modem_details);
-            }
+        // Get modem details if this is "I Have My Own Modem" product
+        $modem_details = '';
+        if ( $product_id == 267979 && isset( $cart_item['modem_details'] ) && ! empty( $cart_item['modem_details'] ) ) {
+            $modem_details = $cart_item['modem_details'];
+            error_log( "Found modem details for product $product_id: " . $modem_details );
+        }
 
-        // Determine the final price to use (promo takes precedence if exists)
+        // Determine the final price to use
         $final_price = $promo_is_set ? $monthly_promo_fee : $monthly_fee;
 
-        // FIXED: Add to items if monthly fee exists OR if it's the "I Have My Own Modem" product
-        if ($monthly_fee > 0 || $promo_is_set || $product_id == 267979) {
+        if ( $monthly_fee > 0 || $promo_is_set || $product_id == 267979 ) {
+            // Determine the sort position for this item
+            $sort_order = PHP_INT_MAX; // Unknown categories go to the bottom
+            foreach ( $product_cats as $slug ) {
+                if ( isset( $category_order[ $slug ] ) ) {
+                    $sort_order = $category_order[ $slug ];
+                    break;
+                }
+            }
+
             $items[] = array(
-                 'name'           => $product_name,
-    	'price'          => $final_price,
-    	'original_price' => $monthly_fee,
-    	'promo_price'    => $monthly_promo_fee,  // null if not set, 0 if explicitly free
-    	'promo_blurb'    => $monthly_promo_blurb,
-    	'modem_details'  => $modem_details,
-    	'category'       => $primary_category
+                'name'           => $product_name,
+                'price'          => $final_price,
+                'original_price' => $monthly_fee,
+                'promo_price'    => $monthly_promo_fee,
+                'promo_blurb'    => $monthly_promo_blurb,
+                'modem_details'  => $modem_details,
+                'category'       => $primary_category,
+                'sort_order'     => $sort_order,
             );
-            error_log("Added monthly item: $product_name = $$final_price/month (original: $$monthly_fee, promo: $$monthly_promo_fee, modem_details: $modem_details)");
+
+            error_log( "Added monthly item: $product_name = \$$final_price/month (category: $primary_category, sort: $sort_order)" );
         }
     }
-    
-    error_log('Total monthly items for thank you page: ' . count($items));
+
+    // Sort items into canonical category order
+    usort( $items, function( $a, $b ) {
+        return $a['sort_order'] - $b['sort_order'];
+    } );
+
+    error_log( 'Total monthly items for thank you page: ' . count( $items ) );
     return $items;
 }
+
 
 /**
  * Get formatted monthly summary for thank you page
@@ -7474,60 +7283,87 @@ add_action('wp_ajax_nopriv_update_selected_product_summary', 'update_selected_pr
 
 
 function verify_card_ex($payment_info) {
+    $mpg_response = VerifyCard($payment_info);
+    error_log("Got verify response back " . $mpg_response->getComplete());
 
-	$mpg_response = VerifyCard( $payment_info );
-	error_log( "Got verify response back " . $mpg_response->getComplete() );
+    // Card number / general decline
+    if ($mpg_response == false ||
+        $mpg_response->getComplete() !== "true" ||
+        $mpg_response->getResponseCode() == false ||
+        $mpg_response->getResponseCode() == null ||
+        $mpg_response->getResponseCode() >= 50) {
 
-	if( $mpg_response == false ||
-		strcmp( $mpg_response->getComplete(), "true") ||
-		$mpg_response->getResponseCode() == false ||
-		$mpg_response->getResponseCode() == null ||
-		$mpg_response->getResponseCode() >= 50 ) {
+        $msg = "Invalid credit card number. Please double check the card number entered — if your card number is correct, also verify your expiry date. " . $mpg_response->getMessage();
+        $response = array(
+            'status' => 'failed',
+            'msg'    => $msg,
+            'field'  => 'card_number',
+            'code'   => $mpg_response->getResponseCode(),
+            'ref'    => $mpg_response->getReferenceNum(),
+        );
+        error_log(json_encode($response));
+        return $response;
+    }
 
-		$msg = "Invalid credit card number. Please double check the card number entered " . $mpg_response->getMessage();
-		$response['status'] = "failed";
-		$response['msg'] = $msg;
-		$response['code'] = $mpg_response->getResponseCode();
-		$response['ref'] = $mpg_response->getReferenceNum();
+    // CVD (CVV) check — result code "1M" means match
+    $cvd_result = $mpg_response->getCvdResultCode();
+    error_log("Got verify cvd result code " . $cvd_result);
 
-		$data_response = json_encode( $response );
-		error_log( $data_response );
-		die( $data_response );
-	}
+    if ($cvd_result !== "1M") {
+        // First character is the CVD response code digit:
+        //   1 = CVD present and processed
+        //   2 = CVD present but not processed
+        //   3 = No CVD present
+        //   4 = CVD present but illegible
+        // Second character is the actual result: M=match, N=no match, P=not processed, S=suspicious
+        $cvd_digit = $cvd_result ? substr($cvd_result, 0, 1) : '';
+        $cvd_match = $cvd_result ? substr($cvd_result, 1, 1) : '';
 
-	error_log( "Got verify cvd result code " . $mpg_response->getCvdResultCode() );
-	if( $mpg_response->getCvdResultCode() != "1M" ) {
-		$response['status'] = "failed";
+        // If the card was processed but expiry caused the decline (response code 54)
+        $response_code = $mpg_response->getResponseCode();
+        if ($response_code == '54') {
+            $msg = "Invalid or expired expiry date. Please double check the expiry date entered.";
+            $field = 'expiry';
+        } elseif ($cvd_match === 'N') {
+            $msg = "Invalid CVV. The security code entered does not match. Please double check the CVV on the back of your card.";
+            $field = 'cvv';
+        } else {
+            // Generic CVD failure — most likely CVV
+            $msg = "Invalid CVV or expiry date. Please double check the information entered. " . $mpg_response->getMessage();
+            $field = 'cvv';
+        }
 
-		$msg = "Invalid expiry date or CVV. Please double check the information entered " . $mpg_response->getMessage();
+        $response = array(
+            'status' => 'failed',
+            'msg'    => $msg,
+            'field'  => $field,
+            'code'   => $response_code,
+            'ref'    => $mpg_response->getReferenceNum(),
+        );
+        error_log(json_encode($response));
+        return $response;
+    }
 
-		$response['msg'] = $msg;
-		$response['code'] = $mpg_response->getResponseCode();
-		$response['ref'] = $mpg_response->getReferenceNum();
+    // AVS (postal code) check
+    $avs_result = $mpg_response->getAvsResultCode();
+    error_log("Got verify avs result code " . $avs_result);
 
-		$data_response = json_encode( $response );
-		error_log( $data_response );
-		die( $data_response );
-	}
+    if ($avs_result === "N") {
+        $msg = "Invalid postal code. Please provide the billing postal code from your recent credit card statement (may be different from the service address postal code).";
+        $response = array(
+            'status' => 'failed',
+            'msg'    => $msg,
+            'field'  => 'postal_code',
+            'code'   => $mpg_response->getResponseCode(),
+            'ref'    => $mpg_response->getReferenceNum(),
+        );
+        error_log(json_encode($response));
+        return $response;
+    }
 
-	error_log( "Got verify avs result code " . $mpg_response->getAvsResultCode() );
-	if( $mpg_response->getAvsResultCode() == "N" ) {
-		$response['status'] = "failed";
-
-		$msg = "Invalid postal code. Please provide the billing postal code from your recent credit card statement (may be different from the service address postal code).";
-
-		$response['msg'] = $msg;
-		$response['code'] = $mpg_response->getResponseCode();
-		$response['ref'] = $mpg_response->getReferenceNum();
-
-		$data_response = json_encode( $response );
-		error_log( $data_response );
-		die( $data_response );
-	}
-
-	error_log( "Got response back " . $mpg_response->getComplete() );
+    error_log("Got response back " . $mpg_response->getComplete());
+    return array('status' => 'success');
 }
-
 /*================================================
 #Load custom Contact Form Module
 ================================================*/
