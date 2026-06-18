@@ -2901,7 +2901,7 @@ foreach ($upfront_summary as $key => $value) {
             
             error_log("FORMAT DIALLOG - Converted structure: " . json_encode($upfront_summary[$key]));
             
-            // Add ACF deposit fields
+           // Add ACF deposit fields
             if (function_exists('get_field')) {
                 $deposit_title = get_field('deposit-title', $product_id);
                 $deposit_fee = get_field('deposit-fee', $product_id);
@@ -2910,6 +2910,14 @@ foreach ($upfront_summary as $key => $value) {
                     $upfront_summary[$key]['Deposit Title'] = $deposit_title ? $deposit_title : '';
                     $upfront_summary[$key]['Deposit Amount'] = $deposit_fee ? floatval($deposit_fee) : 0;
                     error_log("FORMAT DIALLOG - Added deposit fields: Title=" . $deposit_title . ", Amount=" . $deposit_fee);
+                }
+				
+            }
+
+            // Add modem make & model for "I Have My Own Modem"
+            if ($key === 'modems' && $product_id == 267979) {
+                if (isset($cart_item['modem_details']) && !empty($cart_item['modem_details'])) {
+                    $upfront_summary[$key]['Modem Make & Model'] = $cart_item['modem_details'];
                 }
             }
             break;
