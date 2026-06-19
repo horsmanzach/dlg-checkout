@@ -2232,7 +2232,7 @@ function hide_auto_filled_address_fields($fields) {
 
 // Moneris Test Mode Control - Change this to switch between test and production
 function is_moneris_test_mode() {
-    return true; // Set to true for test mode, false for live transactions
+    return false; // Set to true for test mode, false for live transactions
 }
 
 // Moneris Account Configuration
