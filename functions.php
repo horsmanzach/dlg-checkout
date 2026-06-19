@@ -191,7 +191,11 @@ function dg_filter_modems_by_provider() {
         'modem-8' => 268265,
         'modem-9' => 268264,
         'modem-10' => 268260,
-        'modem-11' => 268267
+        'modem-11' => 268267,
+		'modem-12' => 268466,
+		'modem-13' => 268465,
+		'modem-14' => 268464,
+		'modem-15' => 268462
     );
     
     // Array to store modems that should be hidden
