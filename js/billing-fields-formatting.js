@@ -2,6 +2,32 @@ jQuery(document).ready(function ($) {
     // Phone number formatting for billing_phone field
     const phoneInput = $('#billing_phone');
 
+	function fixBillingFieldOrder() {
+    var $fieldWrapper = $('.woocommerce-billing-fields__field-wrapper');
+    var $phoneField = $('#billing_phone_field');
+    var $emailField = $('#billing_email_field');
+    
+    if ($fieldWrapper.length && $phoneField.length && $emailField.length) {
+        $emailField.after($phoneField);
+    }
+    
+    // Also move country to end
+    var $countryField = $('#billing_country_field');
+    if ($countryField.length && $fieldWrapper.length) {
+        $fieldWrapper.append($countryField);
+    }
+}
+
+setTimeout(function() {
+    fixBillingFieldOrder();
+}, 500);
+
+$(document).on('updated_checkout', function() {
+    setTimeout(function() {
+        fixBillingFieldOrder();
+    }, 300);
+});
+
     if (phoneInput.length) {
         // Format phone number as user types
         phoneInput.on('input', function () {
