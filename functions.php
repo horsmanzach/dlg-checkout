@@ -1158,7 +1158,7 @@ function enqueue_billing_fields_formatting() {
             'billing-fields-formatting',
             get_stylesheet_directory_uri() . '/js/billing-fields-formatting.js',
             array('jquery'),
-            '1.0.0',
+            '1.2.0',
             true
         );
     }
@@ -1225,12 +1225,12 @@ add_action('wp_ajax_nopriv_store_customer_info_confirmation', 'ajax_store_custom
 
 function dg_enqueue_phone_formatting_js() {
     if (is_checkout()) {
-        $js_file_path = get_stylesheet_directory() . '/js/billing-fields-formatting.js';
+        $js_file_path = get_stylesheet_directory() . '/js/.js';
         
         if (file_exists($js_file_path)) {
             wp_enqueue_script(
                 'dg-billing-phone-formatting',
-                get_stylesheet_directory_uri() . '/js/billing-fields-formatting.js',
+                get_stylesheet_directory_uri() . '/js/.js',
                 array('jquery'),
                 '1.0.2',
                 true
@@ -2205,6 +2205,11 @@ function hide_auto_filled_address_fields($fields) {
         $fields['billing']['billing_state']['class'] = array('auto-filled-field');
         $fields['billing']['billing_state']['custom_attributes']['style'] = 'display:none;';
     }
+
+	if (isset($fields['billing']['billing_country'])) {
+    $fields['billing']['billing_country']['class'] = array('auto-filled-field');
+    $fields['billing']['billing_country']['custom_attributes']['style'] = 'display:none;';
+}
 
     if (isset($fields['shipping']['shipping_address_1'])) {
         $fields['shipping']['shipping_address_1']['class'] = array('auto-filled-field');
