@@ -1803,7 +1803,7 @@ function special_shipping_instructions_shortcode() {
     <div class="special-shipping-instructions-container">
         <div class="special-shipping-instructions-field">
             <label for="special-shipping-instructions-input">
-                Special Shipping Instructions
+                Shipping Instructions
                 <span class="optional" style="font-weight: normal; color: #666;"> (optional)</span>
             </label>
             <textarea
@@ -9724,7 +9724,7 @@ function custom_override_checkout_fields( $fields ) {
 
      // Row 3: Unit Number / Buzzer Code
      $fields['billing']['billing_unit_number'] = array(
-          'label'       => __('Unit Number', 'woocommerce'),
+          'label'       => __('Unit #', 'woocommerce'),
           'placeholder' => _x('', 'placeholder', 'woocommerce'),
           'required'    => false,
           'class'       => array('form-row-first'),
@@ -9734,7 +9734,7 @@ function custom_override_checkout_fields( $fields ) {
      );
 
      $fields['billing']['billing_buzzer_code'] = array(
-          'label'       => __('Buzzer Code', 'woocommerce'),
+          'label'       => __('Buzzer', 'woocommerce'),
           'placeholder' => _x('', 'placeholder', 'woocommerce'),
           'required'    => false,
           'class'       => array('form-row-last'),
