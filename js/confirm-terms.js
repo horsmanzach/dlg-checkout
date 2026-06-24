@@ -284,31 +284,20 @@ jQuery(document).ready(function ($) {
         // Build validation messages array
         let messages = [];
 
-        if (!monthlyBillingOk) {
+        // 1. Customer Info appears first (filled out first on the checkout template)
+        if (!customerInfoOk) {
             messages.push({
-                text: '✗ Select and validate a monthly billing method (Credit Card, Bank Account, or Pay After)',
+                text: '✗ Confirm Customer Info (scroll up to customer info section)',
                 type: 'error'
             });
         } else {
             messages.push({
-                text: '✓ Monthly billing method validated',
+                text: '✓ Customer Info confirmed',
                 type: 'success'
             });
         }
 
-        if (!termsOk) {
-            messages.push({
-                text: '✗ Confirm Terms & Conditions',
-                type: 'error'
-            });
-        } else {
-            messages.push({
-                text: '✓ Terms & Conditions confirmed',
-                type: 'success'
-            });
-        }
-
-        // Check if shipping validation is required
+        // 2. Shipping address (conditional, appears directly under Customer Info)
         const $checkbox = $('#ship-to-different-checkbox');
         if ($checkbox.length > 0 && $checkbox.is(':checked')) {
             if (!shippingOk) {
@@ -324,19 +313,32 @@ jQuery(document).ready(function ($) {
             }
         }
 
-        // NEW: Add customer info confirmation validation message
-        if (!customerInfoOk) {
+        // 3. Monthly Billing
+        if (!monthlyBillingOk) {
             messages.push({
-                text: '✗ Confirm Customer Info (scroll up to customer info section)',
+                text: '✗ Select and validate a monthly billing method (Credit Card, Bank Account, or Pay After)',
                 type: 'error'
             });
         } else {
             messages.push({
-                text: '✓ Customer Info confirmed',
+                text: '✓ Monthly billing method validated',
                 type: 'success'
             });
         }
 
+        // 4. Terms & Conditions
+        if (!termsOk) {
+            messages.push({
+                text: '✗ Confirm Terms & Conditions',
+                type: 'error'
+            });
+        } else {
+            messages.push({
+                text: '✓ Terms & Conditions confirmed',
+                type: 'success'
+            });
+        }
+    
         // Create content signature for comparison
         const newMessageContent = messages.map(msg => msg.text).join('');
 
@@ -477,34 +479,33 @@ jQuery(document).ready(function ($) {
      * Restore terms confirmation state from previous session
      */
     function restoreTermsState() {
-    const savedTermsState = sessionStorage.getItem('termsConfirmed');
-    const savedTimestamp = sessionStorage.getItem('termsTimestamp');
-    const savedProvider = sessionStorage.getItem('termsConfirmedProvider') || '';
+        const savedTermsState = sessionStorage.getItem('termsConfirmed');
+        const savedTimestamp = sessionStorage.getItem('termsTimestamp');
+        const savedProvider = sessionStorage.getItem('termsConfirmedProvider') || '';
 
-    if (savedTermsState === 'true') {
-        // NEW: Check if the provider has changed since terms were confirmed
-        const currentProvider = (typeof providerTermsData !== 'undefined' && providerTermsData.providerClass)
-            ? providerTermsData.providerClass
-            : '';
+        if (savedTermsState === 'true') {
+            // Check if the provider has changed since terms were confirmed
+            const currentProvider = (typeof providerTermsData !== 'undefined' && providerTermsData.providerClass)
+                ? providerTermsData.providerClass
+                : '';
 
-        if (savedProvider !== currentProvider) {
-            // Provider changed — terms must be re-confirmed for new provider's text
-            console.log('Provider changed since terms were confirmed (' + savedProvider + ' → ' + currentProvider + '). Clearing terms confirmation.');
-            sessionStorage.removeItem('termsConfirmed');
-            sessionStorage.removeItem('termsTimestamp');
-            sessionStorage.removeItem('termsConfirmedProvider');
-            // termsConfirmed stays false, button stays disabled — no further action needed
-            return;
+            if (savedProvider !== currentProvider) {
+                // Provider changed — terms must be re-confirmed for new provider's text
+                console.log('Provider changed since terms were confirmed (' + savedProvider + ' → ' + currentProvider + '). Clearing terms confirmation.');
+                sessionStorage.removeItem('termsConfirmed');
+                sessionStorage.removeItem('termsTimestamp');
+                sessionStorage.removeItem('termsConfirmedProvider');
+                return;
+            }
+
+            console.log('Restoring terms confirmed state from session (same provider: ' + currentProvider + ')');
+            termsConfirmed = true;
+            termsTimestamp = savedTimestamp;
+            styleConfirmedTcButton();
+            updateButtonState();
+            storeTermsTimestamp(); // Re-syncs WC session; null guard inside prevents writing empty value
         }
-
-        console.log('Restoring terms confirmed state from session (same provider: ' + currentProvider + ')');
-        termsConfirmed = true;
-        termsTimestamp = savedTimestamp;
-        styleConfirmedTcButton();
-        updateButtonState();
-        storeTermsTimestamp();
     }
-}
 
     /**
      * Style the Terms & Conditions button as confirmed
@@ -570,35 +571,48 @@ jQuery(document).ready(function ($) {
      * Confirm terms and conditions
      */
     function confirmTermsAndConditions() {
-    console.log('Terms & Conditions confirmed');
+        console.log('Terms & Conditions confirmed');
 
-    termsConfirmed = true;
-    termsTimestamp = new Date().toISOString();
+        termsConfirmed = true;
+        termsTimestamp = new Date().toISOString();
 
-    // Store in session storage
-    sessionStorage.setItem('termsConfirmed', 'true');
-    sessionStorage.setItem('termsTimestamp', termsTimestamp);
+        // Store in session storage
+        sessionStorage.setItem('termsConfirmed', 'true');
+        sessionStorage.setItem('termsTimestamp', termsTimestamp);
 
-    // NEW: Store which provider's terms were agreed to
-    const currentProvider = (typeof providerTermsData !== 'undefined' && providerTermsData.providerClass)
-        ? providerTermsData.providerClass
-        : '';
-    sessionStorage.setItem('termsConfirmedProvider', currentProvider);
-    console.log('Terms confirmed for provider:', currentProvider);
+        // Store which provider's terms were agreed to
+        const currentProvider = (typeof providerTermsData !== 'undefined' && providerTermsData.providerClass)
+            ? providerTermsData.providerClass
+            : '';
+        sessionStorage.setItem('termsConfirmedProvider', currentProvider);
+        console.log('Terms confirmed for provider:', currentProvider);
 
-    styleConfirmedTcButton();
-    updateButtonState();
-    storeTermsTimestamp();
+        styleConfirmedTcButton();
+        updateButtonState();
+        storeTermsTimestamp();
 
-    console.log('Terms confirmation complete at:', termsTimestamp);
-}
+        console.log('Terms confirmation complete at:', termsTimestamp);
+    }
 
     /**
-     * Store terms timestamp via AJAX
+     * Store terms timestamp via AJAX.
+     * 
+     * FIX: Guard against null/empty termsTimestamp. A null write would overwrite
+     * the valid timestamp already stored in the WC session, causing the timestamp
+     * to disappear from both the thank you page and the order confirmation email.
      */
     function storeTermsTimestamp() {
         if (typeof confirmTerms === 'undefined') {
             console.warn('confirmTerms object not found');
+            return;
+        }
+
+        // CRITICAL FIX: Never write a null or empty timestamp to the WC session.
+        // This can happen during restoreTermsState() if sessionStorage was cleared
+        // (e.g. by the cleanup block below) before the restore runs, causing the
+        // previously valid WC session value to be overwritten with an empty string.
+        if (!termsTimestamp) {
+            console.warn('storeTermsTimestamp: termsTimestamp is null or empty — skipping AJAX write to protect existing WC session value');
             return;
         }
 
@@ -612,7 +626,7 @@ jQuery(document).ready(function ($) {
             },
             success: function (response) {
                 if (response.success) {
-                    console.log('Terms timestamp stored successfully');
+                    console.log('Terms timestamp stored successfully:', termsTimestamp);
                 } else {
                     console.error('Failed to store terms timestamp:', response);
                 }
@@ -649,7 +663,9 @@ jQuery(document).ready(function ($) {
     }
 
     /**
-     * Handle page navigation
+     * Handle page navigation — persist terms state across checkout page reloads.
+     * On unload, always re-save the current state so restoreTermsState() can pick
+     * it up on the next load within the same checkout flow.
      */
     $(window).on('beforeunload', function () {
         const currentUrl = window.location.href;
@@ -661,11 +677,18 @@ jQuery(document).ready(function ($) {
         }
     });
 
+    // Clean up terms state when genuinely leaving the checkout flow entirely
+    // (i.e. navigating to a page that is neither checkout nor thank-you).
+    // The thank-you page is explicitly excluded because the WC session still
+    // needs the timestamp at that point for dg_get_thank_you_page_data().
     const lastUrl = sessionStorage.getItem('lastCheckoutUrl');
     const currentUrl = window.location.href;
     if (lastUrl && lastUrl !== currentUrl && !currentUrl.includes('checkout')) {
-        sessionStorage.removeItem('termsConfirmed');
-        sessionStorage.removeItem('termsTimestamp');
+        const isThankYouPage = currentUrl.includes('thank-you') || currentUrl.includes('thankyou');
+        if (!isThankYouPage) {
+            sessionStorage.removeItem('termsConfirmed');
+            sessionStorage.removeItem('termsTimestamp');
+        }
     }
 
     // Listen for shipping validation changes
@@ -697,7 +720,7 @@ jQuery(document).ready(function ($) {
                 timestamp: termsTimestamp,
                 monthlyBillingValidated: monthlyBillingValidated,
                 shippingValidated: checkShippingValidation(),
-                customerInfoConfirmed: checkCustomerInfoConfirmation(), // NEW
+                customerInfoConfirmed: checkCustomerInfoConfirmation(),
                 tcButtonExists: $('.tc-button').length > 0,
                 monerisButtonExists: $('.moneris-payment-button').length > 0,
                 monerisButtonEnabled: !$('.moneris-payment-button').prop('disabled')
@@ -712,7 +735,7 @@ jQuery(document).ready(function ($) {
         console.log('Terms Timestamp:', termsTimestamp);
         console.log('Monthly Billing Validated:', monthlyBillingValidated);
         console.log('Shipping Validated:', checkShippingValidation());
-        console.log('Customer Info Confirmed:', checkCustomerInfoConfirmation()); // NEW
+        console.log('Customer Info Confirmed:', checkCustomerInfoConfirmation());
         console.log('Last Button State:', lastButtonState);
         console.log('Current State Signature:', `${termsConfirmed}-${monthlyBillingValidated}-${checkShippingValidation()}-${checkCustomerInfoConfirmation()}`);
         console.log('===============================');
