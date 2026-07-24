@@ -5971,10 +5971,25 @@ function upfront_fee_total_shortcode($atts) {
             }
         }
         
-        // Calculate tax (excluding deposits)
+        // Calculate tax using province-specific rates (excluding deposits)
         $tax_total = 0;
         if (wc_tax_enabled()) {
-            $tax_rates = WC_Tax::get_rates();
+            // Get province from address lookup
+            $searched_address = dg_get_user_meta("searched_address");
+
+            $state = '';
+            if (isset($searched_address['administrative_area_level_1'])) {
+                $state = $searched_address['administrative_area_level_1'];
+            } elseif (isset($searched_address['provinceOrState'])) {
+                $state = $searched_address['provinceOrState'];
+            }
+
+            $tax_rates = WC_Tax::find_rates(array(
+                'country'   => 'CA',
+                'state'     => $state,
+                'city'      => '',
+                'postcode'  => ''
+            ));
             if (!empty($tax_rates)) {
                 $taxes = WC_Tax::calc_tax($subtotal, $tax_rates);
                 $tax_total = array_sum($taxes);
@@ -6523,7 +6538,7 @@ function get_upfront_fee_summary() {
         'taxes'=>array('Taxes',0.0),
         'grand_total'=>array('UPFRONT TOTAL',0.0));
 
-    $tax_rate = function_exists('GetTaxRate') ? GetTaxRate() : 0;
+    $tax_rate = function_exists('get_customer_tax_rate_percentage') ? get_customer_tax_rate_percentage() : (function_exists('GetTaxRate') ? GetTaxRate() : 0);
     $do_not_include_modem_deposit = false;
     $show_included_taxes = wc_tax_enabled() && WC()->cart->display_prices_including_tax();
     $total_deposits = 0;
