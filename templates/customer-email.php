@@ -504,6 +504,7 @@ function send_customer_order_confirmation_email($customer_email, $order_data) {
     
     if (!$moneris_config['test_mode']) {
         $headers[] = 'BCC: residential.orders@diallog.com';
+		$headers[] = 'BCC: eugene.nae@diallog.com';
         error_log('BCC added for live mode');
     }
     
