@@ -363,9 +363,13 @@ jQuery(document).ready(function ($) {
                     // Reset all field styling
                     $('#cc_cardholder_name, #cc_card_number, #cc_expiry, #cc_cvv, #cc_postal_code').removeClass('error valid');
 
-                    // Use field hint from PHP first, fall back to keyword matching
+                   // Use field hint from PHP first, fall back to keyword matching.
+                    // NOTE: PHP returns 'card_number' for the general/ambiguous decline,
+                    // where the card number, expiry, OR CVV could each be the cause and
+                    // Moneris returns the same response code for all three. In that case,
+                    // highlight all three payment fields so the user rechecks each one.
                     if (errorField === 'card_number') {
-                        $('#cc_card_number').addClass('error');
+                        $('#cc_card_number, #cc_expiry, #cc_cvv').addClass('error');
                     } else if (errorField === 'expiry') {
                         $('#cc_expiry').addClass('error');
                     } else if (errorField === 'cvv') {
@@ -385,8 +389,9 @@ jQuery(document).ready(function ($) {
                         } else if (lowerErrorMessage.includes('name') || lowerErrorMessage.includes('cardholder')) {
                             $('#cc_cardholder_name').addClass('error');
                         } else {
-                            // Default to card number for generic errors
-                            $('#cc_card_number').addClass('error');
+                            // Default to highlighting all three payment fields for generic
+                            // errors, since we cannot tell which specific field is wrong.
+                            $('#cc_card_number, #cc_expiry, #cc_cvv').addClass('error');
                         }
                     }
 
