@@ -7,6 +7,25 @@ jQuery(document).ready(function ($) {
 
 	let cartAjaxPending = false;
 	window.isCartAjaxPending = function() { return cartAjaxPending; };
+
+    // Coordinate the cartHighlightComplete signal across the two independent
+    // restore passes that run on page load: checkCartAndHighlight() restores
+    // modem/phone/tv row classes, and checkInstallationInCart() restores the
+    // installation date selection. The completeness guard in
+    // product-selection-navigation.js must not run until BOTH have finished,
+    // otherwise an edit-order reload with a full cart can be judged "incomplete"
+    // (installation not yet restored) and wrongly bounced to screen 1.
+    let highlightPassDone = false;
+    let installationPassDone = false;
+    let cartHighlightSignalled = false;
+    function maybeSignalCartHighlightComplete() {
+        if (cartHighlightSignalled) return;
+        if (highlightPassDone && installationPassDone) {
+            cartHighlightSignalled = true;
+            $(document.body).trigger('cartHighlightComplete');
+        }
+    }
+
     // Store the product IDs for each row
     const modemRows = {
         'modem-0': 267980,
@@ -428,8 +447,17 @@ jQuery(document).ready(function ($) {
                     }
                 }
 
-				 // Signal that cart highlighting is complete
-            $(document.body).trigger('cartHighlightComplete');
+                // Row-highlight pass is done. Signal cartHighlightComplete only if
+                // the installation restore pass has also finished (coordinated so
+                // the navigation guard sees the fully restored cart state).
+                highlightPassDone = true;
+                maybeSignalCartHighlightComplete();
+            },
+            error: function () {
+                // Even on failure, mark this pass done so the signal isn't blocked
+                // forever; the guard's own fallback still protects correctness.
+                highlightPassDone = true;
+                maybeSignalCartHighlightComplete();
             }
         });
     }
@@ -818,6 +846,16 @@ jQuery(document).ready(function ($) {
 
                     checkInstallationSelection();
                 }
+
+                // Installation restore pass is done. Signal cartHighlightComplete
+                // only if the row-highlight pass has also finished.
+                installationPassDone = true;
+                maybeSignalCartHighlightComplete();
+            },
+            error: function () {
+                // Even on failure, mark this pass done so the signal isn't blocked.
+                installationPassDone = true;
+                maybeSignalCartHighlightComplete();
             }
         });
     }
