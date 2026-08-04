@@ -43,9 +43,9 @@ jQuery(document).ready(function ($) {
     // Dedicated function to force correct button states
     function forceMaintainButtonStates() {
 
-		    // If came from checkout, don't override button states
-    	if (cameFromCheckout) return;
-		
+        // NOTE: Previously bailed out when cameFromCheckout was true. Removed so
+        // edit-order users have their button states enforced like first-time users.
+
         // Force correct states immediately without any validation delays
         if (currentScreen === 1) {
             $('.back-btn, .mobile-back-btn').addClass('disabled').css('visibility', 'hidden');
@@ -88,7 +88,7 @@ jQuery(document).ready(function ($) {
     updateCheckoutButtonVisibility();
     updateCheckoutButtonState();
 
-    // Handle hash-based navigation on page load
+   // Handle hash-based navigation on page load
     function initializeFromHash() {
         const hash = window.location.hash;
         if (hash) {
@@ -99,6 +99,62 @@ jQuery(document).ready(function ($) {
                 if (targetScreen >= 1 && targetScreen <= totalScreens) {
                     console.log('Navigating to screen from hash:', targetScreen);
 
+                    // Guard: verify every screen BEFORE the target has a valid selection.
+                    // Blocks direct-URL deep links (e.g. #screen2) that skip installation.
+                    // Legitimate edit-order redirects pass because checkCartAndHighlight
+                    // re-applies the *-row-selected classes from cart contents on load.
+                    let allPriorComplete = true;
+                    for (let s = 1; s < targetScreen; s++) {
+                        if (!isScreenComplete(s)) {
+                            allPriorComplete = false;
+                            console.log('Screen ' + s + ' incomplete - blocking jump to ' + targetScreen);
+                            break;
+                        }
+                    }
+
+                    if (!allPriorComplete) {
+                        console.log('Prior selections missing - forcing screen 1');
+                        cameFromCheckout = false;
+                        history.replaceState(null, '', '#screen1');
+                        jumpToScreen(1);
+                        setTimeout(() => updateCheckoutButtonVisibility(), 50);
+
+                        // The cart cleanup after a blocked deep-link fires a series of
+                        // reflows (removeInstallationFromCart / session updates) over
+                        // ~3s that strand screen 1's percentage transform off-canvas.
+                        // The triggering event is unreliable, so watch the container
+                        // directly and re-pin screen 1 whenever it drifts off-center.
+                        const containerEl = document.querySelector('.checkout-container');
+                        if (containerEl) {
+                            let repinCount = 0;
+                            const repinObserver = new MutationObserver(function () {
+                                const s1 = document.querySelector('#screen1');
+                                if (!s1) return;
+                                const left = s1.getBoundingClientRect().left;
+                                const containerLeft = containerEl.getBoundingClientRect().left;
+                                // If screen 1 has drifted more than a few px from the
+                                // container's left edge, re-pin it to center.
+                                if (Math.abs(left - containerLeft) > 5) {
+                                    console.log('Screen 1 drifted to', left, '- re-pinning');
+                                    gsap.set(s1, { x: '0%', opacity: 1, clearProps: 'translate' });
+                                }
+                                repinCount++;
+                            });
+                            repinObserver.observe(containerEl, {
+                                attributes: true,
+                                childList: true,
+                                subtree: true,
+                                attributeFilter: ['style', 'class']
+                            });
+                            // Stop watching after the cart cascade settles (~4s).
+                            setTimeout(function () {
+                                repinObserver.disconnect();
+                                console.log('Re-pin observer disconnected');
+                            }, 4000);
+                        }
+                        return;
+                    }
+            
                     // Only set cameFromCheckout if actually coming from checkout
                     // Check if referrer contains checkout URL or if there are checkout-specific URL parameters
                     const referrer = document.referrer || '';
@@ -123,6 +179,30 @@ jQuery(document).ready(function ($) {
         }
     }
 
+// Returns true if the given screen's required selection has been made.
+    // Mirrors the per-screen checks in updateButtonStates()/validateAllSelections().
+    // Used by initializeFromHash() to gate direct hash navigation.
+    function isScreenComplete(screenNumber) {
+        switch (screenNumber) {
+            case 1: {
+                const installationSelected = $('.installation-row-selected').length;
+                const preferredChecked = $('.preferred-date-radio:checked').length;
+                const secondaryChecked = $('.secondary-date-radio:checked').length;
+                return !!(installationSelected || (preferredChecked && secondaryChecked));
+            }
+            case 2: {
+                const modemSelected = $('.modem-row-selected').length;
+                return !!(modemSelected || validateOwnModemInput());
+            }
+            case 3:
+                return $('.tv-row-selected').length > 0;
+            case 4:
+                return true; // no gating selection required to be on screen 4
+            default:
+                return false;
+        }
+    }
+	
     // Function to jump directly to a specific screen without animation (for hash navigation)
     function jumpToScreen(screenNumber) {
         console.log('Jumping to screen:', screenNumber);
@@ -202,12 +282,42 @@ jQuery(document).ready(function ($) {
         }, 100);
     }
 
-    // Check for hash navigation after the page loads
-    setTimeout(function () {
+ // Check for hash navigation after the page loads.
+    // Wait for cartHighlightComplete so the *-row-selected classes are applied
+    // from cart contents BEFORE the completeness guard runs. Fall back to a timer
+    // if that event never fires (e.g. empty cart / no highlight pass).
+    let hashNavHandled = false;
+    let cartHighlightDone = false;
+
+    function runHashNavOnce() {
+        if (hashNavHandled) return;
+        hashNavHandled = true;
         initializeFromHash();
-        // Ensure checkout button visibility is set immediately after hash initialization
         updateCheckoutButtonVisibility();
-    }, 100);
+    }
+
+    // Primary trigger. cartHighlightComplete now fires from card-selection.js
+    // only AFTER both the row-highlight pass and the installation restore pass
+    // have finished, so at this point the cart's full selection state (including
+    // installation dates) is reflected in the DOM and the completeness guard can
+    // trust it. This is what lets a legitimate edit-order reload with a complete
+    // cart pass the guard instead of being bounced to screen 1.
+    $(document.body).on('cartHighlightComplete', function () {
+        cartHighlightDone = true;
+        runHashNavOnce();
+    });
+
+    // Safety fallback only. Because the event above is now guaranteed to fire
+    // (card-selection.js signals it on success AND on AJAX error for both
+    // passes), this timer should not normally be the thing that runs the guard.
+    // It exists purely so hash navigation still happens if that script is
+    // absent or badly delayed. Kept generous so it never races a slow cart AJAX.
+    setTimeout(function () {
+        if (!cartHighlightDone) {
+            console.log('cartHighlightComplete not seen within fallback window - running hash nav anyway');
+            runHashNavOnce();
+        }
+    }, 4000);
 
     // Check for selected cards when page loads
 setTimeout(function () {
@@ -285,6 +395,13 @@ setTimeout(function () {
 
             if (currentScreen === totalScreens) {
                 console.log('On final screen - preparing redirect to checkout');
+
+                // Re-validate every screen before the final checkout redirect so a
+                // card deselected on an earlier screen can't slip through.
+                if (!validateAllSelections()) {
+                    alert('Please make sure one selection is made on each screen (Installation, Modem, TV, and Phone) before proceeding to checkout.');
+                    return;
+                }
 
                 // On the final slide, show loading state before redirect
                 const $btn = $('.next-btn, .mobile-next-btn');
@@ -555,19 +672,10 @@ setTimeout(function () {
     // Function to update button states based on current screen and selections
     function updateButtonStates() {
 
-		  // If user came from checkout, enable continue immediately regardless of scroll state
-    if (cameFromCheckout) {
-        if (currentScreen === 1) {
-            $('.back-btn, .mobile-back-btn').addClass('disabled').css('visibility', 'hidden');
-        } else {
-            $('.back-btn, .mobile-back-btn').removeClass('disabled').css('visibility', 'visible');
-        }
-        $('.next-btn, .mobile-next-btn').removeClass('disabled');
-        updateCheckoutButtonState();
-        updateProgressBar(currentScreen);
-        return;
-    }
-		
+        // NOTE: Previously bypassed all validation when cameFromCheckout was true,
+        // which let edit-order users proceed with deselected cards. Removed so
+        // edit-order users are validated per-screen exactly like first-time users.
+
         if (isScrolling) {
             // Don't update button states while scrolling is active
             return;
