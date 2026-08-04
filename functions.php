@@ -3684,7 +3684,7 @@ function transform_order_data_for_email($diallog_order_data) {
                             'name' => $name,
                             'total' => $final_price,
                             'original_price' => $final_price, // Use final price as original if no promo
-                            'promo_price' => isset($item['Promotional Price']) ? $item['Promotional Price'] : 0,
+                            'promo_price' => isset($item['Promotional Price']) ? $item['Promotional Price'] : null,
                             'promo_blurb' => isset($item['Promotional Blurb']) ? $item['Promotional Blurb'] : '',
                             'modem_details' => isset($item['Modem Make & Model']) ? $item['Modem Make & Model'] : ''
                         );
@@ -3696,11 +3696,11 @@ function transform_order_data_for_email($diallog_order_data) {
                         $name = $item[0];
                         $final_price = $item[1];
                         
-                        // Extract promotional pricing info if available
-                        $original_price = isset($item[2]) ? $item[2] : 0;
-                        $promo_price = isset($item[3]) ? $item[3] : 0;
-                        $promo_blurb = isset($item[4]) ? $item[4] : '';
-                        $modem_details = isset($item[5]) ? $item[5] : '';
+                       // Extract promotional pricing info if available
+                        $original_price = array_key_exists(2, $item) ? $item[2] : 0;
+                        $promo_price = array_key_exists(3, $item) ? $item[3] : null;
+                        $promo_blurb = array_key_exists(4, $item) ? $item[4] : '';
+                        $modem_details = array_key_exists(5, $item) ? $item[5] : '';
                         
                         // Skip subtotal, tax, and grand_total
                         if ($key === 'subtotal') {
