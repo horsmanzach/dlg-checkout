@@ -46,6 +46,98 @@ function fix_divi_special_characters($output, $tag, $attr, $m) {
 }
 
 
+
+
+/*====Zach's Direct to Checkout Guard for users that select less than all 4 slides and attempt to directly go to /checkout =====*/
+
+// Required product category IDs — one item from each must be in cart.
+// Installation = 60, Internet Plan = 19, Modems = 59, Phone = 22, TV = 61
+function dg_get_required_checkout_category_ids() {
+    return array(60, 19, 59, 22, 61);
+}
+
+// Returns true only if the cart contains at least one product from EACH
+// required category. Loops all category IDs per product (products can be
+// multi-category) rather than checking only the first term.
+function dg_cart_has_all_required_categories() {
+    if (is_null(WC()->cart) || WC()->cart->is_empty()) {
+        return false;
+    }
+
+    $required = dg_get_required_checkout_category_ids();
+    $found = array();
+
+    foreach (WC()->cart->get_cart() as $cart_item) {
+        $product_id = $cart_item['product_id'];
+        $cat_ids = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'ids'));
+        if (is_wp_error($cat_ids)) {
+            continue;
+        }
+        foreach ($cat_ids as $cat_id) {
+            if (in_array($cat_id, $required, true)) {
+                $found[$cat_id] = true;
+            }
+        }
+    }
+
+    foreach ($required as $req_id) {
+        if (empty($found[$req_id])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Determines where to send a user with an incomplete cart.
+// If an internet plan (cat 19) is already in cart, send them back to that
+// plan's product page at #screen1. Otherwise send them to the plans listing.
+function dg_get_checkout_redirect_url() {
+    $internet_plan_category_id = 19;
+
+    if (!is_null(WC()->cart) && !WC()->cart->is_empty()) {
+        foreach (WC()->cart->get_cart() as $cart_item) {
+            $product_id = $cart_item['product_id'];
+            $cat_ids = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'ids'));
+            if (is_wp_error($cat_ids)) {
+                continue;
+            }
+            if (in_array($internet_plan_category_id, $cat_ids, true)) {
+                $url = get_permalink($product_id);
+                if ($url) {
+                    return $url . '#screen1';
+                }
+            }
+        }
+    }
+
+    // No internet plan in cart — send to the plans listing.
+    return 'https://staging.diallog.com/internet';
+}
+
+// Guard: on any checkout page load (regardless of how the user arrived —
+// including typing /checkout directly), verify the cart is complete.
+// Redirect incomplete carts back into the selection flow.
+function dg_enforce_complete_cart_on_checkout() {
+    // Never interfere with admin, AJAX, or WooCommerce endpoints
+    // (order-received / thank-you, pay, etc.).
+    if (is_admin() || (defined('DOING_AJAX') && DOING_AJAX)) {
+        return;
+    }
+    if (!function_exists('is_checkout') || !is_checkout()) {
+        return;
+    }
+    if (function_exists('is_wc_endpoint_url') && is_wc_endpoint_url()) {
+        return; // e.g. order-received, order-pay — don't block completed orders
+    }
+
+    if (!dg_cart_has_all_required_categories()) {
+        wp_safe_redirect(dg_get_checkout_redirect_url());
+        exit;
+    }
+}
+add_action('template_redirect', 'dg_enforce_complete_cart_on_checkout');
+
+
 /*==============
 ================
 ================ NEW FUNCTIONS CREATED FOR REVAMPED VERSION OF SITE JANUARY 2026 ================
@@ -1835,7 +1927,7 @@ function enqueue_monthly_billing_assets() {
             'monthly-billing-js',
             get_stylesheet_directory_uri() . '/js/monthly-billing.js',
             array('jquery'),
-            '1.1.0', // Updated version for cache busting
+            '1.1.1', // Updated version for cache busting
             true
         );
         
@@ -1891,7 +1983,7 @@ function enqueue_moneris_payment_assets() {
             'moneris-payment-js',
             get_stylesheet_directory_uri() . '/js/moneris-payment.js',
             array('jquery', 'confirm-terms-js'), // UPDATED: Add confirm-terms-js as dependency
-            '1.1.1', // Updated version for cache busting
+            '1.1.2', // Updated version for cache busting
             true
         );
         
@@ -2237,7 +2329,7 @@ function hide_auto_filled_address_fields($fields) {
 
 // Moneris Test Mode Control - Change this to switch between test and production
 function is_moneris_test_mode() {
-    return false; // Set to true for test mode, false for live transactions
+    return true; // Set to true for test mode, false for live transactions
 }
 
 // Moneris Account Configuration
@@ -2389,6 +2481,9 @@ add_action('wp_ajax_nopriv_process_moneris_payment', 'ajax_process_moneris_payme
 function ajax_process_moneris_payment() {
     // Verify nonce
     check_ajax_referer('moneris_payment_nonce', 'nonce');
+
+	/*wp_send_json_error(array('message' => 'TEST decline', 'field' => 'card_number'));
+return; */ 
     
     // Get and sanitize form data
     $cardholder_name = sanitize_text_field($_POST['cardholder_name']);
@@ -2526,7 +2621,8 @@ function ajax_process_moneris_payment() {
                 if (!$verify_response || $verify_response->getResponseCode() >= 50) {
                     $error_msg = $verify_response ? $verify_response->getMessage() : 'Unknown error';
                     wp_send_json_error(array(
-                        'message' => 'Card verification failed: ' . $error_msg
+                        'message' => 'Card verification failed: ' . $error_msg,
+						 'field'   => 'card_number'
                     ));
                     return;
                 }
@@ -2725,7 +2821,8 @@ if (!empty($customer_email)) {
                     $error_msg .= ' (Test Mode)';
                 }
                 wp_send_json_error(array(
-                    'message' => $error_msg
+                    'message' => $error_msg,
+					 'field'   => 'card_number'
                 ));
             }
         } else {
@@ -4515,7 +4612,7 @@ add_action('woocommerce_checkout_create_order_line_item', 'save_modem_details_to
 function modem_selection_scripts() {
     // Load on product pages and custom checkout pages
     if (is_product() || is_page(array('checkout', 'internet-plans'))) { // Add your custom page slugs here
-        wp_enqueue_script('card-selection', get_stylesheet_directory_uri() . '/js/card-selection.js', array('jquery'), '1.1', true);
+        wp_enqueue_script('card-selection', get_stylesheet_directory_uri() . '/js/card-selection.js', array('jquery'), '1.2', true);
         
         // Pass AJAX URL and nonce to JavaScript
         wp_localize_script('card-selection', 'modem_selection_vars', array(
@@ -4529,7 +4626,7 @@ add_action('wp_enqueue_scripts', 'modem_selection_scripts');
 function enqueue_product_selection_scripts() {
     // Load on all product pages
     if (is_product()) {
-        wp_enqueue_script('product-selection-nav', get_stylesheet_directory_uri() . '/js/product-selection-navigation.js', array('jquery'), '1.0', true);
+        wp_enqueue_script('product-selection-nav', get_stylesheet_directory_uri() . '/js/product-selection-navigation.js', array('jquery'), '1.5', true);
         
         // Pass any PHP variables the script needs
         wp_localize_script('product-selection-nav', 'product_selection_vars', array(
