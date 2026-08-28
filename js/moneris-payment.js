@@ -68,7 +68,7 @@ jQuery(document).ready(function ($) {
         });
     }
 
-    function setupCompletePaymentButton() {
+        function setupCompletePaymentButton() {
         // Handle external complete payment button click
         $(document).on('click', '#moneris-complete-payment-btn, #moneris-mobile-payment-btn', function (e) {
             e.preventDefault();
@@ -80,8 +80,8 @@ jQuery(document).ready(function ($) {
                 return false;
             }
 
-            // If validation passes, process the payment
-            processPayment();
+            // If validation passes, process the payment (scope to the clicked button)
+            processPayment($(this));
         });
 
         // Also handle original form submission (if button is still inside form)
@@ -93,10 +93,9 @@ jQuery(document).ready(function ($) {
                 return false;
             }
 
-            processPayment();
+            processPayment($('#moneris-complete-payment-btn').first());
         });
     }
-
     /**
      * UPDATED: Validate all payment prerequisites including 4th validation
      * This is a safety check that runs when payment button is clicked
@@ -216,11 +215,20 @@ jQuery(document).ready(function ($) {
         return isValid;
     }
 
-    function processPayment() {
+        
+	
+	function processPayment($clickedBtn) {
         console.log('Processing payment...');
 
-        // Disable button and show loading
-        const $submitBtn = $('#moneris-complete-payment-btn, #moneris-mobile-payment-btn');
+        // FIX: Operate only on the specific button that was clicked.
+        // Previously this selected BOTH #moneris-complete-payment-btn and
+        // #moneris-mobile-payment-btn together, so $submitBtn.text() returned the
+        // CONCATENATED text of both buttons and $submitBtn.html(originalText) wrote
+        // that concatenation back into EACH button — doubling the label on every
+        // failed attempt ("Complete Payment Complete Payment Complete Payment...").
+        const $submitBtn = ($clickedBtn && $clickedBtn.length)
+            ? $clickedBtn
+            : $('#moneris-complete-payment-btn').first();
         const originalText = $submitBtn.text();
 
         // Add spinner HTML and set processing state
