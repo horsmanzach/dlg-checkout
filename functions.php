@@ -111,7 +111,7 @@ function dg_get_checkout_redirect_url() {
     }
 
     // No internet plan in cart — send to the plans listing.
-    return 'https://staging.diallog.com/internet';
+    return 'https://diallog.com/internet';
 }
 
 // Guard: on any checkout page load (regardless of how the user arrived —
@@ -1629,6 +1629,45 @@ function ajax_update_moneris_payment_amount() {
 add_action('wp_ajax_get_selected_monthly_billing_method', 'ajax_get_selected_monthly_billing_method');
 add_action('wp_ajax_nopriv_get_selected_monthly_billing_method', 'ajax_get_selected_monthly_billing_method');
 
+/**
+ * Shortcode: display a product's WooCommerce Regular Price by ID.
+ * Usage: [dg_regular_price product_id="267979"]
+ *        [dg_regular_price product_id="267979" format="raw"]   // unformatted number, e.g. 44.25
+ * Mirrors the per-card ACF shortcodes (monthly_fee, deposit) but reads the WC regular price field.
+ */
+function dg_regular_price_shortcode($atts) {
+    $atts = shortcode_atts(array(
+        'product_id' => '',
+        'format'     => 'money', // 'money' = wc_price() with $; 'raw' = plain number
+    ), $atts);
+
+    $product_id = intval($atts['product_id']);
+    if ($product_id <= 0) {
+        return '';
+    }
+
+    $product = wc_get_product($product_id);
+    if (!$product) {
+        return '';
+    }
+
+    $regular_price = $product->get_regular_price();
+
+    // Treat unset as blank; a legitimate 0 is still a valid price to show.
+    if ($regular_price === '' || $regular_price === null) {
+        return '';
+    }
+
+    $regular_price = floatval($regular_price);
+
+    if ($atts['format'] === 'raw') {
+        return esc_html(number_format($regular_price, 2, '.', ''));
+    }
+
+    return wc_price($regular_price);
+}
+add_shortcode('dg_regular_price', 'dg_regular_price_shortcode');
+
 function ajax_get_selected_monthly_billing_method() {
     check_ajax_referer('checkout_nonce', 'nonce');
     
@@ -1983,7 +2022,7 @@ function enqueue_moneris_payment_assets() {
             'moneris-payment-js',
             get_stylesheet_directory_uri() . '/js/moneris-payment.js',
             array('jquery', 'confirm-terms-js'), // UPDATED: Add confirm-terms-js as dependency
-            '1.1.2', // Updated version for cache busting
+            '1.1.3', // Updated version for cache busting
             true
         );
         
@@ -2329,7 +2368,7 @@ function hide_auto_filled_address_fields($fields) {
 
 // Moneris Test Mode Control - Change this to switch between test and production
 function is_moneris_test_mode() {
-    return true; // Set to true for test mode, false for live transactions
+    return false; // Set to true for test mode, false for live transactions
 }
 
 // Moneris Account Configuration
@@ -3231,7 +3270,7 @@ foreach ($upfront_summary as $key => $value) {
     }
     
     // Insert total-deposits
-    if ($total_deposits > 0) {
+    if ($total_deposits >= 0) {
         $reordered_upfront = array();
         foreach ($upfront_summary as $key => $value) {
             $reordered_upfront[$key] = $value;
@@ -4612,7 +4651,7 @@ add_action('woocommerce_checkout_create_order_line_item', 'save_modem_details_to
 function modem_selection_scripts() {
     // Load on product pages and custom checkout pages
     if (is_product() || is_page(array('checkout', 'internet-plans'))) { // Add your custom page slugs here
-        wp_enqueue_script('card-selection', get_stylesheet_directory_uri() . '/js/card-selection.js', array('jquery'), '1.2', true);
+        wp_enqueue_script('card-selection', get_stylesheet_directory_uri() . '/js/card-selection.js', array('jquery'), '1.3', true);
         
         // Pass AJAX URL and nonce to JavaScript
         wp_localize_script('card-selection', 'modem_selection_vars', array(
@@ -4626,7 +4665,7 @@ add_action('wp_enqueue_scripts', 'modem_selection_scripts');
 function enqueue_product_selection_scripts() {
     // Load on all product pages
     if (is_product()) {
-        wp_enqueue_script('product-selection-nav', get_stylesheet_directory_uri() . '/js/product-selection-navigation.js', array('jquery'), '1.5', true);
+        wp_enqueue_script('product-selection-nav', get_stylesheet_directory_uri() . '/js/product-selection-navigation.js', array('jquery'), '1.6', true);
         
         // Pass any PHP variables the script needs
         wp_localize_script('product-selection-nav', 'product_selection_vars', array(
@@ -5687,7 +5726,7 @@ function edit_order_popup_shortcode() {
         $internet_plan_warning = '';
         
         if (in_array($internet_plan_category_id, $item['product_cats'])) {
-            $edit_url = 'https://staging.diallog.com/residential/internet/';
+            $edit_url = 'https://diallog.com/residential/internet/';
             $edit_button = '<a href="' . esc_url($edit_url) . '" class="edit-product-btn btn-primary">Edit</a>';
             
             $internet_plan_warning = '<br><div class="internet-plan-warning" style="display: flex; align-items: center; margin-top: 5px; color: #e74c3c; font-size: 12px;">' .
@@ -5697,7 +5736,7 @@ function edit_order_popup_shortcode() {
         }
         elseif ($item['is_installation']) {
             if (!empty($internet_plan_slug)) {
-                $edit_url = 'https://staging.diallog.com/product/' . $internet_plan_slug . '/#screen1';
+                $edit_url = 'https://diallog.com/product/' . $internet_plan_slug . '/#screen1';
                 $edit_button = '<a href="' . esc_url($edit_url) . '" class="edit-product-btn btn-primary">Edit</a>';
             } else {
                 $edit_button = '<span class="edit-product-btn btn-disabled">Edit</span>';
@@ -5705,11 +5744,11 @@ function edit_order_popup_shortcode() {
         }
         elseif (!empty($internet_plan_slug) && isset($category_slides[$item['category_slug']])) {
             $slide_anchor = $category_slides[$item['category_slug']];
-            $edit_url = 'https://staging.diallog.com/product/' . $internet_plan_slug . '/#' . $slide_anchor;
+            $edit_url = 'https://diallog.com/product/' . $internet_plan_slug . '/#' . $slide_anchor;
             $edit_button = '<a href="' . esc_url($edit_url) . '" class="edit-product-btn btn-primary">Edit</a>';
         }
         elseif (!empty($internet_plan_slug)) {
-            $edit_url = 'https://staging.diallog.com/product/' . $internet_plan_slug . '/';
+            $edit_url = 'https://diallog.com/product/' . $internet_plan_slug . '/';
             $edit_button = '<a href="' . esc_url($edit_url) . '" class="edit-product-btn btn-primary">Edit</a>';
         }
         else {
@@ -6817,7 +6856,7 @@ function get_upfront_fee_summary() {
    }
 
     // Add deposits to summary if any exist
-    if ($total_deposits > 0) {
+    if ($total_deposits >= 0) {
         $summary['deposit'][0] = 'Deposits';
         $summary['deposit'][1] = $total_deposits;
     }
